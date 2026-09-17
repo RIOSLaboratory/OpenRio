@@ -1,18 +1,12 @@
 # OpenRio
 
+OpenRio is an open‑source complete dual‑issue RISC‑V processor core.
+The full‑system architecture comprises three major components: instruction frontend (FE), out‑of‑order execution backend (BE), and cache subsystems.
 
+Its backend implements out‑of‑order execution centered around a completion scoreboard.
+The project targets full support for RISC‑V I, M, A, F, D and C extensions, where the C (compressed‑instruction) extension will be decoded and handled within the frontend unit.
 
-
-
-
-
-
-
-
-
-
-
-
+The overall core’s performance design goal is comparable to the ARM Cortex‑A53.
 
 ## About RIOS Lab
 
