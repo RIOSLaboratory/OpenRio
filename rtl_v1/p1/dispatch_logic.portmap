@@ -1,0 +1,21 @@
+# dispatch_logic --- 文档 ⑥ 字段名 -> RTL 端口名
+#
+# 格式（每行）：doc_signal -> rtl_port
+
+# --------------------------------------------------------------------------
+# 1. full_decode 的两个字段
+#
+# ⑥ 写作 `full_decode.illegal[0/1]`(1×2) 与 `full_decode.rm[0/1]`(3×2)——带点
+# 号的字段路径，不是合法 SV 标识符，无法逐字照抄成端口名。两者同属 集成层.md
+# §2.2 冻结的 full_decode[16:0]，由 IB 一起送来（§1.1 的那一行也是一起写的），
+# 拆成两根裸线反而会让端口名 `illegal` / `rm` 在模块边界上失去归属。
+# 所以用一个 full_decode_t 的 unpacked[ISSUE_WIDTH] 端口承载，doc 侧的名字在
+# RTL 里读作 full_decode[s].illegal / full_decode[s].rm，与 ⑥ 逐字同形。
+illegal -> full_decode
+rm -> full_decode
+
+# --------------------------------------------------------------------------
+# 其余端口与 ⑥ 逐字同名，无需映射。⑥ 里带 [0/1] / [s] 的一律是
+# unpacked[ISSUE_WIDTH]，带 [G0..G3] / [g] 的一律是 unpacked[NUM_LANES]
+# （四个 ISQ_Group 与四条完成 lane 同一重数，见 集成层.md §1.2），
+# `select_payload[G0..G3][0/1]` 是两维 unpacked[NUM_LANES][ISSUE_WIDTH]。

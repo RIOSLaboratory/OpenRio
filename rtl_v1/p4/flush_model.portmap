@@ -1,0 +1,5 @@
+valid -> trap_state_write
+kind -> trap_state_write
+epc -> trap_state_write
+cause -> trap_state_write
+tval -> trap_state_write

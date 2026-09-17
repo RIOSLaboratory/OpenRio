@@ -1,0 +1,19 @@
+# system_instruction_handler --- 文档 ⑥ 字段名 -> RTL 端口名
+#
+# 一个端口承载文档 ⑥ 里多个字段（结构体端口），或端口名与 ⑥ 的写法不同时，
+# 在此登记。格式（每行）：doc_signal -> rtl_port
+
+# trap_state_write（announce ×1）
+#   or_be_types_pkg 的 trap_state_write_t 做单端口，五个字段全登记在此。
+epc -> trap_state_write
+cause -> trap_state_write
+tval -> trap_state_write
+kind -> trap_state_write
+valid -> trap_state_write
+
+# 其余全部是独立端口，与文档 ⑥ 逐字同名，无需映射：
+#   capture 侧 sideband 四样带 sb_ 前缀（sb_csr_addr / sb_csr_wdata /
+#   sb_is_csr / sb_csr_write_enable），与软件读口的 csr_addr 天然区分开；
+#   trap_vector 的两个入参是 trap_cause_in / trap_is_interrupt_in，
+#   与 trap_state_write.cause 不再重名；
+#   软件读口输出就叫 csr_rdata；mip 三根电平是 mip_meip / mip_mtip / mip_msip。

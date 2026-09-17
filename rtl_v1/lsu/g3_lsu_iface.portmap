@@ -1,0 +1,13 @@
+# g3_lsu_iface -- 文档字段 -> RTL 端口
+#
+# ⑥ 的 LSU 侧三条结果通道是「具名类型 + 字段」写法：载荷是冻结包里的
+# lsu_be_done_pld_t / lsu_be_exception_pld_t，一个结构体端口承载 ⑥ 列出的
+# 多个字段。其余端口名与 ⑥ 逐字相同，不在此登记。
+#
+#   lsu_be_done_pld_t       tag(4) / data(64)
+#   lsu_be_exception_pld_t  tag(4) / cause(5) / tval(64)
+#   lsu_be_bypass_pld       与 done 同型（⑥），字段同 tag / data
+tag   -> lsu_be_done_pld
+data  -> lsu_be_done_pld
+cause -> lsu_be_exception_pld
+tval  -> lsu_be_exception_pld

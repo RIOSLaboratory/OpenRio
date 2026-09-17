@@ -1,0 +1,16 @@
+# ISQ_Group0 -- doc_signal -> rtl_port
+#
+# 只登记两处「⑥ 的写法与 RTL 端口名对不上」的地方。⑥ 里逐字对得上的信号
+# 一律不登记：登记过去的信号门禁会跳过位宽核对，identity 映射只会把门禁削弱。
+#
+# 1) dispatch 的载荷是一个 isq_payload_t 结构体端口 `payload_in`（⑥ 逐字），
+#    ⑤ 列出的 header 字段在 RTL 里没有各自的输入端口。
+#    ⑤ 的 payload 字段（rs1_data / imm_valid / pc / inst_bits / ...）另有
+#    同名的 issue **输出**端口，与 ⑥ 逐字一致，故意不登记到 payload_in。
+rs1_ready    -> payload_in
+rs2_ready    -> payload_in
+rs1_wait_tag -> payload_in
+rs2_wait_tag -> payload_in
+#
+# 2) issue 的 valid 线：⑥ 的 out-event 只列了载荷字段，没给这根线命名；
+#    ④#1 把它登记成 `issue_valid ← ③ 的 issue 判据`，端口按 ④ 取名。
