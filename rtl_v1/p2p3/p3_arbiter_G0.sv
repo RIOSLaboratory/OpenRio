@@ -71,7 +71,7 @@ module p3_arbiter_G0 (
     // out-event: writeback -- both layers driven together (doc ④#2).
     // Layer 1, completion_common: the shape all four lanes drive.
     // ------------------------------------------------------------------
-    output logic                     Result_valid,
+    output logic                     writeback_valid,
     output logic [TAG_W-1:0]         tag_out,
     output logic [XLEN-1:0]          result_data,
     output logic                     mispredict_flag,
@@ -87,6 +87,10 @@ module p3_arbiter_G0 (
 
     // Layer 2, csr_sideband -- lane 0 only.  Bypasses the SCB entirely and
     // goes straight to system_instruction_handler (集成层 §1.2).
+    // out-event: csr_sideband_publish -- 文档把 CSR 写意图的发布定义为本 module
+    // 自己的 Out-event（R3：动作归产生它的模块），不由消费者从 writeback
+    // 反推。valid 即 `writeback_valid ∧ winner_is_csr`。
+    output logic                     csr_sideband_publish_valid,
     output logic                     is_csr,
     output logic                     csr_write_enable,
     // 12 bit -- the same field as full_decode_t.csr_addr, whose width is
@@ -98,7 +102,7 @@ module p3_arbiter_G0 (
     // out-event: bypass_publish -- combinational broadcast, not a registered
     // bus and not a CAM.  The tag compare lives in the consumers.
     // ------------------------------------------------------------------
-    output logic                     bypass_valid,
+    output logic                     bypass_publish_valid,
     output logic [TAG_W-1:0]         bypass_tag,
     output logic [XLEN-1:0]          bypass_data,
 
@@ -165,7 +169,7 @@ module p3_arbiter_G0 (
     // (4)#2 writeback -- forward the winner's fields, all zero otherwise
     // (doc ④#2)
     //
-    //     Result_valid = winner_valid
+    //     writeback_valid = winner_valid
     //     tag_out      = winner_valid ? request[winner_idx].tag : 0
     //     其余 writeback 字段 = winner_valid ? 对应字段 : 0
     //
@@ -174,7 +178,7 @@ module p3_arbiter_G0 (
     // winner data path -- its result stays in FU-local hold state.
     // ------------------------------------------------------------------
     always_comb begin
-        Result_valid         = winner_valid;
+        writeback_valid         = winner_valid;
 
         tag_out              = '0;
         result_data          = '0;
@@ -188,6 +192,7 @@ module p3_arbiter_G0 (
         fpu_fflags           = '0;
 
         is_csr               = '0;
+
         csr_write_enable     = '0;
         csr_addr             = '0;
         csr_wdata            = '0;
@@ -213,17 +218,23 @@ module p3_arbiter_G0 (
         end
     end
 
+    // out-event: csr_sideband_publish 的 valid。文档把 CSR 写意图的发布定为
+    // 本 module 的 Out-event（R3），消费者不再从 writeback_valid 与 is_csr 反推。
+    always_comb begin
+        csr_sideband_publish_valid = writeback_valid && is_csr;
+    end
+
 
     // ------------------------------------------------------------------
     // (4)#1/#2 bypass_publish (doc ④#1, ④#2)
     //
-    //     bypass_valid = winner_valid & !request[winner_idx].exception_flag
+    //     bypass_publish_valid = winner_valid & !request[winner_idx].exception_flag
     //     bypass_tag   = winner_valid ? request[winner_idx].tag         : 0
     //     bypass_data  = winner_valid ? request[winner_idx].result_data : 0
     //
     // tag_out / result_data are already exactly those two selects, so the
     // broadcast is literally the same wire -- and because exception_flag is
-    // itself zero when winner_valid is low, Result_valid & !exception_flag is
+    // itself zero when winner_valid is low, writeback_valid & !exception_flag is
     // the documented gate term for term.
     //
     // The !exception_flag gate is not optional: a faulting instruction's
@@ -232,7 +243,7 @@ module p3_arbiter_G0 (
     // tag.  There is deliberately no rd_write_enable qualifier and no
     // !global_flush_late qualifier (doc ④#1 states why for both).
     // ------------------------------------------------------------------
-    assign bypass_valid = Result_valid && !exception_flag;
+    assign bypass_publish_valid = writeback_valid && !exception_flag;
     assign bypass_tag   = tag_out;
     assign bypass_data  = result_data;
 

@@ -91,17 +91,16 @@ module decode (
     // ---------------------------------------------------------------------
     // in-event: broadcast -- the raw FE bus payload, per lane n in {0,1}
     // ---------------------------------------------------------------------
-    input  logic [31:0]            ib_inst32          [ISSUE_WIDTH],
-    input  logic [15:0]            ib_inst16          [ISSUE_WIDTH],
-    input  logic                   ib_is_compressed   [ISSUE_WIDTH],
+    // ⑥ In Static Info：`decode_payload[s]`，整条 ib_payload_t。
+    // RVC 展开是本模块的私有 submodule（decode.md ①），inst32 / rvc_illegal
+    // 由它在本模块内产生，不再从顶层接进来。
+    input  ib_payload_t            decode_payload     [ISSUE_WIDTH],
     // rvc_expand 判出的「这条压缩编码本身非法」。本模块不再自己展开，
     // 所以 ④#6 的 ill_rvc 只能从队头读回来。
-    input  logic                   ib_rvc_illegal     [ISSUE_WIDTH],
 
     // ④#7: the front end could not fetch this PC.  `ib_inst32` / `ib_inst16`
     // are then meaningless -- there is no encoding, so nothing downstream may
     // decode it, route it or read a source from it.
-    input  logic                   ib_fetch_excp_vld  [ISSUE_WIDTH],
 
     // ---------------------------------------------------------------------
     // out: combinational reads
@@ -131,8 +130,45 @@ module decode (
     // 多挡掉的只有「opcode 像 FP 但马上要 trap」的指令（取指故障 / 非法编码 /
     // ENABLE_FD=0），它后面那条本来就会被 flush，代价为零。
     // **注意 `FS == Off` 不在此列**：那是派遣期才知道的，两个谓词在那里一致。
-    output logic                   dec_is_fp_opcode   [ISSUE_WIDTH]
+    output logic                   dec_is_fp_opcode   [ISSUE_WIDTH],
+
+    // ⑥ Out Static Info：`decode_index[s]`（decode_index_t 展平）。
+    // 纯切片，**不受译码非法门控**，寄存器读不必等译码结果（decode.md ⑥#2）。
+    output logic [REG_ADDR_W-1:0]  rs1_idx            [ISSUE_WIDTH],
+    output logic [REG_ADDR_W-1:0]  rs2_idx            [ISSUE_WIDTH],
+    output logic [REG_ADDR_W-1:0]  rs3_idx            [ISSUE_WIDTH],
+    output logic [REG_ADDR_W-1:0]  rd_idx             [ISSUE_WIDTH]
 );
+
+    // ---- ① 私有 submodule：rvc_expand ------------------------------
+    logic [31:0] ib_inst32       [ISSUE_WIDTH];
+    logic        ib_rvc_illegal  [ISSUE_WIDTH];
+    logic [31:0] dp_inst_bits    [ISSUE_WIDTH];
+    logic        dp_is_compressed[ISSUE_WIDTH];
+
+    always_comb begin
+        for (int unsigned s = 0; s < ISSUE_WIDTH; s++) begin
+            dp_inst_bits[s]     = decode_payload[s].inst_bits;
+            dp_is_compressed[s] = decode_payload[s].is_compressed;
+        end
+    end
+
+    rvc_expand u_rvc_expand (
+        .ib_inst_bits     (dp_inst_bits),
+        .ib_is_compressed (dp_is_compressed),
+        .inst32           (ib_inst32),
+        .rvc_illegal      (ib_rvc_illegal)
+    );
+
+    // ---- ⑥ decode_index：inst32 的固定切片 -------------------------
+    always_comb begin
+        for (int unsigned s = 0; s < ISSUE_WIDTH; s++) begin
+            rs1_idx[s] = ib_inst32[s][19:15];
+            rs2_idx[s] = ib_inst32[s][24:20];
+            rs3_idx[s] = ib_inst32[s][31:27];
+            rd_idx [s] = ib_inst32[s][11:7];
+        end
+    end
 
     // ---------------------------------------------------------------------
     // Local encoding constants that the frozen package does not name.
@@ -329,7 +365,7 @@ module decode (
             logic [15:0] inst16;
 
             assign inst32 = ib_inst32[n];
-            assign inst16 = ib_inst16[n];
+            assign inst16 = decode_payload[n].inst_bits[15:0];
 
             // -------------------------------------------------------------
             // ④#1 step 2 -- fixed slices of inst32.
@@ -453,7 +489,7 @@ module decode (
                 endcase
 
                 // (c) assemble.  RVC keeps the *original* op / funct3.
-                if (ib_is_compressed[n]) begin
+                if (decode_payload[n].is_compressed) begin
                     subop_raw = {SUBOP_FMT_RVC, 5'b0, inst16[1:0], inst16[15:13],
                                  rvc_alias_tag(inst16)};
                 end else begin
@@ -735,7 +771,7 @@ module decode (
             // 2. extension not built (or_be_config_pkg, 集成层 §2.4 -- never a
             //    module parameter).  OPCODE_AMO covers LR / SC / AMO alike.
             assign ill_ext_a       = !ENABLE_A  && (opcode == OPCODE_AMO);
-            assign ill_ext_c       = !ENABLE_C  && ib_is_compressed[n];
+            assign ill_ext_c       = !ENABLE_C  && decode_payload[n].is_compressed;
             assign ill_ext_fd      = !ENABLE_FD && is_fp_opcode;
             // 3. the recode landed outside every supported class
             assign ill_unsupported = !subop_supported(subop_raw);
@@ -745,7 +781,7 @@ module decode (
             //    path (④#6).
             assign ill_rm          = d_uses_rm && rm_is_reserved(rm_e'(funct3));
 
-            assign d_no_encoding = d_illegal || ib_fetch_excp_vld[n];
+            assign d_no_encoding = d_illegal || decode_payload[n].fetch_excp_vld;
 
             assign d_illegal = ill_rvc || ill_ext_a || ill_ext_c || ill_ext_fd
                             || ill_unsupported || ill_rm;

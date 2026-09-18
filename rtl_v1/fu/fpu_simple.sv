@@ -95,7 +95,7 @@ module fpu_simple (
     output logic                        FU_ready,
 
     // out-event: completion -> lane 2 (接入契约 §4, completion_common shape)
-    output logic                        Result_valid,
+    output logic                        writeback_valid,
     output logic [TAG_W-1:0]            tag_out,
     output logic [XLEN-1:0]             result_data,
     output logic                        mispredict_flag,
@@ -107,10 +107,10 @@ module fpu_simple (
     output logic                        is_sret,
     output logic [FFLAGS_W-1:0]         fpu_fflags,
 
-    // bypass_publish —— 集成层 §1.2「lane 驱动方 → bypass_valid[b]/tag/data，
+    // bypass_publish —— 集成层 §1.2「lane 驱动方 → bypass_publish_valid[b]/tag/data，
     // 4 lane 四组全收」。G2 无仲裁器，所以由本模块自己驱动 lane 2 的这三根，
-    // 与 g3_lsu_iface 对 lane 3 的做法一致。
-    output logic                        bypass_valid,
+    // 与 lsu_bridge 对 lane 3 的做法一致。
+    output logic                        bypass_publish_valid,
     output logic [TAG_W-1:0]            bypass_tag,
     output logic [XLEN-1:0]             bypass_data
 );
@@ -1897,14 +1897,14 @@ module fpu_simple (
     // §4: lane 2 is driven directly -- G2 has no arbiter, so the ports carry
     // the bare completion_common names, matching CompletionScoreboard's frozen
     // writeback inputs verbatim.  No req_ prefix: that belongs to G0/G1.
-    assign Result_valid         = wb_payload.result_valid;
+    assign writeback_valid         = wb_payload.result_valid;
     assign tag_out              = wb_payload.tag_out;
     assign result_data          = wb_payload.result_data;
 
-    // 两个仲裁器的公式是 bypass_valid = winner_valid && !exception_flag。
+    // 两个仲裁器的公式是 bypass_publish_valid = winner_valid && !exception_flag。
     // G2 的 exception_flag 恒 0（FU接入契约 §4.1），该式在 lane 2 上退化成
-    // Result_valid。tag/data 与 lane-2 completion 同源同拍。
-    assign bypass_valid         = wb_payload.result_valid;
+    // writeback_valid。tag/data 与 lane-2 completion 同源同拍。
+    assign bypass_publish_valid         = wb_payload.result_valid;
     assign bypass_tag           = wb_payload.tag_out;
     assign bypass_data          = wb_payload.result_data;
     assign mispredict_flag      = wb_payload.mispredict_flag;

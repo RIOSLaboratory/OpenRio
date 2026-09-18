@@ -32,11 +32,11 @@ module ISQ_Group1 (
 
     // in-event: dispatch (Transaction, 单向选通, 1 写口)
     // ready 侧就是下面的 `isq_free_for_dispatch`，已被上游吸收。
-    input  logic                    wr_en,
+    input  logic                    dispatch_valid,
     input  isq_payload_t            payload_in,
 
     // in-event: bypass_capture (announce, 4 lane 全监听——bypass 是全局广播)
-    input  logic                    bypass_valid [NUM_LANES],
+    input  logic                    bypass_publish_valid [NUM_LANES],
     input  logic [TAG_W-1:0]        bypass_tag   [NUM_LANES],
     input  logic [XLEN-1:0]         bypass_data  [NUM_LANES],
 
@@ -51,7 +51,6 @@ module ISQ_Group1 (
     output logic [XLEN-1:0]         rs1_data,
     output logic [XLEN-1:0]         rs2_data,
     output logic [FU_GROUP_W-1:0]   FU_Group,
-    output logic                    imm_valid,
     output logic [XLEN-1:0]         imm_data,
     output logic [TAG_W-1:0]        self_tag,
     output logic [EXE_SUBOP_W-1:0]  exe_subop,
@@ -83,7 +82,6 @@ module ISQ_Group1 (
 
     logic [XLEN-1:0]         ent_rs1_data;       // payload
     logic [XLEN-1:0]         ent_rs2_data;
-    logic                    ent_imm_valid;
     logic [XLEN-1:0]         ent_imm_data;
     logic [TAG_W-1:0]        ent_self_tag;
     logic [EXE_SUBOP_W-1:0]  ent_exe_subop;
@@ -92,7 +90,7 @@ module ISQ_Group1 (
     // (3) fast_ready_rsX
     //
     //     fast_ready_rsX = !rsX_ready ∧ OR over b∈{0..3}
-    //                      (bypass_valid[b] ∧ rsX_wait_tag == bypass_tag[b])
+    //                      (bypass_publish_valid[b] ∧ rsX_wait_tag == bypass_tag[b])
     //
     // 四条 lane 全比。多条 lane 同拍命中同一 tag 时哪条赢，与本判据无关——
     // 它只要「有没有命中」；取哪条的 data 由 `FU_input_mux` 按集成层 §2.5(3)
@@ -107,10 +105,10 @@ module ISQ_Group1 (
         bypass_hit_rs1 = 1'b0;
         bypass_hit_rs2 = 1'b0;
         for (int unsigned b = 0; b < NUM_LANES; b++) begin
-            if (bypass_valid[b] && (ent_rs1_wait_tag == bypass_tag[b])) begin
+            if (bypass_publish_valid[b] && (ent_rs1_wait_tag == bypass_tag[b])) begin
                 bypass_hit_rs1 = 1'b1;
             end
-            if (bypass_valid[b] && (ent_rs2_wait_tag == bypass_tag[b])) begin
+            if (bypass_publish_valid[b] && (ent_rs2_wait_tag == bypass_tag[b])) begin
                 bypass_hit_rs2 = 1'b1;
             end
         end
@@ -198,7 +196,7 @@ module ISQ_Group1 (
     FU_input_mux u_fu_input_mux_rs1 (
         .entry_rsX_data (ent_rs1_data),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (ent_rs1_wait_tag),
         .rsX_ready      (ent_rs1_ready),
@@ -208,7 +206,7 @@ module ISQ_Group1 (
     FU_input_mux u_fu_input_mux_rs2 (
         .entry_rsX_data (ent_rs2_data),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (ent_rs2_wait_tag),
         .rsX_ready      (ent_rs2_ready),
@@ -225,7 +223,6 @@ module ISQ_Group1 (
     assign rs1_data  = fu_rs1_data;
     assign rs2_data  = fu_rs2_data;
     assign FU_Group  = ent_fu_group;
-    assign imm_valid = ent_imm_valid;
     assign imm_data  = ent_imm_data;
     assign self_tag  = ent_self_tag;
     assign exe_subop = ent_exe_subop;
@@ -254,14 +251,13 @@ module ISQ_Group1 (
             ent_fu_group     <= FU_GROUP_ALU1;
             ent_rs1_data     <= '0;
             ent_rs2_data     <= '0;
-            ent_imm_valid    <= 1'b0;
             ent_imm_data     <= '0;
             ent_self_tag     <= '0;
             ent_exe_subop    <= '0;
         end else if (global_flush_late) begin
             // ③ flush 优先级最高，无载荷：只清 state，payload 留着不看。
             isq_valid        <= 1'b0;
-        end else if (wr_en) begin
+        end else if (dispatch_valid) begin
             // ④「dispatch 输入端口 → entry」：只捕获 ⑤ 列出的字段，其余丢弃。
             isq_valid        <= 1'b1;
             ent_rs1_ready    <= payload_in.rs1_ready;
@@ -271,7 +267,6 @@ module ISQ_Group1 (
             ent_fu_group     <= payload_in.fu_group;
             ent_rs1_data     <= payload_in.rs1_data;
             ent_rs2_data     <= payload_in.rs2_data;
-            ent_imm_valid    <= payload_in.imm_valid;
             ent_imm_data     <= payload_in.imm_data;
             ent_self_tag     <= payload_in.self_tag;
             ent_exe_subop    <= payload_in.exe_subop;

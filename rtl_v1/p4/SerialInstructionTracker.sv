@@ -15,7 +15,7 @@ import or_be_types_pkg::*;
 // (2) state transition         : IDLE -> INFLIGHT on serial_set;
 //                                INFLIGHT -> IDLE on clear/commit (the tag
 //                                comparison is its own proof) or on flush
-// (3) condition                : set   = serial_set, which dispatch_logic
+// (3) condition                : set   = serial_set_valid, which dispatch_logic
 //                                        already folded accept[0] & serial0 and
 //                                        the ready = !serial_inflight_valid
 //                                        guard into (slot0 only)
@@ -23,7 +23,7 @@ import or_be_types_pkg::*;
 //                                        & commit_tag[k] == serial_inflight_tag
 //                                flush = global_flush_late
 // (4) data path                : the serial_set port drives serial_inflight_tag
-//                                from self_tag[0]; clear and flush write only
+//                                from serial_set_tag[0]; clear and flush write only
 //                                valid <= 0 and carry a zero-width payload, so
 //                                they are not value-carrying edges
 // (5) data structure           : state  serial_inflight_valid
@@ -46,8 +46,8 @@ module SerialInstructionTracker (
 
     // in-event: serial_set (transaction x1; ready = !serial_inflight_valid is
     // absorbed upstream by the dispatch_logic slot0 guard)
-    input  logic             serial_set,
-    input  logic [TAG_W-1:0] self_tag,
+    input  logic             serial_set_valid,
+    input  logic [TAG_W-1:0] serial_set_tag,
 
     // in-event: commit (announce, 2 lanes).  No separate trigger line -- a lane
     // being valid and matching the tracked tag is itself the clear.
@@ -88,7 +88,7 @@ module SerialInstructionTracker (
     end
 
     // ------------------------------------------------------------------
-    // (2) IDLE <-> INFLIGHT, plus (4)#1 self_tag[0] -> serial_inflight_tag
+    // (2) IDLE <-> INFLIGHT, plus (4)#1 serial_set_tag[0] -> serial_inflight_tag
     // ------------------------------------------------------------------
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -96,9 +96,9 @@ module SerialInstructionTracker (
             serial_inflight_tag   <= '0;
         end else if (global_flush_late) begin
             serial_inflight_valid <= 1'b0;
-        end else if (serial_set) begin
+        end else if (serial_set_valid) begin
             serial_inflight_valid <= 1'b1;
-            serial_inflight_tag   <= self_tag;
+            serial_inflight_tag   <= serial_set_tag;
         end else if (serial_inflight_valid && commit_hit) begin
             serial_inflight_valid <= 1'b0;
         end

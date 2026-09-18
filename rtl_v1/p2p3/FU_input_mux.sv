@@ -40,9 +40,9 @@ module FU_input_mux (
     // in-event: broadcast -- `bypass_data[b]`(64x4), the other candidate: this
     // cycle's p3 bypass lanes, forwarded past the entry.
     input  logic [XLEN-1:0] bypass_data  [NUM_LANES],
-    // in-event: broadcast -- `bypass_valid[b]`(1x4), `bypass_tag[b]`(4x4) and
+    // in-event: broadcast -- `bypass_publish_valid[b]`(1x4), `bypass_tag[b]`(4x4) and
     // `rsX_wait_tag`(4) feed the hit[b] compare and are not retained.
-    input  logic            bypass_valid [NUM_LANES],
+    input  logic            bypass_publish_valid [NUM_LANES],
     input  logic [TAG_W-1:0] bypass_tag  [NUM_LANES],
     input  logic [TAG_W-1:0] rsX_wait_tag,
     // in-event: select -- `rsX_ready`(1), entry data or a bypass lane.
@@ -56,7 +56,7 @@ module FU_input_mux (
     // ------------------------------------------------------------------
     // (4)#1 lane hit
     //
-    //     hit[b] = bypass_valid[b] & (rsX_wait_tag == bypass_tag[b])
+    //     hit[b] = bypass_publish_valid[b] & (rsX_wait_tag == bypass_tag[b])
     //                                                    b in {0..3}
     //
     // At most one bit of hit is set, and this module does not create that
@@ -68,7 +68,7 @@ module FU_input_mux (
 
     always_comb begin
         for (int b = 0; b < NUM_LANES; b++) begin
-            hit[b] = bypass_valid[b] && (rsX_wait_tag == bypass_tag[b]);
+            hit[b] = bypass_publish_valid[b] && (rsX_wait_tag == bypass_tag[b]);
         end
     end
 

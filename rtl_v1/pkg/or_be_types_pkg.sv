@@ -140,6 +140,27 @@ package or_be_types_pkg;
     // value in flight is 2'b11.
     localparam int PRIV_W = 2;
 
+    // isa_pkg_v3.md · priv_e —— 由 registry 生成（rtl-generation_v3.md §2.1）。
+    typedef enum logic [PRIV_W-1:0] {
+        PRIV_U = 2'b00,
+        PRIV_S = 2'b01,
+        PRIV_M = 2'b11
+    } priv_e;
+
+    // isa_pkg_v3.md · exception_cause_e —— 同步异常的 cause 编号，不带中断标志位。
+    typedef enum logic [EXCP_CAUSE_W-1:0] {
+        EXCP_INSTR_ACCESS_FAULT       = EXCP_CAUSE_W'(1),
+        EXCP_ILLEGAL_INSTRUCTION      = EXCP_CAUSE_W'(2),
+        EXCP_BREAKPOINT               = EXCP_CAUSE_W'(3),
+        EXCP_LOAD_ADDR_MISALIGNED     = EXCP_CAUSE_W'(4),
+        EXCP_LOAD_ACCESS_FAULT        = EXCP_CAUSE_W'(5),
+        EXCP_STORE_AMO_ADDR_MISALIGNED = EXCP_CAUSE_W'(6),
+        EXCP_STORE_AMO_ACCESS_FAULT   = EXCP_CAUSE_W'(7),
+        EXCP_ECALL_FROM_U             = EXCP_CAUSE_W'(8),
+        EXCP_ECALL_FROM_S             = EXCP_CAUSE_W'(9),
+        EXCP_ECALL_FROM_M             = EXCP_CAUSE_W'(11)
+    } exception_cause_e;
+
     // XLEN and the LSU data width are separate concepts that happen to agree.
     // If they ever diverge the payload assembly below is wrong, so pin it.
     localparam bit XLEN_MATCHES_LSU_DATA_W = (XLEN == LSU_DATA_W);
@@ -334,29 +355,6 @@ package or_be_types_pkg;
         logic                       is_sret;
         logic [FFLAGS_W-1:0]        fpu_fflags;
     } completion_common_t;
-
-    // Result broadcast on the 4-lane CDB.
-    typedef struct packed {
-        logic     bypass_valid;
-        rob_tag_t bypass_tag;
-        xlen_t    bypass_data;
-    } bypass_lane_t;
-
-    // ---------------------------------------------------------------------
-    // SCB alloc batch -- written once at alloc, never overwritten by P3
-    // (CompletionScoreboard ⑤ header)
-    // ---------------------------------------------------------------------
-    // `st_br_resolve` is NOT part of this batch: the SCB computes it itself at
-    // alloc from the safe-prefix scan, and no module drives it in.
-    typedef struct packed {
-        reg_addr_t rd_idx;
-        logic      rd_is_fp;
-        logic      rd_write_enable;
-        logic      is_store;        // plain store only; AMO/SC are 0 here
-        logic      is_fence_i;
-        logic      may_flush;
-        logic      is_atomic;       // LR / SC / AMO, from is_g3_atomic_subop()
-    } scb_alloc_batch_t;
 
     // ---------------------------------------------------------------------
     // Commit bus -- lane 0 is always head0, lane 1 always head1, no compaction

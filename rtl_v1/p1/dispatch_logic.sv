@@ -16,8 +16,8 @@ import exe_subop_pkg::*;
 //                                   dynamic illegal check, the effective_rm
 //                                   snapshot and the two-step ISQ group
 //                                   choice; #2 the two admission guards;
-//                                   #3 select_payload; #4 ib_dequeue /
-//                                   isq_wr_en / serial_set
+//                                   #3 select_payload; #4 accept /
+//                                   isq_wr_en / serial_set_valid
 // (5) data structure           : none -- no per-entry storage
 //
 // No clock and no reset on purpose: ①②③ are all "none", so the module holds no
@@ -56,8 +56,9 @@ module dispatch_logic (
     // in-event: broadcast -- dependency_check's admission bits, all of them
     // consumed by the ④#2 guards
     // ------------------------------------------------------------------
-    input  logic                    slot0_present,
-    input  logic                    slot1_present,
+    // §1.1「IB -> dispatch_logic  inst_valid[s]」：直接收 IB 的 slot 有效位，
+    // 不经 dependency_check 中转。
+    input  logic [ISSUE_WIDTH-1:0]  inst_valid,
     input  logic                    serial0,
     input  logic                    serial_inst,
     input  logic                    fp0,
@@ -104,7 +105,7 @@ module dispatch_logic (
 
     // ------------------------------------------------------------------
     // in-event: broadcast -- `self_tag[0]`(4) from dependency_check.  Slot 0
-    // only: serial_set is an accept[0] term, so slot 1's tag has no consumer
+    // only: serial_set_valid is an accept[0] term, so slot 1's tag has no consumer
     // here and there is no second wire to ignore.
     // ------------------------------------------------------------------
     input  logic [TAG_W-1:0]        self_tag,
@@ -116,11 +117,12 @@ module dispatch_logic (
     input  logic                    global_flush_late,
 
     // ------------------------------------------------------------------
-    // out-event: accept / ib_dequeue.  accept[1] implies accept[0], so the
-    // "10" combination is structurally impossible.
+    // out-event: accept.  accept[1] implies accept[0], so the
+    // "10" combination is structurally impossible.  原先另有一个同语义的
+    // `ib_dequeue` 端口，按 R3「一个动作只有一个 Out-event」已删除，
+    // IB 侧改由本端口驱动。
     // ------------------------------------------------------------------
     output logic                    accept                [ISSUE_WIDTH],
-    output logic                    ib_dequeue            [ISSUE_WIDTH],
 
     // ------------------------------------------------------------------
     // out-event: isq_wr_en, one per ISQ_Group
@@ -146,13 +148,13 @@ module dispatch_logic (
     output logic                    is_atomic             [ISSUE_WIDTH],
 
     // ------------------------------------------------------------------
-    // out-event: serial_set (trigger + the forwarded slot-0 tag).  ⑥ calls the
+    // out-event: serial_set_valid (trigger + the forwarded slot-0 tag).  ⑥ calls the
     // payload `self_tag[0]`(4) on both edges; the outgoing copy is renamed
     // serial_set_tag because an input and an output cannot share an
     // identifier.  It is forwarded unconditionally -- SerialInstructionTracker
-    // captures it under serial_set, so gating would only add a mux.
+    // captures it under serial_set_valid, so gating would only add a mux.
     // ------------------------------------------------------------------
-    output logic                    serial_set,
+    output logic                    serial_set_valid,
     output logic [TAG_W-1:0]        serial_set_tag,
 
     // ------------------------------------------------------------------
@@ -175,6 +177,9 @@ module dispatch_logic (
     // that one is the FU index inside a group and leaves the module as
     // slot_FU_Group.  They happen to be equal here and mean different things.
     // ------------------------------------------------------------------
+    localparam int SLOT0 = 0;
+    localparam int SLOT1 = 1;
+
     localparam int ISQ_GROUP_W = $clog2(NUM_LANES);
 
     localparam logic [ISQ_GROUP_W-1:0] GRP_G0 = ISQ_GROUP_W'(0);
@@ -394,7 +399,7 @@ module dispatch_logic (
                       && !slot_missed_wakeup[0]
                       && !global_flush_late;
 
-        slot0_fire_candidate = slot0_present && slot0_guard_ok;
+        slot0_fire_candidate = inst_valid[SLOT0] && slot0_guard_ok;
         accept[0]            = slot0_fire_candidate;
 
         // G0 is only taken if slot0 actually fires; a blocked slot0 does not
@@ -417,7 +422,7 @@ module dispatch_logic (
                       && !slot_missed_wakeup[1]
                       && !global_flush_late;
 
-        accept[1] = accept[0] && slot1_present && slot1_guard_ok;
+        accept[1] = accept[0] && inst_valid[SLOT1] && slot1_guard_ok;
     end
 
     // ------------------------------------------------------------------
@@ -436,18 +441,16 @@ module dispatch_logic (
     end
 
     // ------------------------------------------------------------------
-    // (4)#4 ib_dequeue / isq_wr_en / serial_set
+    // (4)#4 isq_wr_en / serial_set_valid
+    // `accept` 在上面的 always_comb 中已赋值；原先此处另有一个同语义的
+    // `ib_dequeue[s] = accept[s]` 转发，按 R3 已随该端口一并删除。
     // ------------------------------------------------------------------
     always_comb begin
-        for (int unsigned s = 0; s < ISSUE_WIDTH; s++) begin
-            ib_dequeue[s] = accept[s];
-        end
-
         for (int unsigned g = 0; g < NUM_LANES; g++) begin
             isq_wr_en[g] = select_payload[g][0] || select_payload[g][1];
         end
 
-        serial_set     = accept[0] && serial0;
+        serial_set_valid     = accept[0] && serial0;
         serial_set_tag = self_tag;
     end
 

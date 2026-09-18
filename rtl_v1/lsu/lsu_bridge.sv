@@ -1,18 +1,26 @@
-`ifndef G3_LSU_IFACE_SV
-`define G3_LSU_IFACE_SV
+`ifndef LSU_BRIDGE_SV
+`define LSU_BRIDGE_SV
 
 /* verilator lint_off IMPORTSTAR */
 import or_be_lsu_protocol_pkg::*;
 import or_be_types_pkg::*;
 /* verilator lint_on IMPORTSTAR */
 
-// g3_lsu_iface -- the boundary bridge between ISQ_Group3 / CompletionScoreboard
+// lsu_bridge -- backend_top 的私有块（backend_top/lsu_bridge.md）。
+//
+// **它不是 LSU，也不是 LSU 的接口契约。** 对端 LSU 的契约写在
+// modules/lsu/g3_lsu_iface.md，那份文档描述的是边界另一侧。本模块是 BE 这一
+// 侧的桥：把 ISQ_Group3 / CompletionScoreboard 的发射与授权送出边界，把 LSU
+// 的回送整理成 lane 3 的 writeback 与 bypass，并持有边界上不可见的四组状态
+// （在飞跟踪、唤醒挂起、读写侧完成、bypass 数据暂存）。
+//
+// the boundary bridge between ISQ_Group3 / CompletionScoreboard
 // and the LSU proper (lsu微架构文档; the module name is the one 集成层 §2.3 and
 // ISQ_Group3微架构文档 ⑥ use, the document is filed under `lsu`).
 //
 // It does exactly the four things ①..⑥ list and nothing else:
 //
-//   1 assemble   ISQ_Group3's nine issue fields + req_property_from_subop() +
+//   1 assemble   ISQ_Group3 的发射字段原样装配（不分类、不算地址）+
 //                the SCB alloc-header st_br_resolve  ->  be_lsu_issue_pld_t
 //   2 fold       the LSU's class-qualified acceptance into one FU_ready (③#1)
 //   3 relay      the SCB's tagged store_wakeup as the LSU's untagged pulse (③#2)
@@ -28,10 +36,10 @@ import or_be_types_pkg::*;
 // of the same name, and ⑥ freezes the name, so they stay single input ports
 // here and the top level fans the same net out to lsu_if (that is what ⑥'s
 // 「直通」 means).  Likewise the SCB header read address is ⑥'s own
-// `self_tag`, i.e. the issue tag: the top level drives
+// `entry_self_tag`, i.e. the issue tag: the top level drives
 // CompletionScoreboard.st_br_resolve_tag from the same ISQ_Group3 output, and
 // only the selected bit comes back on `st_br_resolve`.
-module g3_lsu_iface (
+module lsu_bridge (
     input  logic                        clk,
     input  logic                        rst_n,
 
@@ -44,27 +52,22 @@ module g3_lsu_iface (
     // FU_ready」), so the transfer is issue_valid ∧ FU_ready.
     // ------------------------------------------------------------------
     input  logic                        issue_valid,
-    input  logic [TAG_W-1:0]            self_tag,
+    input  logic [TAG_W-1:0]            entry_self_tag,
     input  logic [EXE_SUBOP_W-1:0]      exe_subop,
     input  logic [MEM_FUNCT3_W-1:0]     mem_funct3,
     input  logic                        rd_is_fp,
     input  logic [XLEN-1:0]             rs1_data,
-    input  logic [XLEN-1:0]             rs2_data,
+    input  logic [XLEN-1:0]             store_data,
     input  logic                        imm_valid,
     // ⑥ writes this `signed 64`: decode already sign-extended it and ④#1
     // forbids re-truncating it here.  The producing port on ISQ_Group3 is
     // declared unsigned by its own ⑥; 集成层 §2.5(5b) allows the two ends of
     // one net to differ, the 64 bits are carried unchanged either way.
     input  logic signed [XLEN-1:0]      imm_data,
-    // plain-store compatibility bit as ISQ_Group3 carries it.  ④#1 defines the
-    // assembled field as「必须等于 req_property.is_store」, so the payload takes
-    // it from req_property (see the assembly below) and this port is kept as
-    // the ⑥ field it is, not used as the source.
-    input  logic                        is_store,
 
     // ------------------------------------------------------------------
     // in: combinational read -- the SCB alloc header addressed by the issue's
-    // self_tag (⑥ 组合读).  It is the alloc-cycle frozen snapshot; ④#1 forbids
+    // entry_self_tag (⑥ 组合读).  It is the alloc-cycle frozen snapshot; ④#1 forbids
     // overwriting it with the current store_wakeup_issued, which is why this
     // is a plain read of somebody else's header and not local state.
     // ------------------------------------------------------------------
@@ -95,16 +98,12 @@ module g3_lsu_iface (
     // by lsu_if.sv (⑥ 另注).
     // ------------------------------------------------------------------
     input  logic                        lsu_be_issue_ready,
-    input  logic                        lsu_be_done_valid,
-    input  lsu_be_done_pld_t            lsu_be_done_pld,
-    input  logic                        lsu_be_exception_valid,
-    input  lsu_be_exception_pld_t       lsu_be_exception_pld,
+    input  logic                        lsu_be_writeback_valid,
+    input  lsu_be_writeback_pld_t       lsu_be_writeback_pld,
     input  logic                        lsu_be_bypass_valid,
-    // Same type as done by ⑥ (the frozen package has no separate bypass
-    // payload); lsu_if.sv's p_bypass_payload_matches_done makes it equal to
-    // lsu_be_done_pld, so the merge below reads the done payload and uses this
-    // channel's VALID as the read-side qualifier.
-    input  lsu_be_done_pld_t            lsu_be_bypass_pld,
+    // 独立类型的复制线，必须与 writeback 的 done_valid 同拍；本模块用这条
+    // 通道的 VALID 作为读侧限定，数据取自 writeback 的 data。
+    input  lsu_be_bypass_pld_t          lsu_be_bypass_pld,
 
     // ------------------------------------------------------------------
     // out: FU_ready -> ISQ_Group3 (broadcast combinational level, ③#1)
@@ -119,7 +118,7 @@ module g3_lsu_iface (
     // zero -- ⑥ does not list it, but completion_common carries it and the
     // SCB's lane-3 input needs a driver, so it follows the same rule.
     // ------------------------------------------------------------------
-    output logic                        Result_valid,
+    output logic                        writeback_valid,
     output logic [TAG_W-1:0]            tag_out,
     output logic [XLEN-1:0]             result_data,
     output logic                        mispredict_flag,
@@ -135,7 +134,7 @@ module g3_lsu_iface (
     // out-event: bypass -> lane 3 of the 4-lane CDB (④#4).  Same cycle as the
     // completion, no ready, never repeated.
     // ------------------------------------------------------------------
-    output logic                        bypass_valid,
+    output logic                        bypass_publish_valid,
     output logic [TAG_W-1:0]            bypass_tag,
     output logic [XLEN-1:0]             bypass_data,
 
@@ -144,8 +143,8 @@ module g3_lsu_iface (
     // ------------------------------------------------------------------
     output logic                        be_lsu_issue_valid,
     output be_lsu_issue_pld_t           be_lsu_issue_pld,
-    output logic                        be_lsu_entry_ready,
-    output logic                        be_lsu_store_wakeup_valid
+    output logic                        be_lsu_store_wakeup_valid,
+    output logic [TAG_W-1:0]            be_lsu_store_wakeup_tag
 );
 
     // ------------------------------------------------------------------
@@ -184,52 +183,35 @@ module g3_lsu_iface (
     // the entry stable until the handshake, which is what lets ⑤ say「header:
     // 无」.
     //
-    //   req_property   = req_property_from_subop(exe_subop)   frozen package,
-    //                    never a local decode, and one-hot by construction
-    //   is_store       = ISQ 端口直通；④#1「兼容位必须等于 req_property.is_store」
-    //                    这条不变量由 lsu_if.sv 的 property 执法，不由本模块焊死；
-    //                    it instead of copying the port is what makes
-    //                    lsu_if.sv's p_issue_plain_store_matches_legacy_bit
-    //                    unfalsifiable, and it keeps the class the LSU acts on
-    //                    (req_property) and the compatibility bit from ever
-    //                    disagreeing on the wire
-    //   st_br_resolve  = the SCB header bit, forced to 0 for everything that is
-    //                    not a plain store (③#2「AMO / SC / LR / FENCE 的
-    //                    st_br_resolve 恒 0」, checked by lsu_if.sv's
-    //                    p_st_br_resolve_zero_for_non_plain_store)
+    // payload 只搬原料，不含任何 BE 侧判断：
     //
-    // Address arithmetic is deliberately absent: ④#1 leaves the AGU in the LSU
-    // and hands over base + already-sign-extended offset.
+    //   请求分类      不在此计算。LSU 自己对 exe_subop 调用
+    //                 req_property_from_subop()。
+    //   地址          不在此计算。AGU 在 LSU 内，本模块只交出 base 与已符号
+    //                 扩展的 offset（rs1_data / imm_valid / imm_data）。
+    //   st_br_resolve SCB 的同拍快照，原样送入；是否与本次请求相关由 LSU 判断。
     // ------------------------------------------------------------------
-    lsu_req_property_t req_property;
-    assign req_property = req_property_from_subop(lsu_exe_subop_t'(exe_subop));
 
     always_comb begin
         be_lsu_issue_pld               = '0;
-        be_lsu_issue_pld.self_tag      = self_tag;
-        be_lsu_issue_pld.req_property  = req_property;
+        be_lsu_issue_pld.tag           = entry_self_tag;
         be_lsu_issue_pld.exe_subop     = exe_subop;
         be_lsu_issue_pld.mem_funct3    = mem_funct3;
         be_lsu_issue_pld.rd_is_fp      = rd_is_fp;
         be_lsu_issue_pld.rs1_data      = rs1_data;
-        be_lsu_issue_pld.rs2_data      = rs2_data;
+        be_lsu_issue_pld.store_data    = store_data;
         be_lsu_issue_pld.imm_valid     = imm_valid;
         be_lsu_issue_pld.imm_data      = imm_data;
-        // **取 ISQ 端口的 is_store，不是 req_property.is_store。**
-        // 两者本是独立来源：is_store 出自 decode 的分类，req_property 出自
-        // req_property_from_subop(exe_subop)。lsu_if.sv 的
-        // p_issue_plain_store_matches_legacy_bit 存在的意义就是抓这两者不一致；
-        // 若在此强行相等，那条 property 恒真、变成空断言，decode 的分类错误
-        // 就再也没人能发现。④#1 的数据通路表也是这么写的。
-        be_lsu_issue_pld.is_store      = is_store;
-        be_lsu_issue_pld.st_br_resolve = st_br_resolve && req_property.is_store;
+        // 原样送入：本次请求是不是 store 由 LSU 自己判定，BE 不做分类，
+        // 因此也不做按类别的屏蔽。
+        be_lsu_issue_pld.st_br_resolve = st_br_resolve;
     end
 
     // ------------------------------------------------------------------
     // ③#1 issue handshake.  valid and ready are decoupled in both directions:
     //
     //   - the payload above is driven unconditionally, because
-    //     lsu_be_issue_ready is a FUNCTION of req_property and cannot be
+    //     lsu_be_issue_ready 是 LSU 对 exe_subop 自行分类后的函数，cannot be
     //     computed before the request is presented;
     //   - FU_ready never looks at issue_valid, so no loop closes through
     //     ISQ_Group3.
@@ -251,7 +233,7 @@ module g3_lsu_iface (
     logic bridge_has_room;
     logic issue_accept;
 
-    assign bridge_has_room    = !req_in_flight_q[self_tag];
+    assign bridge_has_room    = !req_in_flight_q[entry_self_tag];
     assign FU_ready           = bridge_has_room && lsu_be_issue_ready;
     assign be_lsu_issue_valid = issue_valid && bridge_has_room &&
                                 !global_flush_late;
@@ -259,7 +241,6 @@ module g3_lsu_iface (
 
     // ③#4 / ⑥: constant 1 except under reset and on the flush cycle.  It is an
     // acknowledge for the LSU's registered result channels, never backpressure.
-    assign be_lsu_entry_ready = rst_n && !global_flush_late;
 
     // ------------------------------------------------------------------
     // ③#2 store_wakeup: tagged -> untagged.
@@ -286,7 +267,7 @@ module g3_lsu_iface (
                                       !global_flush_late;
     assign wakeup_accept            = wakeup_in && !wakeup_pending_any;
     assign wakeup_consumed_at_issue = issue_accept &&
-                                      (self_tag == store_wakeup_tag);
+                                      (entry_self_tag == store_wakeup_tag);
 
     // **LSU 边界上的 wakeup 是无 tag 的**：LSU 只能把它套到自己最老的未授权
     // store 上。所以只有目标那条 store **已经（或同拍）发射到 LSU** 时才能
@@ -298,11 +279,15 @@ module g3_lsu_iface (
     // 之前留存的授权，在它那条 store 真正发射的那一拍补投。
     // 缺这一条就是：留存位被 issue_accept 清掉、授权却从未送到 LSU，
     // 那条 store 永远等不到授权。
-    assign wakeup_relay_held     = issue_accept && wakeup_held_q[self_tag];
+    assign wakeup_relay_held     = issue_accept && wakeup_held_q[entry_self_tag];
 
     assign wakeup_hold_set       = wakeup_accept && !wakeup_target_present;
 
     assign be_lsu_store_wakeup_valid = wakeup_relay_now || wakeup_relay_held;
+    // 就地转发用 SCB 给的 tag；挂起后在发射拍补发的那条，目标就是本拍
+    // 发射的 entry。
+    assign be_lsu_store_wakeup_tag   = wakeup_relay_held ? entry_self_tag
+                                                        : store_wakeup_tag;
 
 `ifndef SYNTHESIS
     // ------------------------------------------------------------------
@@ -329,7 +314,7 @@ module g3_lsu_iface (
     // 用 always 而非 always_ff：本块不含非阻塞赋值。
     always @(posedge clk or negedge rst_n) begin
         if (rst_n && wakeup_hold_set) begin
-            $error("[g3_lsu_iface] pre-issue store wakeup for tag %0d: SCB pulsed a tag that is neither in flight nor issuing this cycle. After the 2026-08-26 SCB change this should be unreachable.",
+            $error("[lsu_bridge] pre-issue store wakeup for tag %0d: SCB pulsed a tag that is neither in flight nor issuing this cycle. After the 2026-08-26 SCB change this should be unreachable.",
                    store_wakeup_tag);
             $stop;
         end
@@ -362,18 +347,20 @@ module g3_lsu_iface (
     logic             done_in;
     logic             exc_in;
     logic             read_side_result;
-    logic [TAG_W-1:0] done_tag;
-    logic [TAG_W-1:0] exc_tag;
+    logic [TAG_W-1:0] wb_tag;
     logic             terminal_in;
     logic [TAG_W-1:0] terminal_tag;
 
-    assign done_in          = lsu_be_done_valid      && !global_flush_late;
-    assign exc_in           = lsu_be_exception_valid && !global_flush_late;
-    assign read_side_result = lsu_be_bypass_valid    && !global_flush_late;
-    assign done_tag         = lsu_be_done_pld.tag;
-    assign exc_tag          = lsu_be_exception_pld.tag;
+    // 一次访存只回一条 writeback；done 与 exception 是 payload 内互斥的两个
+    // 子 valid，tag 两种情况下都有效，所以终态 tag 只有一个来源。
+    assign wb_tag           = lsu_be_writeback_pld.tag;
+    assign done_in          = lsu_be_writeback_valid &&
+                              lsu_be_writeback_pld.done_valid      && !global_flush_late;
+    assign exc_in           = lsu_be_writeback_valid &&
+                              lsu_be_writeback_pld.exception_valid && !global_flush_late;
+    assign read_side_result = lsu_be_bypass_valid                  && !global_flush_late;
     assign terminal_in      = done_in || exc_in;
-    assign terminal_tag     = exc_in ? exc_tag : done_tag;
+    assign terminal_tag     = wb_tag;
 
     // ②'s next-state bits for the tag this done names, i.e. the values ③#3's
     // table is evaluated on.
@@ -381,9 +368,9 @@ module g3_lsu_iface (
     logic store_done_next;
     logic req_sides_complete;
 
-    assign read_done_next     = read_done_q[done_tag]  ||
+    assign read_done_next     = read_done_q[wb_tag]  ||
                                 (done_in && read_side_result);
-    assign store_done_next    = store_done_q[done_tag] || done_in;
+    assign store_done_next    = store_done_q[wb_tag] || done_in;
     assign req_sides_complete = read_done_next || store_done_next;
 
     // ④#3 result_data ← read_side ? held_data : 0.  held_data[tag] is written
@@ -391,20 +378,20 @@ module g3_lsu_iface (
     // that write; the stored path is what carries the result if a read side
     // ever returns ahead of its write side.
     logic [XLEN-1:0] held_data_rd;
-    assign held_data_rd = (done_in && read_side_result) ? lsu_be_done_pld.data
-                                                        : held_data_q[done_tag];
+    assign held_data_rd = (done_in && read_side_result) ? lsu_be_writeback_pld.data
+                                                        : held_data_q[wb_tag];
 
     // ------------------------------------------------------------------
     // ④#3 lane-3 completion_common.
     // ------------------------------------------------------------------
-    assign Result_valid         = (done_in && req_sides_complete) || exc_in;
+    assign writeback_valid         = (done_in && req_sides_complete) || exc_in;
     assign tag_out              = terminal_tag;
     assign result_data          = read_side_result ? held_data_rd : {XLEN{1'b0}};
     assign exception_flag       = exc_in;
     assign exception_cause      = exc_in ?
-        {{(EXCP_CAUSE_W-LSU_CAUSE_W){1'b0}}, lsu_be_exception_pld.cause} :
+        lsu_be_writeback_pld.exception_cause :
         {EXCP_CAUSE_W{1'b0}};
-    assign exception_tval       = exc_in ? lsu_be_exception_pld.tval
+    assign exception_tval       = exc_in ? lsu_be_writeback_pld.exception_tval
                                          : {XLEN{1'b0}};
     assign mispredict_flag      = 1'b0;
     assign mispredict_target_pc = {XLEN{1'b0}};
@@ -416,8 +403,8 @@ module g3_lsu_iface (
     // ④#4 lane-3 CDB broadcast.  Same cycle as the completion, never on an
     // exception, never repeated.
     // ------------------------------------------------------------------
-    assign bypass_valid = Result_valid && read_side_result && !exception_flag;
-    assign bypass_tag   = done_tag;
+    assign bypass_publish_valid = writeback_valid && read_side_result && !exception_flag;
+    assign bypass_tag   = wb_tag;
     assign bypass_data  = held_data_rd;
 
     // ------------------------------------------------------------------
@@ -452,15 +439,15 @@ module g3_lsu_iface (
                 wakeup_held_q[store_wakeup_tag] <= 1'b1;
             end
             if (issue_accept) begin
-                wakeup_held_q[self_tag] <= 1'b0;
+                wakeup_held_q[entry_self_tag] <= 1'b0;
             end
 
             // read_done / store_done / held_data: written by lsu_done_in.
             if (done_in) begin
-                store_done_q[done_tag] <= 1'b1;
+                store_done_q[wb_tag] <= 1'b1;
                 if (read_side_result) begin
-                    read_done_q[done_tag] <= 1'b1;
-                    held_data_q[done_tag] <= lsu_be_done_pld.data;
+                    read_done_q[wb_tag] <= 1'b1;
+                    held_data_q[wb_tag] <= lsu_be_writeback_pld.data;
                 end
             end
 
@@ -471,11 +458,11 @@ module g3_lsu_iface (
                 req_in_flight_q[terminal_tag] <= 1'b0;
             end
             if (issue_accept) begin
-                req_in_flight_q[self_tag] <= 1'b1;
+                req_in_flight_q[entry_self_tag] <= 1'b1;
             end
         end
     end
 
 endmodule
 
-`endif // G3_LSU_IFACE_SV
+`endif // LSU_BRIDGE_SV

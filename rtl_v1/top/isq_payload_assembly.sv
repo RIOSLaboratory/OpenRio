@@ -73,7 +73,7 @@ module isq_payload_assembly (
     // ------------------------------------------------------------------
     // in-event: bypass_publish（announce, 4 lane）。四条 lane 由顶层从
     // p3_arbiter_G0/G1 与 G2/G3 的 completion 聚合而来。同样只取数据，
-    // bypass_valid / bypass_tag 不进本层。
+    // bypass_publish_valid / bypass_tag 不进本层。
     // ------------------------------------------------------------------
     input  logic [XLEN-1:0]          bypass_data     [NUM_LANES],
 

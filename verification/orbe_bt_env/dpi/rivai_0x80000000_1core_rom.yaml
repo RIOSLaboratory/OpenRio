@@ -1,0 +1,49 @@
+# Simulator platform config (narrow-YAML; full template).
+# Booleans: only true/false. Hex: 0x..  No leading-zero decimals.
+# Lists of mappings use the inline form: - { k: v, ... }
+
+core_num: 1
+rob_size: 16
+# isa_string: "rv64gcsu_zicntr_zihpm_zabha_zacas_zawrs_zfa_zfh_zfbfmin_zfinx_zdinx_zhinx_zhinxmin_zba_zbb_zbc_zbs_zbkb_zbkc_zbkx_zcb_zcf_zcmop_zcmp_zcmt_zve64d_zvfhmin_zvfh_zicond_zimop_zicbom_zicbop_zicboz_zihintpause_zihintntl_svinval_sstc_svpbmt_svnapot_svade_smnpm_ssnpm_smmpm_sscofpmf_smstateen_ssstateen_zknh_zksh_zksed_zkt_zkne_zknd_zkr"
+isa_string: "rv64imafdc_zcb_zifencei_zicsr"
+# isa_string: "rv64gcsu_zicntr_zihpm_zabha_zacas_zawrs_zfa_zfh_zfbfmin_zba_zbb_zbc_zbs_zbkb_zbkc_zbkx_zcb_zcf_zcmop_zcmp_zcmt_zicond_zimop_zicbom_zicbop_zicboz_zihintpause_zihintntl_svinval_sstc_svpbmt_svnapot_svade_smnpm_ssnpm_smmpm_sscofpmf_smstateen_ssstateen_zknh_zksh_zksed_zkt_zkne_zknd_zkr"
+# isa_string: "rv64imafdch_zba_zbb_zbs_zcb_zcmop_zfa_zfhmin_zicbom_zicbop_zicboz_zicond_zihintntl_zihintpause_zimop_svinval_zawrs"
+# core_isa:                       # optional per-core ISA overrides; e.g.
+#   - { cores: [4, 8], isa: "rv64gcv" }
+#   - { core: 2,       isa: "rv64imc"  }
+csr_meta: # optional global CSR meta overrides
+  - { index: 0x300, writable: true, write_mask: 0x800006f001fe79ff, read_mask: 0x800006ff01fe79ff }
+  - { index: 0x100, writable: true, write_mask: 0x80000003018c6173, read_mask: 0x80000003018c6173 }
+
+default_start_pc: 0x1000    # reset PC unless overridden by ELF _start / explicit setCorePc
+
+memory_segments:
+  - { start: 0x80000000, len: 0x20000000, type: ram }
+  - { start: 0x100000000 , len: 0x10000000 , type: ram }
+  - { start: 0x700000000 , len: 0x20000000 , type: ram }
+  - { start: 0x0         , len: 0x10000000 , type: ram }
+  - { start: 0x10000000  , len: 0x10001000 , type: ram }
+  - { start: 0x110100000 , len: 0x10000000 , type: ram }
+
+# dtb:                            # optional opaque blob preloaded into memory
+#   path: dtb/opensbi_uart.dtb
+#   load_addr: 0x1020
+
+clint:                          # optional CLINT device
+  base_addr:        0x118000000
+  mtime_offset:     0xbff8
+  mtimecmp_offset:  0x4000
+  time_step_offset: 0x0
+  soft_offset:      0x0
+
+plic:                           # optional PLIC device
+  base_addr: 0x114000000
+
+uart:                           # optional UART (NS16550A)
+  base_addr: 0xd0087000
+
+# terminal: /dev/stdout          # optional; htif/uart output target
+# commit_log: /tmp/commit.log    # optional; spike-style commit log
+
+max_steps: -1             # -1 = run until tohost exit
+use_spec: false              # false = step(), true = step_spec()

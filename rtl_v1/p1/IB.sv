@@ -19,7 +19,7 @@ import or_be_config_pkg::*;
 //                                sampled INCLUDING this cycle's dequeue;
 //                                accepted_slot = fe_valid & fe_ready;
 //                                dequeue[s] = inst_valid[s] &
-//                                ib_dequeue[s]; flush = global_flush_late,
+//                                accept[s]; flush = global_flush_late,
 //                                highest priority, resets both pointers
 //                                including the loopbit.
 // (4) data path                : 2 enqueue write ports at wptr + n, 2
@@ -67,10 +67,10 @@ module IB (
     input  logic [ISSUE_WIDTH-1:0] fe_valid,
 
     // ------------------------------------------------------------------
-    // in-event: ib_dequeue (transaction, two-bit prefix strobe, per slot;
+    // in-event: accept (transaction, two-bit prefix strobe, per slot;
     // ready has already been absorbed by the far end, no payload)
     // ------------------------------------------------------------------
-    input  logic                   ib_dequeue [ISSUE_WIDTH],
+    input  logic                   accept [ISSUE_WIDTH],
 
     // ------------------------------------------------------------------
     // in-event: flush (announce, single-wire pulse, no payload)
@@ -79,7 +79,7 @@ module IB (
 
     // ------------------------------------------------------------------
     // out: combinational reads.  The two head payloads are continuous
-    // candidate values -- they are NOT gated by ib_dequeue, which only
+    // candidate values -- they are NOT gated by accept, which only
     // advances rptr.
     // ------------------------------------------------------------------
     output ib_payload_t            head_IB_Payload [ISSUE_WIDTH],
@@ -162,7 +162,7 @@ module IB (
     end
 
     // ------------------------------------------------------------------
-    // (3) dequeue.  ib_dequeue is a two-bit prefix, so the dequeue set is only
+    // (3) dequeue.  accept is a two-bit prefix, so the dequeue set is only
     // 00 / 01 / 11 and slot 0 is never skipped.  deq_count depends on the
     // cycle-start inst_valid alone, never on this cycle's enq_count, so
     // enqueue and dequeue do not form a loop.
@@ -172,7 +172,7 @@ module IB (
 
     always_comb begin
         for (int unsigned s = 0; s < ISSUE_WIDTH; s++) begin
-            dequeue_slot[s] = inst_valid[s] && ib_dequeue[s];
+            dequeue_slot[s] = inst_valid[s] && accept[s];
         end
         deq_count = {1'b0, dequeue_slot[0]} + {1'b0, dequeue_slot[1]};
     end

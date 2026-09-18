@@ -64,7 +64,6 @@ module alu_simple #(
     input  logic [XLEN-1:0]          rs1_data,
     input  logic [XLEN-1:0]          rs2_data,
     input  logic [FU_GROUP_W-1:0]    FU_Group,
-    input  logic                     imm_valid,
     input  logic [XLEN-1:0]          imm_data,
     input  logic [XLEN-1:0]          pc,
     input  logic [31:0]              inst_bits,

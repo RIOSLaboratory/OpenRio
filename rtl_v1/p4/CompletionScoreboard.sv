@@ -23,7 +23,7 @@ import exe_subop_pkg::*;
 //                                terminal exception; live 1->0 on commit or
 //                                flush.  The two bits never clear each other.
 // (3) condition                : alloc[s] = accept[s]; writeback =
-//                                Result_valid[g] & !global_flush_late;
+//                                writeback_valid[g] & !global_flush_late;
 //                                store_wakeup = safe-prefix scan hit;
 //                                commit = decision chain; flush = decision
 //                                chain, ordered head_new = head + commit_count
@@ -84,7 +84,7 @@ module CompletionScoreboard (
     // This is the four lanes' completion_common layer only; lane 0's
     // csr_sideband is a sideband to the host and does not enter here.
     // ------------------------------------------------------------------
-    input  logic                            Result_valid         [NUM_LANES],
+    input  logic                            writeback_valid         [NUM_LANES],
     input  logic [TAG_W-1:0]                tag_out              [NUM_LANES],
     input  logic                            mispredict_flag      [NUM_LANES],
     input  logic [XLEN-1:0]                 mispredict_target_pc [NUM_LANES],
@@ -146,8 +146,7 @@ module CompletionScoreboard (
     // ------------------------------------------------------------------
     // out: combinational reads
     // ------------------------------------------------------------------
-    output logic [TAG_W-1:0]                head0_tag,
-    output logic [TAG_W-1:0]                head1_tag,
+    output logic [TAG_W-1:0]                head_tag [ISSUE_WIDTH],
     // the recovery read port, indexed by the self-produced flush_tag
     output logic [XLEN-1:0]                 recovery_mispredict_target_pc,
     output logic [EXCP_CAUSE_W-1:0]         recovery_exception_cause,
@@ -329,12 +328,12 @@ module CompletionScoreboard (
     logic head1_done;
 
     always_comb begin
-        head0_tag   = head_q[TAG_W-1:0];
-        head1_tag   = head_q[TAG_W-1:0] + TAG_W'(1);   // 4-bit mod16
+        head_tag[0]   = head_q[TAG_W-1:0];
+        head_tag[1]   = head_q[TAG_W-1:0] + TAG_W'(1);   // 4-bit mod16
         head0_valid = (occupancy >= ROB_PTR_W'(1));
         head1_valid = (occupancy >= ROB_PTR_W'(2));
-        head0_done  = head0_valid && entry_exec_done[head0_tag];
-        head1_done  = head1_valid && entry_exec_done[head1_tag];
+        head0_done  = head0_valid && entry_exec_done[head_tag[0]];
+        head1_done  = head1_valid && entry_exec_done[head_tag[1]];
     end
 
     // ------------------------------------------------------------------
@@ -369,20 +368,20 @@ module CompletionScoreboard (
     logic interrupt_boundary_ok;
 
     always_comb begin
-        h0_exception  = entry_exception_flag[head0_tag];
-        h0_mispredict = entry_mispredict_flag[head0_tag];
-        h0_is_mret    = entry_is_mret[head0_tag];
-        h0_is_sret    = entry_is_sret[head0_tag];
-        h0_is_fence_i = entry_is_fence_i[head0_tag];
-        h0_fp_write   = entry_rd_write_enable[head0_tag] && entry_rd_is_fp[head0_tag];
+        h0_exception  = entry_exception_flag[head_tag[0]];
+        h0_mispredict = entry_mispredict_flag[head_tag[0]];
+        h0_is_mret    = entry_is_mret[head_tag[0]];
+        h0_is_sret    = entry_is_sret[head_tag[0]];
+        h0_is_fence_i = entry_is_fence_i[head_tag[0]];
+        h0_fp_write   = entry_rd_write_enable[head_tag[0]] && entry_rd_is_fp[head_tag[0]];
 
-        h1_exception  = entry_exception_flag[head1_tag];
-        h1_mispredict = entry_mispredict_flag[head1_tag];
-        h1_is_fence_i = entry_is_fence_i[head1_tag];
-        h1_fp_write   = entry_rd_write_enable[head1_tag] && entry_rd_is_fp[head1_tag];
+        h1_exception  = entry_exception_flag[head_tag[1]];
+        h1_mispredict = entry_mispredict_flag[head_tag[1]];
+        h1_is_fence_i = entry_is_fence_i[head_tag[1]];
+        h1_fp_write   = entry_rd_write_enable[head_tag[1]] && entry_rd_is_fp[head_tag[1]];
 
         head0_irrevocable = head0_done && !h0_exception
-                         && (entry_is_store[head0_tag] || entry_is_atomic[head0_tag]);
+                         && (entry_is_store[head_tag[0]] || entry_is_atomic[head_tag[0]]);
 
         // interrupt_pending is already a synthesized single wire from the
         // system_instruction_handler; mie / mip / mstatus.MIE are not
@@ -416,7 +415,7 @@ module CompletionScoreboard (
         commit_valid[0]         = 1'b0;
         commit_valid[1]         = 1'b0;
         flush_valid             = 1'b0;
-        flush_tag               = head0_tag;
+        flush_tag               = head_tag[0];
         recovery_kind           = '0;
         head1_eval              = 1'b0;
         flush_from_head1_commit = 1'b0;
@@ -431,7 +430,7 @@ module CompletionScoreboard (
             // only terminal state of that tag even if the store already had a
             // wakeup, so it outranks ordinary retire.
             flush_valid   = 1'b1;
-            flush_tag     = head0_tag;
+            flush_tag     = head_tag[0];
             recovery_kind = RECOVERY_EXCEPTION;
         end else if (interrupt_take && interrupt_boundary_ok) begin
             // 3: an external interrupt outranks head0's FENCE.I / mispredict /
@@ -440,13 +439,13 @@ module CompletionScoreboard (
             recovery_kind = RECOVERY_INTERRUPT;
             if (!head0_irrevocable) begin
                 // revocable head0: simply not retired, flush starts at it
-                flush_tag = head0_tag;
+                flush_tag = head_tag[0];
             end else begin
                 // irrevocable head0 (the boundary test guarantees head1_valid
                 // here): it must retire first and the trap boundary moves to
                 // head1.
                 commit_valid[0] = 1'b1;
-                flush_tag       = head1_tag;
+                flush_tag       = head_tag[1];
             end
         end else if (h0_is_mret || h0_is_sret || h0_is_fence_i || h0_mispredict) begin
             // 4: head0 commits, then flushes.  is_fence_i is the one flush
@@ -459,7 +458,7 @@ module CompletionScoreboard (
             // complete table.  (文档 ③ 决策链)
             commit_valid[0] = 1'b1;
             flush_valid     = 1'b1;
-            flush_tag       = head0_tag;
+            flush_tag       = head_tag[0];
             if (h0_is_mret) begin
                 recovery_kind = RECOVERY_MRET;
             end else if (h0_is_sret) begin
@@ -488,14 +487,14 @@ module CompletionScoreboard (
             if (h1_exception) begin
                 // head1 does not commit; head0 already did => commit_count = 1
                 flush_valid   = 1'b1;
-                flush_tag     = head1_tag;
+                flush_tag     = head_tag[1];
                 recovery_kind = RECOVERY_EXCEPTION;
             end else if (h1_is_fence_i || h1_mispredict) begin
                 // both retire => commit_count = 2, then flush.  Coexisting
                 // bits are taken FENCE_I > mispredict, as in step 1.
                 commit_valid[1]         = 1'b1;
                 flush_valid             = 1'b1;
-                flush_tag               = head1_tag;
+                flush_tag               = head_tag[1];
                 recovery_kind           = h1_is_fence_i ? RECOVERY_FENCE_I
                                                         : RECOVERY_MISPREDICT;
                 flush_from_head1_commit = 1'b1;
@@ -520,7 +519,7 @@ module CompletionScoreboard (
             commit_valid[1] = 1'b0;
             if (flush_from_head1_commit) begin
                 flush_valid   = 1'b0;
-                flush_tag     = head0_tag;
+                flush_tag     = head_tag[0];
                 recovery_kind = '0;
             end
         end
@@ -532,16 +531,16 @@ module CompletionScoreboard (
     // commit_valid = 0 carries placeholders only.
     // ------------------------------------------------------------------
     always_comb begin
-        commit_tag[0]             = commit_valid[0] ? head0_tag : '0;
-        commit_tag[1]             = commit_valid[1] ? head1_tag : '0;
-        commit_rd_idx[0]          = entry_rd_idx[head0_tag];
-        commit_rd_idx[1]          = entry_rd_idx[head1_tag];
-        commit_rd_is_fp[0]        = entry_rd_is_fp[head0_tag];
-        commit_rd_is_fp[1]        = entry_rd_is_fp[head1_tag];
-        commit_rd_write_enable[0] = entry_rd_write_enable[head0_tag];
-        commit_rd_write_enable[1] = entry_rd_write_enable[head1_tag];
-        commit_fflags[0]          = entry_fpu_fflags[head0_tag];
-        commit_fflags[1]          = entry_fpu_fflags[head1_tag];
+        commit_tag[0]             = commit_valid[0] ? head_tag[0] : '0;
+        commit_tag[1]             = commit_valid[1] ? head_tag[1] : '0;
+        commit_rd_idx[0]          = entry_rd_idx[head_tag[0]];
+        commit_rd_idx[1]          = entry_rd_idx[head_tag[1]];
+        commit_rd_is_fp[0]        = entry_rd_is_fp[head_tag[0]];
+        commit_rd_is_fp[1]        = entry_rd_is_fp[head_tag[1]];
+        commit_rd_write_enable[0] = entry_rd_write_enable[head_tag[0]];
+        commit_rd_write_enable[1] = entry_rd_write_enable[head_tag[1]];
+        commit_fflags[0]          = entry_fpu_fflags[head_tag[0]];
+        commit_fflags[1]          = entry_fpu_fflags[head_tag[1]];
         commit_count              = {1'b0, commit_valid[0]} + {1'b0, commit_valid[1]};
     end
 
@@ -572,7 +571,7 @@ module CompletionScoreboard (
     //
     // 这是 2026-08-26 的改造。**改造前 entry_st_br_resolve 只在 alloc 拍写
     // 一次、此后冻结**，于是唤醒扫描无从知道目标在哪儿，脉冲可能在 store
-    // 还驻留 ISQ3 时就发出去 —— g3_lsu_iface 那套 wakeup_held_q 正是为了
+    // 还驻留 ISQ3 时就发出去 —— lsu_bridge 那套 wakeup_held_q 正是为了
     // 兜住这种「发射前唤醒」而存在的。把投递路径按位置分开之后，
     // 发射前唤醒不再产生，那套机制随之退役。
     //
@@ -581,7 +580,7 @@ module CompletionScoreboard (
     always_comb begin
         wb_hits_wakeup_tag = 1'b0;
         for (int unsigned g = 0; g < NUM_LANES; g++) begin
-            if (Result_valid[g] && !global_flush_late && (tag_out[g] == wk_tag)) begin
+            if (writeback_valid[g] && !global_flush_late && (tag_out[g] == wk_tag)) begin
                 wb_hits_wakeup_tag = 1'b1;
             end
         end
@@ -606,9 +605,9 @@ module CompletionScoreboard (
     //
     // The recovery reads index the flush_tag this module's own decision chain
     // produced -- flush_model does not send an address back.  flush_tag is
-    // driven on every path of that chain (it defaults to head0_tag), so these
+    // driven on every path of that chain (it defaults to head_tag[0]), so these
     // three reads never float, including on the MRET branch whose flush_tag is
-    // head0_tag and is not used to pick the recovery address.
+    // head_tag[0] and is not used to pick the recovery address.
     //
     // st_br_resolve 读口带**同拍组合前递**（洞 B）。
     //
@@ -716,7 +715,7 @@ module CompletionScoreboard (
             // itself -- late completions are held off by the FU flush
             // contract, which is the FU's own behaviour.
             for (int unsigned g = 0; g < NUM_LANES; g++) begin
-                if (Result_valid[g] && !global_flush_late) begin
+                if (writeback_valid[g] && !global_flush_late) begin
                     entry_exec_done[tag_out[g]]            <= 1'b1;
                     entry_mispredict_flag[tag_out[g]]      <= mispredict_flag[g];
                     entry_mispredict_target_pc[tag_out[g]] <= mispredict_target_pc[g];

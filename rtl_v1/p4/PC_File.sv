@@ -12,7 +12,7 @@ import or_be_types_pkg::*;
 // (3) condition                : pc_write[s] = accept[s]
 // (4) data path                : 2 dispatch-addressed write ports,
 //                                3 independent combinational read ports
-//                                (flush_tag, head0_tag, head1_tag)
+//                                (flush_tag, head_tag[0], head_tag[1])
 // (5) data structure           : payload only -- inst_pc(64)
 //
 // pc_write[s] is the same cycle and the same slot as the CompletionScoreboard
@@ -31,8 +31,7 @@ module PC_File (
 
     // in-event: combinational read addresses
     input  logic [TAG_W-1:0] flush_tag,
-    input  logic [TAG_W-1:0] head0_tag,
-    input  logic [TAG_W-1:0] head1_tag,
+    input  logic [TAG_W-1:0]    head_tag [ISSUE_WIDTH],
 
     // out-event: combinational read data
     output logic [XLEN-1:0]  inst_pc,
@@ -67,8 +66,8 @@ module PC_File (
 
     // ------------------------------------------------------------------
     // (4)#1 entry[flush_tag]   -> inst_pc      (recovery read port, trap epc)
-    //       entry[head0_tag]   -> trace_pc[0]  (commit-point trace read port)
-    //       entry[head1_tag]   -> trace_pc[1]  (commit-point trace read port)
+    //       entry[head_tag[0]]   -> trace_pc[0]  (commit-point trace read port)
+    //       entry[head_tag[1]]   -> trace_pc[1]  (commit-point trace read port)
     //
     // The three read ports are independent and concurrent in the same cycle;
     // each address comes from its own peer and this module does no arbitration.
@@ -77,8 +76,8 @@ module PC_File (
     // ------------------------------------------------------------------
     always_comb begin
         inst_pc     = entry_inst_pc[flush_tag];
-        trace_pc[0] = entry_inst_pc[head0_tag];
-        trace_pc[1] = entry_inst_pc[head1_tag];
+        trace_pc[0] = entry_inst_pc[head_tag[0]];
+        trace_pc[1] = entry_inst_pc[head_tag[1]];
     end
 
 endmodule

@@ -40,18 +40,18 @@ module ISQ_Group0 (
 
     // ------------------------------------------------------------------
     // in-event: dispatch (Transaction, one write port).
-    // ready = isq_free_for_dispatch, already absorbed upstream, so wr_en is
+    // ready = isq_free_for_dispatch, already absorbed upstream, so dispatch_valid is
     // taken as unconditional here.  payload_in carries the whole 486-bit
     // ISQ_Payload; only the ⑤ fields are captured, the rest is dropped.
     // ------------------------------------------------------------------
-    input  logic                     wr_en,
+    input  logic                     dispatch_valid,
     input  isq_payload_t             payload_in,
 
     // ------------------------------------------------------------------
     // in-event: bypass_capture (announce, 4 lanes).
     // All four lanes are listened to -- bypass is a global broadcast (③).
     // ------------------------------------------------------------------
-    input  logic                     bypass_valid   [NUM_LANES],
+    input  logic                     bypass_publish_valid   [NUM_LANES],
     input  logic [TAG_W-1:0]         bypass_tag     [NUM_LANES],
     input  logic [XLEN-1:0]          bypass_data    [NUM_LANES],
 
@@ -132,7 +132,7 @@ module ISQ_Group0 (
     // (3) fast_ready_rsX
     //
     //     fast_ready_rsX = !rsX_ready
-    //                    & OR over b in {0..3} ( bypass_valid[b]
+    //                    & OR over b in {0..3} ( bypass_publish_valid[b]
     //                                          & rsX_wait_tag == bypass_tag[b] )
     //
     // Only the *hit* is computed here.  Which lane's data wins when more than
@@ -156,10 +156,10 @@ module ISQ_Group0 (
         rs1_bypass_hit = 1'b0;
         rs2_bypass_hit = 1'b0;
         for (int unsigned b = 0; b < NUM_LANES; b++) begin
-            if (bypass_valid[b] && (bypass_tag[b] == entry_rs1_wait_tag)) begin
+            if (bypass_publish_valid[b] && (bypass_tag[b] == entry_rs1_wait_tag)) begin
                 rs1_bypass_hit = 1'b1;
             end
-            if (bypass_valid[b] && (bypass_tag[b] == entry_rs2_wait_tag)) begin
+            if (bypass_publish_valid[b] && (bypass_tag[b] == entry_rs2_wait_tag)) begin
                 rs2_bypass_hit = 1'b1;
             end
         end
@@ -234,7 +234,7 @@ module ISQ_Group0 (
     FU_input_mux u_fu_input_mux_rs1 (
         .entry_rsX_data (entry_rs1_data),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (entry_rs1_wait_tag),
         .rsX_ready      (entry_rs1_ready),
@@ -244,7 +244,7 @@ module ISQ_Group0 (
     FU_input_mux u_fu_input_mux_rs2 (
         .entry_rsX_data (entry_rs2_data),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (entry_rs2_wait_tag),
         .rsX_ready      (entry_rs2_ready),
@@ -277,7 +277,7 @@ module ISQ_Group0 (
     //
     // Priority, straight off ③:
     //   flush           highest -- no dispatch, no issue, no capture, valid<-0
-    //   dispatch        wr_en captures payload_in and leaves RESIDENT, whether
+    //   dispatch        dispatch_valid captures payload_in and leaves RESIDENT, whether
     //                   or not this cycle also issued (② RESIDENT->RESIDENT)
     //   issue           without a same-cycle dispatch the entry goes FREE
     //   bypass_capture  otherwise, take the woken source(s)
@@ -318,7 +318,7 @@ module ISQ_Group0 (
             entry_fetch_excp_tval  <= '0;
         end else if (global_flush_late) begin
             isq_valid            <= 1'b0;
-        end else if (wr_en) begin
+        end else if (dispatch_valid) begin
             // ⑤'s fields, and only those: rs3_* and the memory sideband on
             // payload_in are dropped here.
             isq_valid            <= 1'b1;

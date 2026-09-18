@@ -1,0 +1,131 @@
+<mxfile host="Electron">
+  <diagram name="第 1 页" id="-Z1xkNlhC5iftYNm0eCM">
+    <mxGraphModel dx="3171" dy="944" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="UhC2fbpta38032r0YCe--1" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Level_1 信号比较&lt;br&gt;目前仅比较Commit 阶段" vertex="1">
+          <mxGeometry height="60" width="120" x="157" y="663" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--2" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="UhC2fbpta38032r0YCe--1" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="62.15" y="692.28" as="sourcePoint" />
+            <mxPoint x="217" y="830.83" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--4" edge="1" parent="1" source="UhC2fbpta38032r0YCe--1" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <Array as="points">
+              <mxPoint x="322" y="691" />
+            </Array>
+            <mxPoint x="337" y="724" as="sourcePoint" />
+            <mxPoint x="364.33" y="693" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--5" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="检查未对齐的指令类型，AI 根据指令类型在微架构文档描述的具体路径，初步分析可能的问题点，整理出判定结果（人要看到）&lt;br&gt;之后AI根据判断结果修改代码并跑level-1回归测试，检查问题是否存在。" vertex="1">
+          <mxGeometry height="149" width="187" x="364" y="618.5" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--6" edge="1" parent="1" source="UhC2fbpta38032r0YCe--5" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="387" y="802" as="sourcePoint" />
+            <mxPoint x="457.5" y="860.64" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--7" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="UhC2fbpta38032r0YCe--1" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="65.13" y="693" as="sourcePoint" />
+            <mxPoint x="157" y="693" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Bug" vertex="1">
+          <mxGeometry height="60" width="94" x="-29" y="663" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--9" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;rotation=90;" value="不存在" vertex="1">
+          <mxGeometry height="30" width="60" x="386" y="800" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--10" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Debug结束" vertex="1">
+          <mxGeometry height="60" width="120" x="397.5" y="859" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--11" edge="1" parent="1" source="UhC2fbpta38032r0YCe--5" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="608.5" y="689" as="sourcePoint" />
+            <mxPoint x="626.61" y="691.59" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--12" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="60" width="120" x="624" y="663" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--13" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="存在" vertex="1">
+          <mxGeometry height="30" width="60" x="558" y="663" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--14" edge="1" parent="1" source="UhC2fbpta38032r0YCe--12" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="752.5" y="688" as="sourcePoint" />
+            <mxPoint x="833.38" y="693" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--15" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="919.5" y="769" as="sourcePoint" />
+            <mxPoint x="919" y="861.64" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--16" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;rotation=90;" value="不存在" vertex="1">
+          <mxGeometry height="30" width="60" x="847.5" y="801" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--17" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Debug结束" vertex="1">
+          <mxGeometry height="60" width="120" x="859" y="860" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--18" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="149" width="187" x="831" y="618.5" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--19" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="1018" y="693" as="sourcePoint" />
+            <mxPoint x="1093.6100000000001" y="691.59" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--20" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="存在" vertex="1">
+          <mxGeometry height="30" width="60" x="1025" y="663" as="geometry" />
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-5" edge="1" parent="1" source="UhC2fbpta38032r0YCe--21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1124.1290322580644" y="872.9677419354839" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-7" edge="1" parent="1" source="UhC2fbpta38032r0YCe--21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=0;exitDx=0;exitDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1124.1290322580644" y="562" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--21" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="存在level-N 信号，重复过程" vertex="1">
+          <mxGeometry height="60" width="120" x="1094" y="663" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--23" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="继续细化AI debug workflow，人给debug流程的example，蒸馏" vertex="1">
+          <mxGeometry height="121" width="237" x="1015" y="874" as="geometry" />
+        </mxCell>
+        <mxCell id="UhC2fbpta38032r0YCe--25" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="level-1 level-2 信号待补充" vertex="1">
+          <mxGeometry height="60" width="120" x="30" y="971" as="geometry" />
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-1" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="AI 在固定轮次下无法找到原因，继续打印level-2信号（原因：所有case打印level-2信号我们目前认为消耗大【不一定需确认】）。继续根据level-2信号未对齐点在微架构文档描述的信息，继续分析可能的问题点，整理出判定结果（人要看到）&lt;div&gt;之后AI根据判断结果修改代码并跑level-1回归测试，检查问题是否存在。&lt;/div&gt;" vertex="1">
+          <mxGeometry height="292" width="325" x="634" y="401" as="geometry" />
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-3" edge="1" parent="1" source="UhC2fbpta38032r0YCe--21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="UhC2fbpta38032r0YCe--21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-4" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="bug存在" vertex="1">
+          <mxGeometry height="30" width="60" x="1181" y="612" as="geometry" />
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-6" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="N 轮次之后bug依然存在" vertex="1">
+          <mxGeometry height="40" width="111" x="1124" y="783" as="geometry" />
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-8" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="bug修复成功" vertex="1">
+          <mxGeometry height="30" width="60" x="1059" y="597" as="geometry" />
+        </mxCell>
+        <mxCell id="aZComXl1Kr2PkHgru0yC-9" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Debug结束" vertex="1">
+          <mxGeometry height="60" width="120" x="1067" y="501" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

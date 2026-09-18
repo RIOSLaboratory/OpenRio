@@ -1,0 +1,18 @@
+flowchart LR
+    FE["FE_Agent"]
+    DUT["DUT"]
+    CA["Cache_Agent"]
+    ADP["adapter"]
+    BE["be-agent"]
+    ISA["isa_model"]
+    CHK["checker"]
+
+    FE <-->|orbe_fe_if| DUT
+    DUT <-->|or_be_lsu_if| CA
+    DUT -->|提取 DUT 中信号| ADP
+    CA --> ADP
+    ADP -->|ob_if| BE
+    BE -->|驱动| ISA
+    ISA --> CHK
+    ADP -->|checker_if| CHK
+    

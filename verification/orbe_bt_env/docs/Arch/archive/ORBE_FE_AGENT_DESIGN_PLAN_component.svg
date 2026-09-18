@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="390" viewBox="0 0 1180 390">
+  <defs>
+    <style>
+      .box { fill: #f8fafc; stroke: #334155; stroke-width: 2; }
+      .soft { fill: #eef4ff; stroke: #2563eb; stroke-width: 2; }
+      .future { fill: #faf6ee; stroke: #a16207; stroke-width: 2; stroke-dasharray: 7 6; }
+      .t { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 18px; fill: #111827; font-weight: 700; }
+      .s { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 14px; fill: #475569; }
+      .line { stroke: #475569; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .dbl { stroke: #2563eb; stroke-width: 2.5; fill: none; marker-start: url(#arrowBlue); marker-end: url(#arrowBlue); }
+      .dash { stroke: #a16207; stroke-width: 2.2; stroke-dasharray: 7 6; fill: none; marker-end: url(#arrowGold); }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569" />
+    </marker>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563eb" />
+    </marker>
+    <marker id="arrowGold" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a16207" />
+    </marker>
+  </defs>
+
+  <rect x="20" y="40" width="150" height="70" rx="12" ry="12" class="soft" />
+  <text x="95" y="70" text-anchor="middle" class="t">TB / test</text>
+  <text x="95" y="92" text-anchor="middle" class="s">orbe_fe_tb_top</text>
+
+  <rect x="210" y="40" width="170" height="70" rx="12" ry="12" class="box" />
+  <text x="295" y="70" text-anchor="middle" class="t">fe_agent</text>
+  <text x="295" y="92" text-anchor="middle" class="s">入口封装</text>
+
+  <rect x="430" y="40" width="190" height="70" rx="12" ry="12" class="box" />
+  <text x="525" y="70" text-anchor="middle" class="t">fe_driver</text>
+  <text x="525" y="92" text-anchor="middle" class="s">取指 / pending / redirect</text>
+
+  <rect x="680" y="40" width="190" height="70" rx="12" ry="12" class="soft" />
+  <text x="775" y="70" text-anchor="middle" class="t">ISA Model</text>
+  <text x="775" y="92" text-anchor="middle" class="s">原始指令与退出状态</text>
+
+  <rect x="430" y="170" width="190" height="70" rx="12" ry="12" class="soft" />
+  <text x="525" y="200" text-anchor="middle" class="t">orbe_fe_if</text>
+  <text x="525" y="222" text-anchor="middle" class="s">FE / BE 外部接口</text>
+
+  <rect x="680" y="170" width="190" height="70" rx="12" ry="12" class="box" />
+  <text x="775" y="200" text-anchor="middle" class="t">DUT Wrapper</text>
+  <text x="775" y="222" text-anchor="middle" class="s">smoke harness / future wrapper</text>
+
+  <rect x="930" y="170" width="170" height="70" rx="12" ry="12" class="box" />
+  <text x="1015" y="200" text-anchor="middle" class="t">ORBE DUT</text>
+  <text x="1015" y="222" text-anchor="middle" class="s">future</text>
+
+  <rect x="680" y="290" width="190" height="60" rx="12" ry="12" class="future" />
+  <text x="775" y="326" text-anchor="middle" class="t">BE observer</text>
+  <text x="775" y="346" text-anchor="middle" class="s">future integration</text>
+
+  <path d="M170 75 L210 75" class="line" />
+  <path d="M380 75 L430 75" class="line" />
+  <path d="M620 75 L680 75" class="dbl" />
+  <path d="M525 110 L525 170" class="line" />
+  <path d="M620 205 L680 205" class="dbl" />
+  <path d="M870 205 L930 205" class="line" />
+  <path d="M775 240 L775 290" class="dash" />
+</svg>

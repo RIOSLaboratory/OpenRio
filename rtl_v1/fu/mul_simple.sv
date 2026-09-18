@@ -59,10 +59,8 @@ module mul_simple (
     input  logic [XLEN-1:0]         rs1_data,
     input  logic [XLEN-1:0]         rs2_data,
     input  logic [FU_GROUP_W-1:0]   FU_Group,
-    input  logic                    imm_valid,
     // 无符号：值在 decode 已完整符号扩展到 64 位，端口跟生产端
     // （ISQ_Group1 的输出）写无符号，避免连线处符号性不匹配（契约 §3）。
-    input  logic        [XLEN-1:0]  imm_data,
     input  logic [TAG_W-1:0]        self_tag,
     input  logic [EXE_SUBOP_W-1:0]  exe_subop,
 
@@ -257,7 +255,7 @@ module mul_simple (
     // dependence on any ISQ valid (契约 §2.3 last paragraph).
     assign FU_ready = !busy_reg && !loser_hold;
 
-    // 契约 §2.1 「本拍不得驱动 request_valid / Result_valid」.  The payload
+    // 契约 §2.1 「本拍不得驱动 request_valid / writeback_valid」.  The payload
     // register only clears at the *end* of the flush cycle, so the valid needs
     // this combinational mask to be silent during the cycle itself.
     assign request_valid   = hold_valid && !global_flush_late;

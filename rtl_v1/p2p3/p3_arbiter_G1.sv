@@ -21,7 +21,7 @@ import or_be_types_pkg::*;
 //
 // Purely combinational, so no clk and no rst_n: the module holds nothing
 // between cycles and is on no flush broadcast list.  Doc ④ is explicit that
-// neither Result_valid nor bypass_valid carries a flush guard -- each consumer
+// neither writeback_valid nor bypass_publish_valid carries a flush guard -- each consumer
 // hangs its own -- and that `winner_ack[k] = winner_grant[k] & !global_flush_late`
 // is formed *inside each FU* from the FU's direct flush pulse.  ⑥ therefore
 // registers no flush input here and none is declared; adding one would move an
@@ -37,11 +37,11 @@ import or_be_types_pkg::*;
 //
 // Naming follows 集成层 §2.5(5) as ⑥ already spells it out: the candidate side
 // carries the `req_` prefix and the winner side keeps the bare names, which are
-// the verbatim writeback input names of CompletionScoreboard ⑥ (Result_valid,
+// the verbatim writeback input names of CompletionScoreboard ⑥ (writeback_valid,
 // tag_out, mispredict_flag, mispredict_target_pc, exception_flag,
 // exception_cause, exception_tval, is_mret, fpu_fflags) and of Buffer
-// (Result_valid, tag_out, result_data).  The exec_done out-event of ⑥ is
-// `tag_out` + `Result_valid` -- the same two wires as writeback, not a second
+// (writeback_valid, tag_out, result_data).  The exec_done out-event of ⑥ is
+// `tag_out` + `writeback_valid` -- the same two wires as writeback, not a second
 // pair of ports.
 module p3_arbiter_G1 (
     // ------------------------------------------------------------------
@@ -67,7 +67,7 @@ module p3_arbiter_G1 (
     // out-event: writeback -- completion_common (no csr_sideband, doc ④).
     // These same two wires are also the exec_done out-event.
     // ------------------------------------------------------------------
-    output logic                    Result_valid,
+    output logic                    writeback_valid,
     output logic [TAG_W-1:0]        tag_out,
     output logic [XLEN-1:0]         result_data,
     output logic                    exception_flag,
@@ -82,7 +82,7 @@ module p3_arbiter_G1 (
     // ------------------------------------------------------------------
     // out-event: bypass_publish
     // ------------------------------------------------------------------
-    output logic                    bypass_valid,
+    output logic                    bypass_publish_valid,
     output logic [TAG_W-1:0]        bypass_tag,
     output logic [XLEN-1:0]         bypass_data,
 
@@ -156,7 +156,7 @@ module p3_arbiter_G1 (
     // implementation drive them to 0.  The loser never enters this data path:
     // its result stays in FU-local hold state.
     //
-    //     bypass_valid = winner_valid & !request[winner_idx].exception_flag
+    //     bypass_publish_valid = winner_valid & !request[winner_idx].exception_flag
     //
     // The !exception_flag term is not optional even though G1 cannot raise an
     // exception and drives the bit to 0: a faulting instruction's result_data
@@ -164,11 +164,11 @@ module p3_arbiter_G1 (
     // would latch the garbage and mark itself ready.  The contract is one and
     // the same for all four lanes and is written here so the directly-connected
     // G2 / G3 lanes drive it identically (doc ④#1).  Note bypass_tag /
-    // bypass_data are qualified by winner_valid, not by bypass_valid -- doc
+    // bypass_data are qualified by winner_valid, not by bypass_publish_valid -- doc
     // ④#2 verbatim.
     // ------------------------------------------------------------------
     always_comb begin
-        Result_valid         = winner_valid;
+        writeback_valid         = winner_valid;
         tag_out              = winner_valid ? req_tag[winner_idx]                  : '0;
         result_data          = winner_valid ? req_result_data[winner_idx]          : '0;
 
@@ -181,7 +181,7 @@ module p3_arbiter_G1 (
         is_sret              = winner_valid ? req_is_sret[winner_idx]              : '0;
         fpu_fflags           = winner_valid ? req_fpu_fflags[winner_idx]           : '0;
 
-        bypass_valid         = winner_valid && !req_exception_flag[winner_idx];
+        bypass_publish_valid         = winner_valid && !req_exception_flag[winner_idx];
         bypass_tag           = winner_valid ? req_tag[winner_idx]                  : '0;
         bypass_data          = winner_valid ? req_result_data[winner_idx]          : '0;
     end

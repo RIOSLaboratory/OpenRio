@@ -18,10 +18,10 @@ import fe_be_protocol_pkg::*;
 //           CompletionScoreboard / PC_File 收的是散字段（§1.1）。
 //   胶水#2  四条完成 lane 的聚合（§1.2）
 //           lane0 = p3_arbiter_G0、lane1 = p3_arbiter_G1、lane2 = fpu_simple
-//           直连、lane3 = g3_lsu_iface。**每组数组只聚合一次**，然后扇出到
+//           直连、lane3 = lsu_bridge。**每组数组只聚合一次**，然后扇出到
 //           Buffer / CompletionScoreboard / dependency_check / 四个 ISQ_Group /
 //           isq_payload_assembly——分别聚合两遍就可能让 bypass_data[b] 与
-//           bypass_valid[b]/bypass_tag[b] 的 b 错位，而这种错位无工具可查。
+//           bypass_publish_valid[b]/bypass_tag[b] 的 b 错位，而这种错位无工具可查。
 //   胶水#3  各 FU 的 completion request 按 **组内 requester 编号** 聚合送仲裁器
 //           （G0_FU_ALU/CSR/DIV、G1_FU_ALU/MUL，取自类型包，不写字面量）。
 //   胶水#4  isq_free_for_dispatch[NUM_LANES] 与 FU_ready[G*_NUM_FU] 的按组聚合。
@@ -81,22 +81,20 @@ module backend_top (
     output cf_class_e                   predictor_update_cf_class,
 
     // ==================================================================
-    // LSU 侧（离散化的 lsu_if）。全部是 g3_lsu_iface 的对外半边，
+    // LSU 侧（离散化的 lsu_if）。全部是 lsu_bridge 的对外半边，
     // 加上送 lsu_if 同名线的 global_flush_late。
     // ==================================================================
     output logic                        be_lsu_issue_valid,
     output be_lsu_issue_pld_t           be_lsu_issue_pld,
-    output logic                        be_lsu_entry_ready,
     output logic                        be_lsu_store_wakeup_valid,
-    output logic                        global_flush_late,
+    output logic [TAG_W-1:0]            be_lsu_store_wakeup_tag,
+    output logic                        global_flush,
 
     input  logic                        lsu_be_issue_ready,
-    input  logic                        lsu_be_done_valid,
-    input  lsu_be_done_pld_t            lsu_be_done_pld,
-    input  logic                        lsu_be_exception_valid,
-    input  lsu_be_exception_pld_t       lsu_be_exception_pld,
+    input  logic                        lsu_be_writeback_valid,
+    input  lsu_be_writeback_pld_t       lsu_be_writeback_pld,
     input  logic                        lsu_be_bypass_valid,
-    input  lsu_be_done_pld_t            lsu_be_bypass_pld,
+    input  lsu_be_bypass_pld_t          lsu_be_bypass_pld,
 
     // ==================================================================
     // 中断。§1.3「顶层 → system_instruction_handler  mip 的外部中断位」，
@@ -121,13 +119,12 @@ module backend_top (
     output logic [FFLAGS_W-1:0]         commit_fflags                  [ISSUE_WIDTH],
     output logic [COMMIT_COUNT_W-1:0]   commit_count,
     output logic [XLEN-1:0]             commit_data                    [ISSUE_WIDTH],
-    output logic [XLEN-1:0]             trace_pc                       [ISSUE_WIDTH],
-    output logic                        global_flush_valid
+    output logic [XLEN-1:0]             trace_pc                       [ISSUE_WIDTH]
 );
 
     // ------------------------------------------------------------------
     // lane / group 下标。§1.2 把四条 lane 的驱动方钉死为 lane0 = p3_arbiter_G0、
-    // lane1 = p3_arbiter_G1、lane2 = FPU 直连、lane3 = g3_lsu_iface；
+    // lane1 = p3_arbiter_G1、lane2 = FPU 直连、lane3 = lsu_bridge；
     // ISQ_Group_g 的 g 与 lane 号同值（dispatch_logic 的 GRP_G0..G3 也是 0..3），
     // 所以同一组常量既当 lane 号也当组号。只是可读性命名，没有第二种取值。
     // 组内 requester 编号不在这里另立——用类型包的 G0_FU_* / G1_FU_*。
@@ -145,9 +142,11 @@ module backend_top (
     // ---- 胶水#6 的产物：入队 payload（**纯连线**）-------------------
     ib_payload_t                    enq_IB_Payload            [ISSUE_WIDTH];
 
-    // ---- rvc_expand（**在 IB 之后**，出队侧译码链的第一块）---------
-    logic [31:0]                    rvce_inst32               [ISSUE_WIDTH];
-    logic                           rvce_rvc_illegal          [ISSUE_WIDTH];
+    // ---- decode 给出的寄存器索引（decode_index_t 展平）-------------
+    logic [REG_ADDR_W-1:0]          dec_rs1_idx               [ISSUE_WIDTH];
+    logic [REG_ADDR_W-1:0]          dec_rs2_idx               [ISSUE_WIDTH];
+    logic [REG_ADDR_W-1:0]          dec_rs3_idx               [ISSUE_WIDTH];
+    logic [REG_ADDR_W-1:0]          dec_rd_idx                [ISSUE_WIDTH];
 
     // ---- IB -----------------------------------------------------------
     ib_payload_t                    head_IB_Payload           [ISSUE_WIDTH];
@@ -187,8 +186,6 @@ module backend_top (
     // ---- dependency_check ---------------------------------------------
     // self_tag 就是观测面的 alloc_tag，见模块头注释。
     logic                           dc_rd_write_enable        [ISSUE_WIDTH];
-    logic                           dc_slot0_present;
-    logic                           dc_slot1_present;
     logic                           dc_serial0;
     logic                           dc_serial_inst;
     logic                           dc_fp0;
@@ -200,14 +197,13 @@ module backend_top (
 
     // ---- dispatch_logic -------------------------------------------------
     // accept 就是观测面的 alloc_valid。
-    logic                           dl_ib_dequeue             [ISSUE_WIDTH];
     logic                           dl_isq_wr_en              [NUM_LANES];
     logic [FU_GROUP_W-1:0]          dl_slot_FU_Group          [ISSUE_WIDTH];
     rm_e                            dl_effective_rm           [ISSUE_WIDTH];
     logic                           dl_is_fence_i             [ISSUE_WIDTH];
     logic                           dl_may_flush              [ISSUE_WIDTH];
     logic                           dl_is_atomic              [ISSUE_WIDTH];
-    logic                           dl_serial_set;
+    logic                           dl_serial_set_valid;
     logic [TAG_W-1:0]               dl_serial_set_tag;
     logic                           dl_select_payload         [NUM_LANES][ISSUE_WIDTH];
 
@@ -248,7 +244,6 @@ module backend_top (
     logic [XLEN-1:0]                isq1_rs1_data;
     logic [XLEN-1:0]                isq1_rs2_data;
     logic [FU_GROUP_W-1:0]          isq1_FU_Group;
-    logic                           isq1_imm_valid;
     logic [XLEN-1:0]                isq1_imm_data;
     logic [TAG_W-1:0]               isq1_self_tag;
     logic [EXE_SUBOP_W-1:0]         isq1_exe_subop;
@@ -265,13 +260,12 @@ module backend_top (
 
     logic                           isq3_issue_valid;
     logic [XLEN-1:0]                isq3_rs1_data;
-    logic [XLEN-1:0]                isq3_rs2_data;
+    logic [XLEN-1:0]                isq3_store_data;
     logic                           isq3_imm_valid;
     logic [XLEN-1:0]                isq3_imm_data;
-    logic                           isq3_is_store;
     logic [MEM_FUNCT3_W-1:0]        isq3_mem_funct3;
     logic                           isq3_rd_is_fp;
-    logic [TAG_W-1:0]               isq3_self_tag;
+    logic [TAG_W-1:0]               isq3_entry_self_tag;
     logic [EXE_SUBOP_W-1:0]         isq3_exe_subop;
     logic                           isq3_isq_free_for_dispatch;
     logic                           isq3_occupied;
@@ -398,6 +392,7 @@ module backend_top (
     logic                           arbG0_is_mret;
     logic                           arbG0_is_sret;
     logic [FFLAGS_W-1:0]            arbG0_fpu_fflags;
+    logic                           arbG0_csr_sideband_valid;
     logic                           arbG0_is_csr;
     logic                           arbG0_csr_write_enable;
     logic [CSR_ADDR_W-1:0]          arbG0_csr_addr;
@@ -425,7 +420,7 @@ module backend_top (
     logic                           arbG1_winner_grant        [G1_NUM_FU];
     logic                           arbG1_loser_hold          [G1_NUM_FU];
 
-    // ---- g3_lsu_iface（lane 3 的驱动方）--------------------------------
+    // ---- lsu_bridge（lane 3 的驱动方）--------------------------------
     logic                           lsuif_FU_ready;
     logic                           lsuif_Result_valid;
     logic [TAG_W-1:0]               lsuif_tag_out;
@@ -468,8 +463,7 @@ module backend_top (
     logic                           scb_flush_valid;
     logic [TAG_W-1:0]               scb_flush_tag;
     logic [RECOVERY_KIND_W-1:0]     scb_recovery_kind;
-    logic [TAG_W-1:0]               scb_head0_tag;
-    logic [TAG_W-1:0]               scb_head1_tag;
+    logic [TAG_W-1:0]               scb_head_tag [ISSUE_WIDTH];
     logic [XLEN-1:0]                scb_recovery_mispredict_target_pc;
     logic [EXCP_CAUSE_W-1:0]        scb_recovery_exception_cause;
     logic [XLEN-1:0]                scb_recovery_exception_tval;
@@ -482,7 +476,7 @@ module backend_top (
     logic                           scb_buffer_empty;
 
     // ---- 胶水#2 的产物：四条 lane 的聚合数组 ---------------------------
-    // exec_valid / exec_tag 就是这里的 Result_valid[NUM_LANES] / tag_out[NUM_LANES]
+    // exec_valid / exec_tag 就是这里的 writeback_valid[NUM_LANES] / tag_out[NUM_LANES]
     // （见模块头注释：观测面不另起别名）。
     logic [XLEN-1:0]                lane_result_data          [NUM_LANES];
     logic                           lane_mispredict_flag      [NUM_LANES];
@@ -540,7 +534,7 @@ module backend_top (
     //
     // 2026-08-26 起来源分两处（IB 只存 RAW，重译码在出队侧）：
     //
-    //   **寄存器索引 = `rvc_expand` 输出 `inst32` 的固定切片，不经过 decode。**
+    //   **寄存器索引 = decode 的 `decode_index`，展开结果的固定切片。**
     //   这就是「寄存器读提前起跑」的全部内容：地址路径只等展开器里的
     //   **寄存器选择 mux 树**（浅），不等全译码，更不等 `subop_supported()`。
     //   立即数与 opcode 那些深锥不在这条路径上，综合会剪掉。
@@ -554,14 +548,16 @@ module backend_top (
         for (int unsigned s = 0; s < ISSUE_WIDTH; s++) begin
             // —— 队头 RAW ——
             ib_pc               [s] = head_IB_Payload[s].pc;
-            // —— 地址支：只等 rvc_expand 的寄存器选择锥 ——
-            ib_rs1_idx          [s] = rvce_inst32[s][19:15];
-            ib_rs2_idx          [s] = rvce_inst32[s][24:20];
-            ib_rs3_idx          [s] = rvce_inst32[s][31:27];
-            ib_rd_idx           [s] = rvce_inst32[s][11:7];
+            // —— 地址支：只等 decode 内展开器的寄存器选择锥 ——
+            // 索引来自 decode.decode_index（decode.md ⑥#2：纯切片，不受
+            // 译码非法门控，寄存器读不必等译码结果）。
+            ib_rs1_idx          [s] = dec_rs1_idx[s];
+            ib_rs2_idx          [s] = dec_rs2_idx[s];
+            ib_rs3_idx          [s] = dec_rs3_idx[s];
+            ib_rd_idx           [s] = dec_rd_idx[s];
             // §2.5(1)：源号就是下标，基是 1，没有 rs0。
-            ib_int_rs_idx       [s][1] = rvce_inst32[s][19:15];
-            ib_int_rs_idx       [s][2] = rvce_inst32[s][24:20];
+            ib_int_rs_idx       [s][1] = dec_rs1_idx[s];
+            ib_int_rs_idx       [s][2] = dec_rs2_idx[s];
 
             // —— 出队侧 decode ——
             ib_rd_is_fp         [s] = dec_info[s].rd_is_fp;
@@ -588,12 +584,12 @@ module backend_top (
     //
     //   lane0 = p3_arbiter_G0   lane1 = p3_arbiter_G1
     //   lane2 = fpu_simple 直连（G2 单成员，无仲裁器）
-    //   lane3 = g3_lsu_iface
+    //   lane3 = lsu_bridge
     //
     // **每组数组只在这里聚合一次**，之后纯扇出到 Buffer /
     // CompletionScoreboard / dependency_check / 四个 ISQ_Group /
     // isq_payload_assembly。只聚合一次，bypass_data[b] 与
-    // bypass_valid[b]/bypass_tag[b] 的 b 就天然是同一个。
+    // bypass_publish_valid[b]/bypass_tag[b] 的 b 就天然是同一个。
     //
     // 恒零字段由 FU 自己驱动、仲裁器不补造（§1.2、FU接入契约 §4.1），
     // 所以这里一个字段都不合成、不补 0。
@@ -633,12 +629,12 @@ module backend_top (
 
         // ---------------- lane 2 : fpu_simple 直连 ----------------
         // ⚠ 接线表对不上的一处（已在交付说明里单列）：§1.2 要求「lane 驱动方
-        // → bypass_valid[b]/bypass_tag[b]/bypass_data[b]」四条 lane 全有，
+        // → bypass_publish_valid[b]/bypass_tag[b]/bypass_data[b]」四条 lane 全有，
         // 但 fpu_simple ⑥ **没有 bypass_* 三个输出端口**——G2 无仲裁器，
         // 而 G0/G1 的 bypass 是仲裁器产的。这里取 lane 2 的 completion 本身：
-        // 两个仲裁器的 bypass 就是 {Result_valid & !exception_flag, tag_out,
+        // 两个仲裁器的 bypass 就是 {writeback_valid & !exception_flag, tag_out,
         // result_data}，而 G2 的 exception_flag 按 FU接入契约 §4.1 恒 0，
-        // 该式在 lane 2 上退化成 Result_valid。故这是**同一根网的扇出**，
+        // 该式在 lane 2 上退化成 writeback_valid。故这是**同一根网的扇出**，
         // 不是本层新造的逻辑，也没有接常量。
         exec_valid               [LANE_G2] = g2fu_Result_valid;
         exec_tag                 [LANE_G2] = g2fu_tag_out;
@@ -656,7 +652,7 @@ module backend_top (
         lane_bypass_tag          [LANE_G2] = g2fu_bypass_tag;
         lane_bypass_data         [LANE_G2] = g2fu_bypass_data;
 
-        // ---------------- lane 3 : g3_lsu_iface ----------------
+        // ---------------- lane 3 : lsu_bridge ----------------
         exec_valid               [LANE_G3] = lsuif_Result_valid;
         exec_tag                 [LANE_G3] = lsuif_tag_out;
         lane_result_data         [LANE_G3] = lsuif_result_data;
@@ -778,11 +774,11 @@ module backend_top (
     end
 
     // ==================================================================
-    // 观测面唯一的一根别名：global_flush_valid 与送 lsu_if 的
-    // global_flush_late 同源同网，只是观测面用名（§1.4 只允许一个网络，
-    // 这里没有第二个驱动，只是把同一根网再引到一个顶层端口上）。
+    // 顶层只有一根 global_flush：观测面与 LSU 边界共用它（§1.4 只允许一个
+    // 网络）。内部沿用 global_flush_late 这个网名，出口就是它本身。
     // ==================================================================
-    assign global_flush_valid = global_flush_late;
+    logic global_flush_late;
+    assign global_flush = global_flush_late;
 
     // ==================================================================
     // §1.1 · P1 取指到派遣
@@ -843,7 +839,7 @@ module backend_top (
         // = fe_valid`），decode 挪到出队侧之后连那一段直通也不需要了；
         // IB ③ 的准入链与 accepted_slot 回压契约仍然一个字都没变。
         .fe_valid          (fe_valid),
-        .ib_dequeue        (dl_ib_dequeue),
+        .accept        (alloc_valid),
         .global_flush_late (global_flush_late),
         .head_IB_Payload   (head_IB_Payload),
         .inst_valid        (ib_inst_valid),
@@ -851,48 +847,23 @@ module backend_top (
         .accepted_slot     (accepted_slot)
     );
 
-    // ---- 胶水#7：队头的四根 RAW 字段 ---------------------------------
-    // 剩下的（pc / pred / fetch_excp 的 cause 与 tval）是纯直通字段，
-    // 消费者直接从队头读，不穿过这里也不穿过 decode。
-    logic [31:0] ibh_inst_bits       [ISSUE_WIDTH];
-    logic [15:0] ibh_inst16          [ISSUE_WIDTH];
-    logic        ibh_is_compressed   [ISSUE_WIDTH];
-    logic        ibh_fetch_excp_vld  [ISSUE_WIDTH];
-
-    always_comb begin
-        for (int unsigned s = 0; s < ISSUE_WIDTH; s++) begin
-            ibh_inst_bits     [s] = head_IB_Payload[s].inst_bits;
-            // 压缩子码重编码（decode ④#5）用的是**原始半字**，不是展开结果。
-            ibh_inst16        [s] = head_IB_Payload[s].inst_bits[15:0];
-            ibh_is_compressed [s] = head_IB_Payload[s].is_compressed;
-            ibh_fetch_excp_vld[s] = head_IB_Payload[s].fetch_excp_vld;
-        end
-    end
-
-    // ---- 出队侧译码链第一块：RVC 展开 --------------------------------
-    // **一个实例，两条分支共用。** 地址支只读它输出的 20 位固定切片（胶水#1），
-    // 译码支读整条。不写第二份「寄存器号提取器」—— 那会是同一件事的两份实现，
-    // 读错一个寄存器号没有任何东西能抓到。
-    rvc_expand u_rvc_expand (
-        .ib_inst_bits     (ibh_inst_bits),
-        .ib_is_compressed (ibh_is_compressed),
-        .inst32           (rvce_inst32),
-        .rvc_illegal      (rvce_rvc_illegal)
-    );
-
-    // **decode 在 IB 之后，与地址支并行。**
-    //   地址支  rvce_inst32 的 20 位切片 -> ARF / tag_mapping 读（胶水#1）
-    //   译码支  rvce_inst32 整条 -> decode -> dec_info
+    // ---- 出队侧译码链：decode（rvc_expand 是它的私有 submodule）--------
+    // **decode 在 IB 之后，与地址支并行。** 展开器挪进 decode 内部之后，
+    // 寄存器索引由 decode 的 `decode_index` 给出（decode.md ⑥#2：纯切片，
+    // 不受译码非法门控），地址支与译码支仍然共用同一个展开结果，不存在
+    // 第二份「寄存器号提取器」。
+    //   地址支  decode.decode_index -> ARF / tag_mapping 读（胶水#1）
+    //   译码支  decode.decoded_info -> 派遣级
     // 两条在 dependency_check 的限定项与 §2.1 装配处汇合。
-    // 理由见 spec/微架构文档/P1译码位置重构分析.md（形态 A）。
+
     decode u_decode (
-        .ib_inst32         (rvce_inst32),
-        .ib_inst16         (ibh_inst16),
-        .ib_is_compressed  (ibh_is_compressed),
-        .ib_rvc_illegal    (rvce_rvc_illegal),
-        .ib_fetch_excp_vld (ibh_fetch_excp_vld),
+        .decode_payload    (head_IB_Payload),
         .dec_info          (dec_info),
-        .dec_is_fp_opcode  (dec_is_fp_opcode)
+        .dec_is_fp_opcode  (dec_is_fp_opcode),
+        .rs1_idx           (dec_rs1_idx),
+        .rs2_idx           (dec_rs2_idx),
+        .rs3_idx           (dec_rs3_idx),
+        .rd_idx            (dec_rd_idx)
     );
 
     dependency_check u_dependency_check (
@@ -912,22 +883,20 @@ module backend_top (
         .rs2_is_fp                 (ib_rs2_is_fp),
         .rs3_is_fp                 (ib_rs3_is_fp),
         .Buffer_tail               (scb_Buffer_tail),
-        .INT_tag_mapping_tag       (intmap_tag),
-        .INT_tag_mapping_busy      (intmap_busy),
-        .FP_tag_mapping_tag        (fpmap_tag),
-        .FP_tag_mapping_busy       (fpmap_busy),
+        .int_rename_read_tag       (intmap_tag),
+        .int_rename_read_busy      (intmap_busy),
+        .fp_rename_read_tag        (fpmap_tag),
+        .fp_rename_read_busy       (fpmap_busy),
         .scoreboard_valid_bits     (scb_scoreboard_valid_bits),
         .scoreboard_exec_done_bits (scb_scoreboard_exec_done_bits),
         .commit_valid              (commit_valid),
         .commit_tag                (commit_tag),
-        // §1.2「lane 驱动方 → dependency_check  bypass_valid[b]、bypass_tag[b]
+        // §1.2「lane 驱动方 → dependency_check  bypass_publish_valid[b]、bypass_tag[b]
         // （不含 data）」——与送各 ISQ_Group / 装配的是同一组数组。
-        .bypass_valid              (lane_bypass_valid),
+        .bypass_publish_valid              (lane_bypass_valid),
         .bypass_tag                (lane_bypass_tag),
         .self_tag                  (alloc_tag),
         .rd_write_enable           (dc_rd_write_enable),
-        .slot0_present             (dc_slot0_present),
-        .slot1_present             (dc_slot1_present),
         .serial0                   (dc_serial0),
         .serial_inst               (dc_serial_inst),
         .fp0                       (dc_fp0),
@@ -939,8 +908,7 @@ module backend_top (
     );
 
     dispatch_logic u_dispatch_logic (
-        .slot0_present         (dc_slot0_present),
-        .slot1_present         (dc_slot1_present),
+        .inst_valid            (ib_inst_valid),
         .serial0               (dc_serial0),
         .serial_inst           (dc_serial_inst),
         .fp0                   (dc_fp0),
@@ -961,14 +929,13 @@ module backend_top (
         .self_tag              (alloc_tag[0]),
         .global_flush_late     (global_flush_late),
         .accept                (alloc_valid),
-        .ib_dequeue            (dl_ib_dequeue),
         .isq_wr_en             (dl_isq_wr_en),
         .slot_FU_Group         (dl_slot_FU_Group),
         .effective_rm          (dl_effective_rm),
         .is_fence_i            (dl_is_fence_i),
         .may_flush             (dl_may_flush),
         .is_atomic             (dl_is_atomic),
-        .serial_set            (dl_serial_set),
+        .serial_set_valid      (dl_serial_set_valid),
         .serial_set_tag        (dl_serial_set_tag),
         .select_payload        (dl_select_payload)
     );
@@ -1057,7 +1024,7 @@ module backend_top (
         .FP_ARF          (fparf_ARF),
         .commit_data     (commit_data),
         // §1.2「lane 驱动方 → §2.1 装配  bypass_data[b]」——与送
-        // dependency_check 的 bypass_valid/tag 是同一次聚合的同一个 b。
+        // dependency_check 的 bypass_publish_valid/tag 是同一次聚合的同一个 b。
         .bypass_data     (lane_bypass_data),
         .slot_FU_Group   (dl_slot_FU_Group),
         .effective_rm    (dl_effective_rm),
@@ -1098,9 +1065,9 @@ module backend_top (
     ISQ_Group0 u_ISQ_Group0 (
         .clk                   (clk),
         .rst_n                 (rst_n),
-        .wr_en                 (dl_isq_wr_en[LANE_G0]),
+        .dispatch_valid                 (dl_isq_wr_en[LANE_G0]),
         .payload_in            (mux_ISQ_payload_in[LANE_G0]),
-        .bypass_valid          (lane_bypass_valid),
+        .bypass_publish_valid          (lane_bypass_valid),
         .bypass_tag            (lane_bypass_tag),
         .bypass_data           (lane_bypass_data),
         .global_flush_late     (global_flush_late),
@@ -1128,9 +1095,9 @@ module backend_top (
     ISQ_Group1 u_ISQ_Group1 (
         .clk                   (clk),
         .rst_n                 (rst_n),
-        .wr_en                 (dl_isq_wr_en[LANE_G1]),
+        .dispatch_valid                 (dl_isq_wr_en[LANE_G1]),
         .payload_in            (mux_ISQ_payload_in[LANE_G1]),
-        .bypass_valid          (lane_bypass_valid),
+        .bypass_publish_valid          (lane_bypass_valid),
         .bypass_tag            (lane_bypass_tag),
         .bypass_data           (lane_bypass_data),
         .global_flush_late     (global_flush_late),
@@ -1139,7 +1106,6 @@ module backend_top (
         .rs1_data              (isq1_rs1_data),
         .rs2_data              (isq1_rs2_data),
         .FU_Group              (isq1_FU_Group),
-        .imm_valid             (isq1_imm_valid),
         .imm_data              (isq1_imm_data),
         .self_tag              (isq1_self_tag),
         .exe_subop             (isq1_exe_subop),
@@ -1150,8 +1116,8 @@ module backend_top (
         .clk                   (clk),
         .rst_n                 (rst_n),
         .payload_in            (mux_ISQ_payload_in[LANE_G2]),
-        .wr_en                 (dl_isq_wr_en[LANE_G2]),
-        .bypass_valid          (lane_bypass_valid),
+        .dispatch_valid                 (dl_isq_wr_en[LANE_G2]),
+        .bypass_publish_valid          (lane_bypass_valid),
         .bypass_tag            (lane_bypass_tag),
         .bypass_data           (lane_bypass_data),
         .global_flush_late     (global_flush_late),
@@ -1170,23 +1136,22 @@ module backend_top (
     ISQ_Group3 u_ISQ_Group3 (
         .clk                   (clk),
         .rst_n                 (rst_n),
-        .wr_en                 (dl_isq_wr_en[LANE_G3]),
+        .dispatch_valid                 (dl_isq_wr_en[LANE_G3]),
         .payload_in            (mux_ISQ_payload_in[LANE_G3]),
-        .bypass_valid          (lane_bypass_valid),
+        .bypass_publish_valid          (lane_bypass_valid),
         .bypass_tag            (lane_bypass_tag),
         .bypass_data           (lane_bypass_data),
         .global_flush_late     (global_flush_late),
-        // §1.2「g3_lsu_iface → ISQ_Group3  FU_ready（一位，按 entry 类别限定）」
+        // §1.2「lsu_bridge → ISQ_Group3  FU_ready（一位，按 entry 类别限定）」
         .FU_ready              (lsuif_FU_ready),
         .issue_valid           (isq3_issue_valid),
         .rs1_data              (isq3_rs1_data),
-        .rs2_data              (isq3_rs2_data),
+        .store_data            (isq3_store_data),
         .imm_valid             (isq3_imm_valid),
         .imm_data              (isq3_imm_data),
-        .is_store              (isq3_is_store),
         .mem_funct3            (isq3_mem_funct3),
         .rd_is_fp              (isq3_rd_is_fp),
-        .self_tag              (isq3_self_tag),
+        .entry_self_tag        (isq3_entry_self_tag),
         .exe_subop             (isq3_exe_subop),
         .isq_free_for_dispatch (isq3_isq_free_for_dispatch),
         // §1.3「ISQ_Group3 → CompletionScoreboard  isq_occupied」的值。
@@ -1206,7 +1171,6 @@ module backend_top (
         .rs1_data                       (isq0_rs1_data),
         .rs2_data                       (isq0_rs2_data),
         .FU_Group                       (isq0_FU_Group),
-        .imm_valid                      (isq0_imm_valid),
         .imm_data                       (isq0_imm_data),
         .pc                             (isq0_pc),
         .inst_bits                      (isq0_inst_bits),
@@ -1255,15 +1219,10 @@ module backend_top (
         .global_flush_late        (global_flush_late),
         .issue_valid              (isq0_issue_valid),
         .rs1_data                 (isq0_rs1_data),
-        .rs2_data                 (isq0_rs2_data),
         .FU_Group                 (isq0_FU_Group),
         .imm_valid                (isq0_imm_valid),
         .imm_data                 (isq0_imm_data),
-        .pc                       (isq0_pc),
         .inst_bits                (isq0_inst_bits),
-        .is_compressed            (isq0_is_compressed),
-        .pred_taken               (isq0_pred_taken),
-        .pred_target_pc           (isq0_pred_target_pc),
         .self_tag                 (isq0_self_tag),
         .exe_subop                (isq0_exe_subop),
         .full_decode              (isq0_full_decode),
@@ -1303,16 +1262,8 @@ module backend_top (
         .rs1_data                 (isq0_rs1_data),
         .rs2_data                 (isq0_rs2_data),
         .FU_Group                 (isq0_FU_Group),
-        .imm_valid                (isq0_imm_valid),
-        .imm_data                 (isq0_imm_data),
-        .pc                       (isq0_pc),
-        .inst_bits                (isq0_inst_bits),
-        .is_compressed            (isq0_is_compressed),
-        .pred_taken               (isq0_pred_taken),
-        .pred_target_pc           (isq0_pred_target_pc),
         .self_tag                 (isq0_self_tag),
         .exe_subop                (isq0_exe_subop),
-        .full_decode              (isq0_full_decode),
         .winner_grant             (arbG0_winner_grant[G0_FU_DIV]),
         .loser_hold               (arbG0_loser_hold  [G0_FU_DIV]),
         .FU_ready                 (div_FU_ready),
@@ -1349,7 +1300,6 @@ module backend_top (
         .rs1_data                       (isq1_rs1_data),
         .rs2_data                       (isq1_rs2_data),
         .FU_Group                       (isq1_FU_Group),
-        .imm_valid                      (isq1_imm_valid),
         .imm_data                       (isq1_imm_data),
         .pc                             ('0),
         .inst_bits                      ('0),
@@ -1405,8 +1355,6 @@ module backend_top (
         .rs1_data                 (isq1_rs1_data),
         .rs2_data                 (isq1_rs2_data),
         .FU_Group                 (isq1_FU_Group),
-        .imm_valid                (isq1_imm_valid),
-        .imm_data                 (isq1_imm_data),
         .self_tag                 (isq1_self_tag),
         .exe_subop                (isq1_exe_subop),
         .winner_grant             (arbG1_winner_grant[G1_FU_MUL]),
@@ -1440,7 +1388,7 @@ module backend_top (
         // §1.2 明写「system_instruction_handler → FPU  frm 这条边不存在」。
         .full_decode          (isq2_full_decode),
         .FU_ready             (g2fu_FU_ready),
-        .Result_valid         (g2fu_Result_valid),
+        .writeback_valid         (g2fu_Result_valid),
         .tag_out              (g2fu_tag_out),
         .result_data          (g2fu_result_data),
         .mispredict_flag      (g2fu_mispredict_flag),
@@ -1451,7 +1399,7 @@ module backend_top (
         .is_mret              (g2fu_is_mret),
         .is_sret              (g2fu_is_sret),
         .fpu_fflags           (g2fu_fpu_fflags),
-        .bypass_valid              (g2fu_bypass_valid),
+        .bypass_publish_valid              (g2fu_bypass_valid),
         .bypass_tag                (g2fu_bypass_tag),
         .bypass_data               (g2fu_bypass_data)
     );
@@ -1473,7 +1421,7 @@ module backend_top (
         .req_csr_write_enable     (g0_req_csr_write_enable),
         .req_csr_addr             (g0_req_csr_addr),
         .req_csr_wdata            (g0_req_csr_wdata),
-        .Result_valid             (arbG0_Result_valid),
+        .writeback_valid             (arbG0_Result_valid),
         .tag_out                  (arbG0_tag_out),
         .result_data              (arbG0_result_data),
         .mispredict_flag          (arbG0_mispredict_flag),
@@ -1484,11 +1432,12 @@ module backend_top (
         .is_mret                  (arbG0_is_mret),
         .is_sret                  (arbG0_is_sret),
         .fpu_fflags               (arbG0_fpu_fflags),
+        .csr_sideband_publish_valid (arbG0_csr_sideband_valid),
         .is_csr                   (arbG0_is_csr),
         .csr_write_enable         (arbG0_csr_write_enable),
         .csr_addr                 (arbG0_csr_addr),
         .csr_wdata                (arbG0_csr_wdata),
-        .bypass_valid             (arbG0_bypass_valid),
+        .bypass_publish_valid             (arbG0_bypass_valid),
         .bypass_tag               (arbG0_bypass_tag),
         .bypass_data              (arbG0_bypass_data),
         .winner_grant             (arbG0_winner_grant),
@@ -1507,7 +1456,7 @@ module backend_top (
         .req_is_sret              (g1_req_is_sret),
         .req_fpu_fflags           (g1_req_fpu_fflags),
         .request_valid            (g1_request_valid),
-        .Result_valid             (arbG1_Result_valid),
+        .writeback_valid             (arbG1_Result_valid),
         .tag_out                  (arbG1_tag_out),
         .result_data              (arbG1_result_data),
         .exception_flag           (arbG1_exception_flag),
@@ -1518,7 +1467,7 @@ module backend_top (
         .is_mret                  (arbG1_is_mret),
         .is_sret                  (arbG1_is_sret),
         .fpu_fflags               (arbG1_fpu_fflags),
-        .bypass_valid             (arbG1_bypass_valid),
+        .bypass_publish_valid             (arbG1_bypass_valid),
         .bypass_tag               (arbG1_bypass_tag),
         .bypass_data              (arbG1_bypass_data),
         .winner_grant             (arbG1_winner_grant),
@@ -1526,34 +1475,31 @@ module backend_top (
     );
 
     // ---- G3 的边界桥（lane 3 的驱动方）----
-    g3_lsu_iface u_g3_lsu_iface (
+    lsu_bridge u_lsu_bridge (
         .clk                       (clk),
         .rst_n                     (rst_n),
         .issue_valid               (isq3_issue_valid),
-        .self_tag                  (isq3_self_tag),
+        .entry_self_tag            (isq3_entry_self_tag),
         .exe_subop                 (isq3_exe_subop),
         .mem_funct3                (isq3_mem_funct3),
         .rd_is_fp                  (isq3_rd_is_fp),
         .rs1_data                  (isq3_rs1_data),
-        .rs2_data                  (isq3_rs2_data),
+        .store_data                (isq3_store_data),
         .imm_valid                 (isq3_imm_valid),
         .imm_data                  (isq3_imm_data),
-        .is_store                  (isq3_is_store),
-        // §1.3「CompletionScoreboard → g3_lsu_iface  st_br_resolve_by_tag」的
+        // §1.3「CompletionScoreboard → lsu_bridge  st_br_resolve_by_tag」的
         // 值那一半；地址那一半见 CompletionScoreboard 的 st_br_resolve_tag。
         .st_br_resolve             (scb_st_br_resolve),
         .store_wakeup_valid        (scb_store_wakeup_valid),
         .store_wakeup_tag          (scb_store_wakeup_tag),
         .global_flush_late         (global_flush_late),
         .lsu_be_issue_ready        (lsu_be_issue_ready),
-        .lsu_be_done_valid         (lsu_be_done_valid),
-        .lsu_be_done_pld           (lsu_be_done_pld),
-        .lsu_be_exception_valid    (lsu_be_exception_valid),
-        .lsu_be_exception_pld      (lsu_be_exception_pld),
+        .lsu_be_writeback_valid    (lsu_be_writeback_valid),
+        .lsu_be_writeback_pld      (lsu_be_writeback_pld),
         .lsu_be_bypass_valid       (lsu_be_bypass_valid),
         .lsu_be_bypass_pld         (lsu_be_bypass_pld),
         .FU_ready                  (lsuif_FU_ready),
-        .Result_valid              (lsuif_Result_valid),
+        .writeback_valid              (lsuif_Result_valid),
         .tag_out                   (lsuif_tag_out),
         .result_data               (lsuif_result_data),
         .mispredict_flag           (lsuif_mispredict_flag),
@@ -1564,13 +1510,13 @@ module backend_top (
         .is_mret                   (lsuif_is_mret),
         .is_sret                   (lsuif_is_sret),
         .fpu_fflags                (lsuif_fpu_fflags),
-        .bypass_valid              (lsuif_bypass_valid),
+        .bypass_publish_valid              (lsuif_bypass_valid),
         .bypass_tag                (lsuif_bypass_tag),
         .bypass_data               (lsuif_bypass_data),
         .be_lsu_issue_valid        (be_lsu_issue_valid),
         .be_lsu_issue_pld          (be_lsu_issue_pld),
-        .be_lsu_entry_ready        (be_lsu_entry_ready),
-        .be_lsu_store_wakeup_valid (be_lsu_store_wakeup_valid)
+        .be_lsu_store_wakeup_valid (be_lsu_store_wakeup_valid),
+        .be_lsu_store_wakeup_tag   (be_lsu_store_wakeup_tag)
     );
 
     // ==================================================================
@@ -1580,11 +1526,10 @@ module backend_top (
     Buffer u_Buffer (
         .clk          (clk),
         .rst_n        (rst_n),
-        .Result_valid (exec_valid),
+        .writeback_valid (exec_valid),
         .tag_out      (exec_tag),
         .result_data  (lane_result_data),
-        .head0_tag    (scb_head0_tag),
-        .head1_tag    (scb_head1_tag),
+        .head_tag    (scb_head_tag),
         .commit_data  (commit_data)
     );
 
@@ -1597,8 +1542,7 @@ module backend_top (
         // §1.4：两个恢复读口的地址是 SCB 产生的同一根 flush_tag，
         // 同拍扇出，flush_model 不重新驱动它。
         .flush_tag (scb_flush_tag),
-        .head0_tag (scb_head0_tag),
-        .head1_tag (scb_head1_tag),
+        .head_tag (scb_head_tag),
         .inst_pc   (pcf_inst_pc),
         .trace_pc  (trace_pc)
     );
@@ -1606,10 +1550,10 @@ module backend_top (
     SerialInstructionTracker u_SerialInstructionTracker (
         .clk                   (clk),
         .rst_n                 (rst_n),
-        .serial_set            (dl_serial_set),
+        .serial_set_valid      (dl_serial_set_valid),
         // §1.1「dispatch_logic → SerialInstructionTracker  serial_set、
-        // self_tag[0]」：转发载荷在 dispatch_logic 侧叫 serial_set_tag。
-        .self_tag              (dl_serial_set_tag),
+        // serial_set_tag」：两侧同名，见 port-map_v3.md。
+        .serial_set_tag        (dl_serial_set_tag),
         .commit_valid          (commit_valid),
         .commit_tag            (commit_tag),
         .global_flush_late     (global_flush_late),
@@ -1644,7 +1588,9 @@ module backend_top (
         .clk                    (clk),
         .rst_n                  (rst_n),
         // §1.2：lane 0 的 csr_sideband 绕过 SCB，直连本模块——全库唯一一条。
-        .Result_valid           (arbG0_Result_valid),
+        // csr_sideband_publish 由 p3_arbiter_G0 自己发布（R3），不再从
+        // writeback_valid 与 is_csr 在消费侧反推。
+        .csr_sideband_valid     (arbG0_csr_sideband_valid),
         .tag_out                (arbG0_tag_out),
         .sb_is_csr              (arbG0_is_csr),
         .sb_csr_write_enable    (arbG0_csr_write_enable),
@@ -1694,7 +1640,7 @@ module backend_top (
         .may_flush                     (dl_may_flush),
         .is_atomic                     (dl_is_atomic),
         // 四条 lane 的写回事件批，胶水#2 聚合而来
-        .Result_valid                  (exec_valid),
+        .writeback_valid                  (exec_valid),
         .tag_out                       (exec_tag),
         .mispredict_flag               (lane_mispredict_flag),
         .mispredict_target_pc          (lane_mispredict_target_pc),
@@ -1707,11 +1653,11 @@ module backend_top (
         .global_flush_late             (global_flush_late),
         .interrupt_pending             (sih_interrupt_pending),
         // st_br_resolve 读口的地址那一半（§4）：G3 issue 边界上的 self_tag，
-        // 与送 g3_lsu_iface 的是同一根网。
-        .st_br_resolve_tag             (isq3_self_tag),
+        // 与送 lsu_bridge 的是同一根网。
+        .st_br_resolve_tag             (isq3_entry_self_tag),
         // 读地址的有效位（2026-08-26 新增边）：ISQ_Group3 此刻是否真驻留着
         // 一条指令。SCB 拿它区分「store 还在 ISQ3」与「已进 LSU」，
-        // 从而选就地解析还是发唤醒脉冲。空队列时 isq3_self_tag 是残留值。
+        // 从而选就地解析还是发唤醒脉冲。空队列时 isq3_entry_self_tag 是残留值。
         //
         // **接的是 isq_occupied 不是 issue_valid。** issue_valid 含
         // operand_ready，store 等操作数期间是 0 —— 而那正是需要就地授权的
@@ -1730,8 +1676,7 @@ module backend_top (
         .flush_valid                   (scb_flush_valid),
         .flush_tag                     (scb_flush_tag),
         .recovery_kind                 (scb_recovery_kind),
-        .head0_tag                     (scb_head0_tag),
-        .head1_tag                     (scb_head1_tag),
+        .head_tag                     (scb_head_tag),
         .recovery_mispredict_target_pc (scb_recovery_mispredict_target_pc),
         .recovery_exception_cause      (scb_recovery_exception_cause),
         .recovery_exception_tval       (scb_recovery_exception_tval),

@@ -70,15 +70,15 @@ module dependency_check (
 
     // in: 组合读 -- INT_tag_mapping, 4 read ports, (s,x) ∈ {0,1}×{1,2}.
     // Shape frozen by 集成层 §2.5(1): (s,x) with x in {1,2}, base 1 not 0.
-    input  logic [TAG_W-1:0]        INT_tag_mapping_tag       [ISSUE_WIDTH][1:INT_SRC_PER_SLOT],
-    input  logic                    INT_tag_mapping_busy      [ISSUE_WIDTH][1:INT_SRC_PER_SLOT],
+    input  logic [TAG_W-1:0]        int_rename_read_tag       [ISSUE_WIDTH][1:INT_SRC_PER_SLOT],
+    input  logic                    int_rename_read_busy      [ISSUE_WIDTH][1:INT_SRC_PER_SLOT],
 
     // in: 组合读 -- FP_tag_mapping, 3 read ports, x ∈ {1,2,3}, no slot
     // dimension: the 3 FP read addresses already belong to the one slot that
     // FP_read_address_mux selected, so the port indexed x-1 IS slot s's value
     // whenever rsX_is_fp[s] holds (④#3 step 2).
-    input  logic [TAG_W-1:0]        FP_tag_mapping_tag        [1:FP_READ_PORTS],
-    input  logic                    FP_tag_mapping_busy       [1:FP_READ_PORTS],
+    input  logic [TAG_W-1:0]        fp_rename_read_tag        [1:FP_READ_PORTS],
+    input  logic                    fp_rename_read_busy       [1:FP_READ_PORTS],
 
     // in: 组合读 -- Static Info from CompletionScoreboard, 16 bit each
     input  logic [ROB_DEPTH-1:0]    scoreboard_valid_bits,
@@ -93,7 +93,7 @@ module dependency_check (
     // ------------------------------------------------------------------
     // in-event: bypass_publish (announce, 4 lane).  Tag only.
     // ------------------------------------------------------------------
-    input  logic                    bypass_valid              [NUM_LANES],
+    input  logic                    bypass_publish_valid              [NUM_LANES],
     input  logic [TAG_W-1:0]        bypass_tag                [NUM_LANES],
 
     // ------------------------------------------------------------------
@@ -107,8 +107,6 @@ module dependency_check (
     // ------------------------------------------------------------------
     // out: 组合读 -> dispatch_logic
     // ------------------------------------------------------------------
-    output logic                    slot0_present,
-    output logic                    slot1_present,
     output logic                    serial0,
     output logic                    serial_inst,
     output logic                    fp0,
@@ -204,8 +202,6 @@ module dependency_check (
     // downstream dual-FP block test (dispatch_logic ④).
     // ------------------------------------------------------------------
     always_comb begin
-        slot0_present = inst_valid[SLOT0];
-        slot1_present = inst_valid[SLOT1];
         serial0       = is_serial[SLOT0];
         serial_inst   = is_serial[SLOT0] || is_serial[SLOT1];
         fp0           = is_fp_opcode[SLOT0];
@@ -223,7 +219,7 @@ module dependency_check (
 
     always_comb begin
         for (int unsigned x = 1; x <= NUM_SRC; x++) begin
-            slot1_dep_hit[x] = slot0_present
+            slot1_dep_hit[x] = inst_valid[SLOT0]
                             && rd_write_enable[SLOT0]
                             && use_rs[SLOT1][x]
                             && (rs_idx  [SLOT1][x] == rd_idx  [SLOT0])
@@ -250,8 +246,8 @@ module dependency_check (
         for (int unsigned s = 0; s < ISSUE_WIDTH; s++) begin
             for (int unsigned x = 1; x <= NUM_SRC; x++) begin
                 if (x <= NUM_INT_SRC) begin
-                    int_tag [s][x] = INT_tag_mapping_tag [s][x];
-                    int_busy[s][x] = INT_tag_mapping_busy[s][x];
+                    int_tag [s][x] = int_rename_read_tag [s][x];
+                    int_busy[s][x] = int_rename_read_busy[s][x];
                 end else begin
                     int_tag [s][x] = '0;
                     int_busy[s][x] = 1'b1;
@@ -259,9 +255,9 @@ module dependency_check (
 
                 take_fp[s][x] = rs_is_fp[s][x] || (x > NUM_INT_SRC);
 
-                producer_tag[s][x] = take_fp[s][x] ? FP_tag_mapping_tag[x]
+                producer_tag[s][x] = take_fp[s][x] ? fp_rename_read_tag[x]
                                                    : int_tag[s][x];
-                arf_ready[s][x]    = take_fp[s][x] ? !FP_tag_mapping_busy[x]
+                arf_ready[s][x]    = take_fp[s][x] ? !fp_rename_read_busy[x]
                                                    : !int_busy[s][x];
             end
         end
@@ -295,7 +291,7 @@ module dependency_check (
 
                 for (int unsigned b = 0; b < NUM_LANES; b++) begin
                     if (!bypass_match[s][x]
-                        && bypass_valid[b]
+                        && bypass_publish_valid[b]
                         && (bypass_tag[b] == producer_tag[s][x])) begin
                         bypass_match[s][x]    = 1'b1;
                         bypass_lane [s][x][b] = 1'b1;

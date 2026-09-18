@@ -82,17 +82,17 @@ module FP_ARF (
     // therefore wins; with the double-FP commit block in place the two requests
     // are never simultaneous, so the tie-break is unobservable.
     // ------------------------------------------------------------------
-    logic                  wr_en;
+    logic                  dispatch_valid;
     logic [REG_ADDR_W-1:0] wr_idx;
     logic [XLEN-1:0]       wr_data;
 
     always_comb begin
-        wr_en   = 1'b0;
+        dispatch_valid   = 1'b0;
         wr_idx  = '0;
         wr_data = '0;
         for (int unsigned k = ISSUE_WIDTH; k > 0; k--) begin
             if (write_req[k-1]) begin
-                wr_en   = 1'b1;
+                dispatch_valid   = 1'b1;
                 wr_idx  = rd_idx[k-1];
                 wr_data = commit_data[k-1];
             end
@@ -104,7 +104,7 @@ module FP_ARF (
             for (int unsigned i = 0; i < NUM_FPR; i++) begin
                 entry_arf[i] <= '0;
             end
-        end else if (wr_en) begin
+        end else if (dispatch_valid) begin
             entry_arf[wr_idx] <= wr_data;
         end
     end

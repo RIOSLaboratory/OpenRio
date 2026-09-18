@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1460" height="400" viewBox="0 0 1460 400"
+     font-family="'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#222"/>
+    </marker>
+    <style>
+      .box    { fill:#fff; stroke:#222; stroke-width:2; }
+      .nm     { font-size:16px; font-weight:600; fill:#222;
+                text-anchor:middle; dominant-baseline:middle; }
+      .nm-s   { font-size:14px; font-weight:600; fill:#222;
+                text-anchor:middle; dominant-baseline:middle; }
+      .wire   { stroke:#222; stroke-width:2; fill:none;
+                marker-end:url(#arrow); }
+      .wire-2 { stroke:#222; stroke-width:2; fill:none;
+                marker-start:url(#arrow); marker-end:url(#arrow); }
+      .lbl    { font-size:15px; font-style:italic; fill:#222; text-anchor:middle; }
+      .ann    { font-size:15px; fill:#222; text-anchor:middle; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#fff"/>
+
+  <!-- ===== 方块 ===== -->
+  <rect class="box" x="30"   y="45"  width="96"  height="136"/>
+  <text class="nm"   x="78"   y="113">FE_Agent</text>
+
+  <rect class="box" x="250"  y="75"  width="140" height="76"/>
+  <text class="nm"   x="320"  y="113">DUT</text>
+
+  <rect class="box" x="545"  y="45"  width="110" height="136"/>
+  <text class="nm-s" x="600"  y="113">Cache_Agent</text>
+
+  <rect class="box" x="705"  y="175" width="68"  height="170"/>
+  <text class="nm-s" x="739"  y="260">adapter</text>
+
+  <rect class="box" x="1020" y="190" width="100" height="46"/>
+  <text class="nm-s" x="1070" y="213">be-agent</text>
+
+  <rect class="box" x="1180" y="190" width="112" height="46"/>
+  <text class="nm-s" x="1236" y="213">isa_model</text>
+
+  <rect class="box" x="1350" y="140" width="76"  height="200"/>
+  <text class="nm-s" x="1388" y="240">checker</text>
+
+  <!-- ===== 连线 ===== -->
+  <path class="wire-2" d="M126,113 H250"/>
+  <text class="lbl" x="188" y="100">orbe_fe_if</text>
+
+  <path class="wire-2" d="M390,113 H545"/>
+  <text class="lbl" x="467" y="100">or_be_lsu_if</text>
+
+  <path class="wire" d="M320,151 V305 H705"/>
+  <text class="ann" x="500" y="330">提取 DUT 中信号</text>
+
+  <path class="wire" d="M600,181 V213 H705"/>
+
+  <path class="wire" d="M773,213 H1020"/>
+  <text class="lbl" x="890" y="200">ob_if</text>
+
+  <path class="wire" d="M1120,213 H1180"/>
+  <text class="ann" x="1150" y="190">驱动</text>
+
+  <path class="wire" d="M1292,213 H1350"/>
+
+  <path class="wire" d="M773,305 H1350"/>
+  <text class="lbl" x="900" y="293">checker_if</text>
+
+</svg>

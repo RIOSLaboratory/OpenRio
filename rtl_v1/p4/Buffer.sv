@@ -22,13 +22,12 @@ module Buffer (
     input  logic                rst_n,
 
     // in-event: writeback (announce x4, 4 write ports, random addressing)
-    input  logic                Result_valid [NUM_LANES],
+    input  logic                writeback_valid [NUM_LANES],
     input  logic [TAG_W-1:0]    tag_out      [NUM_LANES],
     input  logic [XLEN-1:0]     result_data  [NUM_LANES],
 
     // in-event: combinational read addresses from the SCB queue heads
-    input  logic [TAG_W-1:0]    head0_tag,
-    input  logic [TAG_W-1:0]    head1_tag,
+    input  logic [TAG_W-1:0]    head_tag [ISSUE_WIDTH],
 
     // out-event: combinational read data, head0/head1 result_data
     output logic [XLEN-1:0]     commit_data  [ISSUE_WIDTH]
@@ -53,7 +52,7 @@ module Buffer (
             end
         end else begin
             for (int unsigned g = 0; g < NUM_LANES; g++) begin
-                if (Result_valid[g]) begin
+                if (writeback_valid[g]) begin
                     entry_result_data[tag_out[g]] <= result_data[g];
                 end
             end
@@ -68,8 +67,8 @@ module Buffer (
     // assembly, which does not add a third port.
     // ------------------------------------------------------------------
     always_comb begin
-        commit_data[0] = entry_result_data[head0_tag];
-        commit_data[1] = entry_result_data[head1_tag];
+        commit_data[0] = entry_result_data[head_tag[0]];
+        commit_data[1] = entry_result_data[head_tag[1]];
     end
 
 endmodule

@@ -38,7 +38,7 @@ import or_be_types_pkg::*;
 //   * It does not assemble be_lsu_issue_pld_t, and it produces neither
 //     req_property nor st_br_resolve (⑥ issue: 「就这 9 个字段」).  The former
 //     is req_property_from_subop(exe_subop), the latter an SCB alloc-header
-//     read addressed by self_tag; both are built in g3_lsu_iface, which is the
+//     read addressed by self_tag; both are built in lsu_bridge, which is the
 //     "issue wrapper" of ⑤ and the "bridge" of 集成层 §2.3.  This module has
 //     no SCB header read port and must not grow one.
 //
@@ -70,7 +70,7 @@ module ISQ_Group3 (
     // side is this module's own isq_free_for_dispatch and has already been
     // absorbed upstream, so there is no second handshake here)
     // ------------------------------------------------------------------
-    input  logic                    wr_en,
+    input  logic                    dispatch_valid,
     // The full ISQ_Payload arrives; only the ⑤ subset is captured.
     input  isq_payload_t            payload_in,
 
@@ -79,7 +79,7 @@ module ISQ_Group3 (
     // lanes are listened to -- bypass is a global broadcast, not a per-group
     // one.  tag and valid are compared and dropped; only data can enter.
     // ------------------------------------------------------------------
-    input  logic                    bypass_valid [NUM_LANES],
+    input  logic                    bypass_publish_valid [NUM_LANES],
     input  logic [TAG_W-1:0]        bypass_tag   [NUM_LANES],
     input  logic [XLEN-1:0]         bypass_data  [NUM_LANES],
 
@@ -90,7 +90,7 @@ module ISQ_Group3 (
 
     // ------------------------------------------------------------------
     // in: combinational read -- FU_ready.  One wire, and it is *class
-    // qualified*: g3_lsu_iface computes it from this cycle's offered request
+    // qualified*: lsu_bridge computes it from this cycle's offered request
     // class (集成层 §2.3), so a full store buffer lowers it for a
     // store/AMO/SC and leaves it high for a load/LR/fence.  It must never be
     // treated as a group-wide "LSU busy" bit, and it must not depend on
@@ -103,13 +103,13 @@ module ISQ_Group3 (
     // ------------------------------------------------------------------
     // out-event: issue.  issue_valid is the **request** line, not the fire line
     // (see the file header).  The nine payload wires below are the whole of this
-    // module's issue contribution -- g3_lsu_iface adds req_property and
+    // module's issue contribution -- lsu_bridge adds req_property and
     // st_br_resolve and assembles be_lsu_issue_pld_t.  G3 has no separate
     // address/data issue channel.
     // ------------------------------------------------------------------
     output logic                    issue_valid,
     output logic [XLEN-1:0]         rs1_data,
-    output logic [XLEN-1:0]         rs2_data,
+    output logic [XLEN-1:0]         store_data,
     output logic                    imm_valid,
     // Full 64-bit, already completely sign-extended by decode (⑤ writes it
     // `signed 64`).  It must never be re-truncated to 12 bit at this boundary;
@@ -117,10 +117,9 @@ module ISQ_Group3 (
     // attribute and takes these 64 bits unchanged.
     output logic [XLEN-1:0]         imm_data,
     // plain-store only: AMO / SC / FENCE all carry 0 here.
-    output logic                    is_store,
     output logic [MEM_FUNCT3_W-1:0] mem_funct3,
     output logic                    rd_is_fp,
-    output logic [TAG_W-1:0]        self_tag,
+    output logic [TAG_W-1:0]        entry_self_tag,
     output logic [EXE_SUBOP_W-1:0]  exe_subop,
 
     // ------------------------------------------------------------------
@@ -161,7 +160,6 @@ module ISQ_Group3 (
     logic [XLEN-1:0]         rs2_data_q;
     logic                    imm_valid_q;
     logic [XLEN-1:0]         imm_data_q;
-    logic                    is_store_q;
     logic [MEM_FUNCT3_W-1:0] mem_funct3_q;
     logic                    rd_is_fp_q;
     logic [TAG_W-1:0]        self_tag_q;
@@ -171,7 +169,7 @@ module ISQ_Group3 (
     // (3) fast_ready_rsX
     //
     //     fast_ready_rsX = !rsX_ready & OR over b in {0..3}
-    //                      (bypass_valid[b] & rsX_wait_tag == bypass_tag[b])
+    //                      (bypass_publish_valid[b] & rsX_wait_tag == bypass_tag[b])
     //
     // This is the criterion, not the data select.  The data select lives in
     // FU_input_mux below; the two agree because they compare the same tags,
@@ -188,10 +186,10 @@ module ISQ_Group3 (
         rs1_bypass_hit = 1'b0;
         rs2_bypass_hit = 1'b0;
         for (int b = 0; b < NUM_LANES; b++) begin
-            if (bypass_valid[b] && (bypass_tag[b] == rs1_wait_tag_q)) begin
+            if (bypass_publish_valid[b] && (bypass_tag[b] == rs1_wait_tag_q)) begin
                 rs1_bypass_hit = 1'b1;
             end
-            if (bypass_valid[b] && (bypass_tag[b] == rs2_wait_tag_q)) begin
+            if (bypass_publish_valid[b] && (bypass_tag[b] == rs2_wait_tag_q)) begin
                 rs2_bypass_hit = 1'b1;
             end
         end
@@ -228,7 +226,7 @@ module ISQ_Group3 (
     FU_input_mux u_fu_input_mux_rs1 (
         .entry_rsX_data (rs1_data_q),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (rs1_wait_tag_q),
         .rsX_ready      (rs1_ready_q),
@@ -238,7 +236,7 @@ module ISQ_Group3 (
     FU_input_mux u_fu_input_mux_rs2 (
         .entry_rsX_data (rs2_data_q),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (rs2_wait_tag_q),
         .rsX_ready      (rs2_ready_q),
@@ -309,14 +307,13 @@ module ISQ_Group3 (
             rs2_data_q     <= '0;
             imm_valid_q    <= 1'b0;
             imm_data_q     <= '0;
-            is_store_q     <= 1'b0;
             mem_funct3_q   <= '0;
             rd_is_fp_q     <= 1'b0;
             self_tag_q     <= '0;
             exe_subop_q    <= '0;
         end else if (global_flush_late) begin
             isq_valid_q    <= 1'b0;
-        end else if (wr_en) begin
+        end else if (dispatch_valid) begin
             isq_valid_q    <= 1'b1;
             rs1_ready_q    <= payload_in.rs1_ready;
             rs2_ready_q    <= payload_in.rs2_ready;
@@ -326,7 +323,6 @@ module ISQ_Group3 (
             rs2_data_q     <= payload_in.rs2_data;
             imm_valid_q    <= payload_in.imm_valid;
             imm_data_q     <= payload_in.imm_data;
-            is_store_q     <= payload_in.is_store;
             mem_funct3_q   <= payload_in.mem_funct3;
             rd_is_fp_q     <= payload_in.rd_is_fp;
             self_tag_q     <= payload_in.self_tag;
@@ -353,7 +349,7 @@ module ISQ_Group3 (
     //
     // Driven unconditionally -- ③: 「payload 必须无条件驱动给对端：FU_ready
     // 是它的函数，不先呈现就求不出来」.  exe_subop in particular has to stand
-    // on the port before g3_lsu_iface can run req_property_from_subop on it
+    // on the port before lsu_bridge can run req_property_from_subop on it
     // and answer with FU_ready, so gating any of these on issue_valid would
     // close a loop that ③ opens on purpose.
     //
@@ -363,13 +359,12 @@ module ISQ_Group3 (
     // disagreement instead of letting it show.
     // ------------------------------------------------------------------
     assign rs1_data   = fu_rs1_data;
-    assign rs2_data   = fu_rs2_data;
+    assign store_data = fu_rs2_data;
     assign imm_valid  = imm_valid_q;
     assign imm_data   = imm_data_q;
-    assign is_store   = is_store_q;
     assign mem_funct3 = mem_funct3_q;
     assign rd_is_fp   = rd_is_fp_q;
-    assign self_tag   = self_tag_q;
+    assign entry_self_tag = self_tag_q;
     assign exe_subop  = exe_subop_q;
 
 endmodule

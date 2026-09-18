@@ -17,7 +17,7 @@ import or_be_config_pkg::*;
 //                                Architectural writes are events, not stages:
 //                                apply / trap_entry / mret_update /
 //                                fflags_accrue, plus the counter increments.
-// (3) condition                : capture   = Result_valid & sb_is_csr &
+// (3) condition                : capture   = csr_sideband_valid &
 //                                            sb_csr_write_enable & !flush
 //                                apply_fire= csr_stage.valid & tag hit on
 //                                            either commit lane
@@ -54,9 +54,11 @@ module system_instruction_handler (
     input  logic                      rst_n,
 
     // in-event: capture (announce x1) -- p3_arbiter_G0 lane 0 only.
-    // Result_valid / tag_out are the completion_common trigger and identity;
+    // csr_sideband_valid / tag_out are the sideband trigger and identity;
     // the sb_* four are the lane-0 sideband layer, which never enters the SCB.
-    input  logic                      Result_valid,
+    // in-event: csr_sideband -- 由 p3_arbiter_G0 的 csr_sideband_publish 驱动，
+    // 不再从 writeback_valid 与 sb_is_csr 反推（文档 R3）。
+    input  logic                      csr_sideband_valid,
     input  logic [TAG_W-1:0]          tag_out,
     input  logic                      sb_is_csr,
     input  logic                      sb_csr_write_enable,
@@ -160,7 +162,8 @@ module system_instruction_handler (
     localparam int BIT_TVM    = 20;   // 拦 S 态访问 satp / sfence.vma
     localparam int BIT_TW     = 21;   // 拦 S 态的 WFI
     localparam int BIT_TSR    = 22;   // 拦 S 态的 SRET
-    localparam logic [PRIV_W-1:0] PRIV_S = 2'b01;
+    // PRIV_U / PRIV_S / PRIV_M 现由 or_be_types_pkg 的 priv_e 提供
+    // （isa_pkg_v3.md · priv_e，registry 生成）。
     // 委托掩码。规范硬要求：M 态中断不可委托、M 态 ECALL 不可委托。
     // ENABLE_S = 0 时两个寄存器整体恒 0（见复位与 apply）。
     localparam logic [XLEN-1:0] MIDELEG_MASK =
@@ -171,8 +174,6 @@ module system_instruction_handler (
     localparam int BIT_SATP_MODE_HI = 63;
     localparam int BIT_SATP_MODE_LO = 60;
 
-    localparam logic [PRIV_W-1:0] PRIV_M = 2'b11;
-    localparam logic [PRIV_W-1:0] PRIV_U = 2'b00;
 
     localparam logic [FS_W-1:0] FS_OFF   = 2'b00;
     localparam logic [FS_W-1:0] FS_DIRTY = 2'b11;
@@ -330,7 +331,7 @@ module system_instruction_handler (
     // 0 because csr_fu already judged it on the execute side.
     // ------------------------------------------------------------------
     logic capture;
-    assign capture = Result_valid && sb_is_csr
+    assign capture = csr_sideband_valid
                      && sb_csr_write_enable && !global_flush_late;
 
     // ------------------------------------------------------------------

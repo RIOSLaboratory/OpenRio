@@ -64,16 +64,8 @@ module div_simple (
     input  logic [XLEN-1:0]          rs1_data,
     input  logic [XLEN-1:0]          rs2_data,
     input  logic [FU_GROUP_W-1:0]    FU_Group,
-    input  logic                     imm_valid,
-    input  logic [XLEN-1:0]          imm_data,
-    input  logic [XLEN-1:0]          pc,
-    input  logic [31:0]              inst_bits,
-    input  logic                     is_compressed,
-    input  logic                     pred_taken,
-    input  logic [XLEN-1:0]          pred_target_pc,
     input  logic [TAG_W-1:0]         self_tag,
     input  logic [EXE_SUBOP_W-1:0]   exe_subop,
-    input  logic [FULL_DECODE_W-1:0] full_decode,
 
     // ------------------------------------------------------------------
     // in-event: arbiter feedback (§4, 集成层 §1.5).  winner_grant is the

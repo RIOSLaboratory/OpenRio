@@ -42,14 +42,14 @@ module ISQ_Group2 (
     input  logic                        rst_n,
 
     // in-event: dispatch (Transaction, one write port; the upstream absorbed
-    // ready = isq_free_for_dispatch, so wr_en never arrives while occupied)
+    // ready = isq_free_for_dispatch, so dispatch_valid never arrives while occupied)
     // payload_in is the complete ISQ_Payload; only the ⑤ fields are captured
     input  isq_payload_t                payload_in,
-    input  logic                        wr_en,
+    input  logic                        dispatch_valid,
 
     // in-event: bypass_capture (announce, 4 lanes -- bypass is a global
     // broadcast and all four lanes are watched)
-    input  logic                        bypass_valid [NUM_LANES],
+    input  logic                        bypass_publish_valid [NUM_LANES],
     input  logic [TAG_W-1:0]            bypass_tag   [NUM_LANES],
     input  logic [XLEN-1:0]             bypass_data  [NUM_LANES],
 
@@ -98,7 +98,7 @@ module ISQ_Group2 (
     // ------------------------------------------------------------------
     // (3) bypass match, one comparison per source against all four lanes
     //
-    //   fast_ready_rsX = !rsX_ready & OR over b (bypass_valid[b]
+    //   fast_ready_rsX = !rsX_ready & OR over b (bypass_publish_valid[b]
     //                                            & rsX_wait_tag == bypass_tag[b])
     //
     // Only the OR is needed here: which lane supplies the data is decided by
@@ -120,7 +120,7 @@ module ISQ_Group2 (
         for (int unsigned x = 1; x <= FP_READ_PORTS; x++) begin
             bypass_hit[x] = 1'b0;
             for (int unsigned b = 0; b < NUM_LANES; b++) begin
-                if (bypass_valid[b] && (bypass_tag[b] == entry_rs_wait_tag[x])) begin
+                if (bypass_publish_valid[b] && (bypass_tag[b] == entry_rs_wait_tag[x])) begin
                     bypass_hit[x] = 1'b1;
                 end
             end
@@ -193,7 +193,7 @@ module ISQ_Group2 (
     FU_input_mux u_fu_input_mux_rs1 (
         .entry_rsX_data (entry_rs_data[1]),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (entry_rs_wait_tag[1]),
         .rsX_ready      (entry_rs_ready[1]),
@@ -203,7 +203,7 @@ module ISQ_Group2 (
     FU_input_mux u_fu_input_mux_rs2 (
         .entry_rsX_data (entry_rs_data[2]),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (entry_rs_wait_tag[2]),
         .rsX_ready      (entry_rs_ready[2]),
@@ -213,7 +213,7 @@ module ISQ_Group2 (
     FU_input_mux u_fu_input_mux_rs3 (
         .entry_rsX_data (entry_rs_data[3]),
         .bypass_data    (bypass_data),
-        .bypass_valid   (bypass_valid),
+        .bypass_publish_valid   (bypass_publish_valid),
         .bypass_tag     (bypass_tag),
         .rsX_wait_tag   (entry_rs_wait_tag[3]),
         .rsX_ready      (entry_rs_ready[3]),
@@ -232,7 +232,7 @@ module ISQ_Group2 (
     //
     // Priority, top down:
     //   flush            ③ "优先级最高：flush 拍不 dispatch、不 issue、不 capture"
-    //   dispatch         wr_en captures payload_in and leaves the entry
+    //   dispatch         dispatch_valid captures payload_in and leaves the entry
     //                    RESIDENT; it overwrites whatever was there, which is
     //                    exactly the FREE->RESIDENT and the same-cycle
     //                    RESIDENT->RESIDENT transition of ②.  A dispatch into
@@ -258,7 +258,7 @@ module ISQ_Group2 (
         end else if (global_flush_late) begin
             // flush: isq_valid <- 0, no payload to clean up
             entry_valid <= 1'b0;
-        end else if (wr_en) begin
+        end else if (dispatch_valid) begin
             // dispatch: capture exactly the ⑤ fields, drop the rest
             entry_valid          <= 1'b1;
             entry_rs_ready[1]    <= payload_in.rs1_ready;
