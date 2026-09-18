@@ -5,9 +5,9 @@ package orbe_cosim_obs_pkg;
   localparam int unsigned COSIM_CSR_STATE_NUM = 16;
   localparam int unsigned ORBE_RECOVERY_KIND_W = 3;
 
-  // Keep these values equal to rtl/rtl_v1/pkg/or_be_types_pkg.sv
-  // recovery_kind_e. Verification code uses this enum so mock runs do not
-  // need to import the real RTL package.
+  // Keep these values equal to recovery_kind_e in the backend RTL types
+  // package (or_be_types_pkg.sv).  Verification code uses this enum so mock
+  // runs do not need to import the real RTL package.
   typedef enum logic [ORBE_RECOVERY_KIND_W-1:0] {
     ORBE_RECOVERY_MISPREDICT = 3'd0,
     ORBE_RECOVERY_EXCEPTION  = 3'd1,

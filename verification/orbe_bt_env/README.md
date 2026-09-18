@@ -104,15 +104,15 @@ or add `_ISA_api_ext`, before installing so the release pair stays complete.
 
 ### RTL tree
 
-The default rtl_v1 filelist assumes the real RTL tree is available at this
-path, relative to `orbe_bt_env`:
+`cfg/filelist/rtl_v1.f` names the backend RTL sources, relative to
+`orbe_bt_env`, so it is the single place that records where the RTL tree lives.
+Both flows read it: Verilator compiles it directly, and `mk/common.mk` derives
+the VCS dependency list from the same entries. Nothing else repeats the path, so
+a checkout only edits the filelist to point at its own tree.
 
-```text
-../rtl/rtl_v1
-```
-
-If your RTL lives elsewhere, create a symlink at that location or update
-`cfg/filelist/rtl_v1.f` for your local tree.
+If your RTL lives outside the repository, either edit `cfg/filelist/rtl_v1.f` or
+place a symlink where it already points. Extra source trees that the filelist
+does not cover can be added through `RTL_SOURCE_ROOTS`.
 
 ### ISA test cases
 

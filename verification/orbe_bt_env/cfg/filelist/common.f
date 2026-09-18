@@ -1,5 +1,3 @@
-+incdir+../backend_rtl_copy/include
-+incdir+../backend_rtl_copy/include/p600_sys
 +incdir+tb/pkg
 +incdir+tb/modified_agents/cache
 

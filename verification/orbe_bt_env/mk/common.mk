@@ -245,11 +245,17 @@ endif
 
 # Keep Make's dependency graph split as well: changing a TB file invokes VCS,
 # but -Mupdate recompiles only that TB unit before elaborating a new simv.
-RTL_SOURCE_ROOTS := $(ROOT_DIR)/../backend_rtl_copy
-ifeq ($(DUT_KIND),rtl_v1)
-RTL_SOURCE_ROOTS += $(ROOT_DIR)/../rtl/rtl_v1
-endif
-RTL_SOURCES := $(shell for d in $(RTL_SOURCE_ROOTS); do \
+#
+# The DUT sources are exactly the entries cfg/filelist/rtl_<dut>.f names, and the
+# VCS command below already compiles that filelist.  Deriving the dependency list
+# from the same file keeps the filelist the single place that knows where the RTL
+# tree lives, so no repository specific RTL path has to be repeated here and a
+# checkout that keeps its RTL somewhere else only edits the filelist.  Set
+# RTL_SOURCE_ROOTS to add extra trees that the filelist does not cover.
+RTL_SOURCE_ROOTS ?=
+RTL_FILELIST_ENTRIES := $(shell cat $(RTL_FILELIST) 2>/dev/null)
+RTL_SOURCES := $(foreach src,$(filter %.sv %.v %.vh,$(RTL_FILELIST_ENTRIES)),$(if $(wildcard $(ROOT_DIR)/$(src)),$(abspath $(ROOT_DIR)/$(src)),))
+RTL_SOURCES += $(shell for d in $(RTL_SOURCE_ROOTS); do \
 	test ! -d "$$d" || find "$$d" -type f \( -name '*.sv' -o -name '*.v' -o -name '*.vh' \); \
 done 2>/dev/null)
 TB_SOURCES := $(shell find "$(ROOT_DIR)/tb" "$(ROOT_DIR)/tests" -type f \( -name '*.sv' -o -name '*.v' -o -name '*.vh' \) 2>/dev/null)
@@ -513,7 +519,7 @@ help:
 	@echo "  ISA model lookup: ISA_MODEL_INSTALL/<include|src/libs> and ISA_MODEL_INSTALL/<lib|build>"
 	@echo "  A binary release pair under include/ and lib/ wins over src/libs and build"
 	@echo "  python3 tools/check_isa_api_release.py --install <isa_model>/install --smoke"
-	@echo "make build DUT_KIND=rtl_v1         # build with rtl/rtl_v1 backend_top wrapper"
+	@echo "make build DUT_KIND=rtl_v1         # build with the backend RTL DUT"
 	@echo "make sim TC=/absolute/path/to/test.elf [SEED=1]"
 	@echo "make sim TC=/absolute/path/to/test.elf PLUSARGS='+VERBOSITY=2'"
 	@echo "make sim TC=/absolute/path/to/test.elf CACHE_LOAD_RETURN_DELAY_CYCLES=3"
