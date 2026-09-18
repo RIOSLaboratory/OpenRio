@@ -45,8 +45,9 @@ import sys
 import tempfile
 
 ENV_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_WRAPPER = os.path.join(ENV_DIR, "dpi", "isa_dpi_wrapper.cc")
-DEFAULT_ISA_CFG = os.path.join(ENV_DIR, "dpi", "rivai_0x80000000_1core_rom.yaml")
+DEFAULT_MODEL_DIR = os.path.join(ENV_DIR, "dpi")
+DEFAULT_WRAPPER = os.path.join(DEFAULT_MODEL_DIR, "isa_dpi_wrapper.cc")
+DEFAULT_ISA_CFG = os.path.join(DEFAULT_MODEL_DIR, "rivai_0x80000000_1core_rom.yaml")
 
 # Tokens the wrapper takes from IsaApi.h: types, struct fields, macros, plus
 # the externally visible model entry points.
@@ -91,28 +92,25 @@ def info(message: str) -> None:
     print(f"[INFO] {message}")
 
 
-# Printed whenever the release pair cannot be located, because the ISA model
-# lives outside this repository and a bare "file not found" does not say so.
+# Printed whenever the release pair cannot be located, so that a bare
+# "file not found" still says which two files the build wants and how to point
+# it somewhere else.
 ISA_MODEL_NOTE = """\
-The ISA model is not part of this repository.  It is shipped separately as a
-binary release pair, and the build only needs these two files:
+The ISA model release pair ships with this repository, in dpi/:
 
-  <release>/include/IsaApi.h
-  <release>/lib/lib_ISA_api.so
+  dpi/IsaApi.h
+  dpi/lib_ISA_api.so
 
-Point the build at the directory that holds them, for example:
+Restore those two files, or build against a different model instead:
 
-  export ISA_MODEL_INSTALL=<path-to-isa-model-release>
+  export ISA_MODEL_INSTALL=<release-or-checkout>   # include/ and lib/, or
+                                                   # src/libs and build/
+  export ISA_API_INC=<dir> ISA_API_LIB=<dir>       # set the two directories
+                                                   # independently"""
 
-ISA_API_INC and ISA_API_LIB override the include and library directory
-individually when they are not laid out as include/ and lib/."""
 
-
-def die_usage(message: str, note: str | None = None) -> None:
+def die_usage(message: str) -> None:
     print(f"error: {message}", file=sys.stderr)
-    if note:
-        print(file=sys.stderr)
-        print(note, file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -169,11 +167,12 @@ def resolve_paths(args) -> tuple[str, str, str]:
         candidate = os.path.join(install, "lib")
         library = candidate if os.path.isfile(os.path.join(candidate, "lib_ISA_api.so")) else os.path.join(install, "build")
 
-    if not include or not library:
-        die_usage(
-            "set --inc/--lib, --install, or ISA_API_INC/ISA_API_LIB/ISA_MODEL_INSTALL",
-            note=ISA_MODEL_NOTE,
-        )
+    # Nothing configured: check the release pair that ships in dpi/ next to the
+    # wrapper, so a bare run validates the copy in this checkout.
+    if not include:
+        include = DEFAULT_MODEL_DIR
+    if not library:
+        library = DEFAULT_MODEL_DIR
 
     return install, include, library
 

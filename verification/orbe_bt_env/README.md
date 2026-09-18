@@ -32,25 +32,37 @@ obj_dir
 
 ## External Dependencies
 
-This open-source package does not vendor the ISA model, the ISA case ELFs, or
-the rtl_v1 source tree. Point the environment at a local ISA model before
-building.
+This open-source package vendors the ISA model as a binary release pair, and
+does not vendor the ISA model source, the ISA case ELFs, or the RTL source
+tree. Building needs an ISA case set and a bare metal RISC-V toolchain; see
+"ISA test cases" below.
 
-### ISA model: binary release pair or full checkout
+### ISA model: vendored release pair
 
-`IsaApi.h` and `lib_ISA_api.so` carry the private ISA model interface. Two
-layouts are supported, and the build files pick between them automatically:
+`IsaApi.h` and `lib_ISA_api.so` carry the private ISA model interface. Both
+ship in `dpi/`, next to the adapter that consumes them, so a fresh checkout
+builds without any configuration:
 
-| Layout | Header | Library |
+```text
+dpi/IsaApi.h
+dpi/lib_ISA_api.so
+```
+
+Only the header and the shared library are distributed; the model source is
+not. To build against a different model, point the environment at an external
+release (`include/` and `lib/`) or at a full checkout (`src/libs` and `build`);
+the build files pick between the layouts automatically.
+
+| Source | Header | Library |
 | --- | --- | --- |
-| Binary release pair | `<install>/include/IsaApi.h` | `<install>/lib/lib_ISA_api.so` |
+| Vendored in this repository (default) | `dpi/IsaApi.h` | `dpi/lib_ISA_api.so` |
+| External release | `<install>/include/IsaApi.h` | `<install>/lib/lib_ISA_api.so` |
 | Full source checkout | `<checkout>/src/libs/IsaApi.h` | `<checkout>/build/lib_ISA_api.so` |
 
-Set `ISA_MODEL_INSTALL` to the directory that holds them. A release pair under
-`include/` and `lib/` wins over the checkout layout:
-
 ```bash
-# Released header plus shared library, the normal way to consume the model
+# Default: use the release pair vendored in dpi/, nothing to set
+
+# Or an external release
 export ISA_MODEL_INSTALL=<path-to-isa-model-release>
 
 # Or a full checkout, for internal development
@@ -66,9 +78,10 @@ export ISA_API_INC=$ISA_MODEL_INSTALL/include
 export ISA_API_LIB=$ISA_MODEL_INSTALL/lib
 ```
 
-When none of these is set, `ISA_MODEL_INSTALL` defaults to the parent directory
-of `orbe_bt_env`. The ISA regression ELF set is read from
-`$ISA_CASE_DIR/`; see [ISA Regression Scope](#isa-regression-scope).
+`ISA_MODEL_INSTALL` defaults to the parent directory of `orbe_bt_env`, and when
+neither that nor `ISA_API_INC`/`ISA_API_LIB` resolves to a release pair, the
+build falls back to the pair vendored in `dpi/`. The ISA regression ELF set is
+read from `$ISA_CASE_DIR/`; see [ISA Regression Scope](#isa-regression-scope).
 
 ### Verify the release pair before building
 
@@ -79,8 +92,13 @@ against the DPI wrapper, which is open source:
 
 ```bash
 cd verification/orbe_bt_env
+
+# The release pair vendored in dpi/, which is what a bare checkout builds
+python3 tools/check_isa_api_release.py
+python3 tools/check_isa_api_release.py --smoke
+
+# Or an external release or checkout
 python3 tools/check_isa_api_release.py --install "$ISA_MODEL_INSTALL"
-python3 tools/check_isa_api_release.py --install "$ISA_MODEL_INSTALL" --smoke
 ```
 
 The tool reads `dpi/isa_dpi_wrapper.cc`, derives the `IsaApi.h` declarations
@@ -101,6 +119,10 @@ cmake --install "$ISA_MODEL_ROOT/build"                  # refreshes include/ an
 `cmake --build --target _ISA_api` builds only the main library, while
 `cmake --install` also installs `lib_ISA_api_ext.so`. Build the default target,
 or add `_ISA_api_ext`, before installing so the release pair stays complete.
+
+A rebuild only refreshes the checkout's own `include/` and `lib/`. Copy
+`include/IsaApi.h` and `lib/lib_ISA_api.so` into `dpi/` to update the release
+pair that ships with this repository.
 
 ### RTL tree
 

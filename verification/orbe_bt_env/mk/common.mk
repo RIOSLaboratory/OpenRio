@@ -39,20 +39,21 @@ else
 RTL_FILELIST ?= $(ROOT_DIR)/cfg/filelist/rtl_$(DUT_KIND).f
 endif
 
-# The ISA model is not part of this repository; it ships separately as a binary
-# release pair (include/IsaApi.h plus lib/lib_ISA_api.so) or as a full checkout
-# for internal development.  Point ISA_MODEL_INSTALL at whatever holds it, or
-# set ISA_API_INC/ISA_API_LIB directly.
+# The active DPI adapter and platform configuration are project-owned sources.
+ISA_DPI_DIR ?= $(ROOT_DIR)/dpi
+# The ISA model release pair (IsaApi.h plus lib_ISA_api.so) is vendored in dpi/,
+# next to the adapter that consumes it, so a fresh checkout builds the same way.
+# Point ISA_MODEL_INSTALL at an external release (include/ and lib/) or checkout
+# (src/libs and build) to build against a different model, or set
+# ISA_API_INC/ISA_API_LIB directly.
 ISA_MODEL_ROOT ?= $(abspath $(ROOT_DIR)/..)
 ISA_MODEL_INSTALL ?= $(ISA_MODEL_ROOT)
-ISA_API_INC ?= $(if $(wildcard $(ISA_MODEL_INSTALL)/include/IsaApi.h),$(ISA_MODEL_INSTALL)/include,$(ISA_MODEL_INSTALL)/src/libs)
-ISA_API_LIB ?= $(if $(wildcard $(ISA_MODEL_INSTALL)/lib/lib_ISA_api.so),$(ISA_MODEL_INSTALL)/lib,$(ISA_MODEL_INSTALL)/build)
+ISA_API_INC ?= $(if $(wildcard $(ISA_MODEL_INSTALL)/include/IsaApi.h),$(ISA_MODEL_INSTALL)/include,$(if $(wildcard $(ISA_MODEL_INSTALL)/src/libs/IsaApi.h),$(ISA_MODEL_INSTALL)/src/libs,$(ISA_DPI_DIR)))
+ISA_API_LIB ?= $(if $(wildcard $(ISA_MODEL_INSTALL)/lib/lib_ISA_api.so),$(ISA_MODEL_INSTALL)/lib,$(if $(wildcard $(ISA_MODEL_INSTALL)/build/lib_ISA_api.so),$(ISA_MODEL_INSTALL)/build,$(ISA_DPI_DIR)))
 # Resolve the two release files through wildcard().  A missing file then drops
 # out of the prerequisite list instead of failing with make's bare "No rule to
 # make target", so check_isa_abi reports the real problem and how to fix it.
 ISA_API_HEADER := $(wildcard $(ISA_API_INC)/IsaApi.h)
-# The active DPI adapter and platform configuration are project-owned sources.
-ISA_DPI_DIR ?= $(ROOT_DIR)/dpi
 # Keep the DPI shared object with the other build products for this SYS+TAG.
 # Its compile stamp includes VCS_HOME so a different VCS ABI invalidates it.
 ISA_DPI_BUILD ?= $(VCS_CACHE_ROOT)/dpi
@@ -516,9 +517,9 @@ help:
 	@echo "make build_all                     # rebuild all VCS and DPI sources"
 	@echo "make compile_rtl|compile_tb|compile_dpi"
 	@echo "make check_isa_abi                 # verify IsaApi.h + lib_ISA_api.so against the DPI wrapper"
-	@echo "  ISA model lookup: ISA_MODEL_INSTALL/<include|src/libs> and ISA_MODEL_INSTALL/<lib|build>"
-	@echo "  A binary release pair under include/ and lib/ wins over src/libs and build"
-	@echo "  python3 tools/check_isa_api_release.py --install <isa_model>/install --smoke"
+	@echo "  ISA model lookup: dpi/, then ISA_MODEL_INSTALL/<include|src/libs>"
+	@echo "                    and ISA_MODEL_INSTALL/<lib|build>"
+	@echo "  python3 tools/check_isa_api_release.py --smoke"
 	@echo "make build DUT_KIND=rtl_v1         # build with the backend RTL DUT"
 	@echo "make sim TC=/absolute/path/to/test.elf [SEED=1]"
 	@echo "make sim TC=/absolute/path/to/test.elf PLUSARGS='+VERBOSITY=2'"

@@ -28,10 +28,11 @@ Environment overrides:
   OBJ_DIR, SIM_EXE, OBJDUMP.
 
 ISA model lookup:
-  ISA_MODEL_INSTALL points at either a binary release pair or a full checkout.
-  A release pair is used when it provides include/IsaApi.h and
-  lib/lib_ISA_api.so; otherwise the checkout layout src/libs and build is
-  used. ISA_API_INC and ISA_API_LIB override the result.
+  The release pair vendored in dpi/ is used by default, so a fresh checkout
+  needs no configuration.  ISA_MODEL_INSTALL points at either an external
+  binary release pair (include/IsaApi.h and lib/lib_ISA_api.so) or a full
+  checkout (src/libs and build).  ISA_API_INC and ISA_API_LIB override the
+  result.
 
 Default logs:
   orbe_bt_env/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/sim.log
@@ -97,18 +98,23 @@ VERILATOR=${VERILATOR:-verilator}
 OBJDUMP=${OBJDUMP:-riscv64-unknown-elf-objdump}
 
 ISA_MODEL_ROOT=${ISA_MODEL_ROOT:-$default_isa_model_root}
-# Match mk/common.mk: a binary release pair under include/ and lib/ wins over
-# the full-checkout layout under src/libs and build.
 ISA_MODEL_INSTALL=${ISA_MODEL_INSTALL:-$ISA_MODEL_ROOT}
+# Match mk/common.mk: the release pair is vendored in dpi/, an external release
+# under include/ and lib/ overrides it, then a full-checkout under src/libs and
+# build.  An unreachable ISA_MODEL_INSTALL falls through to the vendored pair.
 if [[ -r "$ISA_MODEL_INSTALL/include/IsaApi.h" ]]; then
   default_isa_api_inc=$ISA_MODEL_INSTALL/include
-else
+elif [[ -r "$ISA_MODEL_INSTALL/src/libs/IsaApi.h" ]]; then
   default_isa_api_inc=$ISA_MODEL_INSTALL/src/libs
+else
+  default_isa_api_inc=$orbe_bt_env/dpi
 fi
 if [[ -r "$ISA_MODEL_INSTALL/lib/lib_ISA_api.so" ]]; then
   default_isa_api_lib=$ISA_MODEL_INSTALL/lib
-else
+elif [[ -r "$ISA_MODEL_INSTALL/build/lib_ISA_api.so" ]]; then
   default_isa_api_lib=$ISA_MODEL_INSTALL/build
+else
+  default_isa_api_lib=$orbe_bt_env/dpi
 fi
 ISA_API_INC=${ISA_API_INC:-$default_isa_api_inc}
 ISA_API_LIB=${ISA_API_LIB:-$default_isa_api_lib}
