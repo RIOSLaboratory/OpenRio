@@ -1,3 +1,4 @@
+// [This file] Reference backend and commit-order adapter
 class cosim_commit_ticket;
   longint unsigned sequence_id;
   longint unsigned cycle;

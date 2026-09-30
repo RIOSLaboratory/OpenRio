@@ -1,15 +1,19 @@
+// [This file] predictor (the rtl_v1 kind): advances the shared ISA model in program order at allocation; writeback/issue events only gather evidence
 // Backend observer and sole BE-side owner of decode/execute/commit/recovery DPI.
 class be_agent;
   localparam int unsigned MODEL_CORE_ID = 0;
-  localparam int unsigned DPI_ROB_IDX_W = MOCK_ROB_ADDR_W;
+  localparam int unsigned DPI_ROB_IDX_W = BE_ROB_ADDR_W;
 
   virtual ob_if ob_vif;
-  virtual ob_cosim_if #(MOCK_ISSUE_NUM, MOCK_ROB_ADDR_W) ob_cosim_vif;
+  virtual ob_cosim_if #(BE_ISSUE_NUM, BE_ROB_ADDR_W) ob_cosim_vif;
   virtual orbe_fe_if fe_vif;
   be_config cfg;
   be_getter getter;
   mailbox #(cosim_commit_event_t) cosim_commit_events;
   mailbox #(cosim_arch_state_event_t) cosim_arch_state_events;
+  // COSIM event publisher. Publishing depends only on the neutral event stream and is the same
+  // implementation for both DUT kinds, so it is no longer inlined here.
+  cosim_publisher pub;
   bit stop_requested;
   bit model_ready;
 
@@ -17,7 +21,26 @@ class be_agent;
   bit lsu_by_rob[longint unsigned];
   bit execute_started_by_rob[longint unsigned];
   bit pending_by_rob[longint unsigned];
-  logic [MOCK_ROB_TAG_W-1:0] full_tag_by_rob[longint unsigned];
+  // [R9] Program-order advance queue and its state (see the notes on drain_exec_queue)
+  longint unsigned exec_queue[$];
+  bit executed_by_rob[longint unsigned];
+  int exec_rc_by_rob[longint unsigned];
+  bit lsu_issued_by_rob[longint unsigned];
+  longint unsigned lsu_issued_cycle_by_rob[longint unsigned];
+  bit wb_seen_by_rob[longint unsigned];
+  // [R9-b] Exit gating (see run())
+  bit exit_pending;
+  bit exit_wait_valid;
+  longint unsigned exit_wait_rob;
+  bit exit_ready;
+  int unsigned exit_wait_cycles;
+  longint unsigned last_mem_store_rob;
+  bit last_mem_store_rob_valid;
+  bit store_wait_by_rob[longint unsigned];   // [R9-b'] stores drained but not yet committed from the ROB (kept for observation)
+  bit exit_wait_set[longint unsigned];       // [R9-b''] robs in flight when exit appears; exit only after all are committed/flushed
+  longint unsigned last_commit_cycle;        // [R9-b'''] cycle number of the most recent ROB commit (for the fallback)
+  bit exit_stall_reported;
+  logic [BE_ROB_TAG_W-1:0] full_tag_by_rob[longint unsigned];
   longint unsigned pc_by_rob[longint unsigned];
   longint unsigned ref_pc_by_rob[longint unsigned];
   longint unsigned ref_redirect_pc_by_rob[longint unsigned];
@@ -155,7 +178,7 @@ class be_agent;
     bit write_enable;
     logic [11:0] addr;
     logic [63:0] wdata;
-    logic [MOCK_ROB_ADDR_W-1:0] exec_tag;
+    logic [BE_ROB_ADDR_W-1:0] exec_tag;
   } l2_csr_out_t;
   l2_csr_out_t l2_csr_out_by_rob[longint unsigned];
 `endif
@@ -173,12 +196,10 @@ class be_agent;
   longint unsigned cycle_count;
   longint unsigned retire_count;
   longint unsigned retire_print_interval;
-  bit mem_store_observation_seen;
-  longint unsigned last_mem_store_order;
+  // mem store dedup state moved into cosim_publisher together with publishing.
 
   function new(virtual ob_if ob_vif, virtual orbe_fe_if fe_vif,
-               virtual getter_if getter_vif,
-               virtual ob_cosim_if #(MOCK_ISSUE_NUM, MOCK_ROB_ADDR_W) ob_cosim_vif,
+               virtual ob_cosim_if #(BE_ISSUE_NUM, BE_ROB_ADDR_W) ob_cosim_vif,
                mailbox #(cosim_commit_event_t) cosim_commit_events,
                mailbox #(cosim_arch_state_event_t) cosim_arch_state_events,
                be_config cfg);
@@ -194,7 +215,9 @@ class be_agent;
       be_reporter::fatal_static("[BE] be_agent requires COSIM commit event mailbox");
     if (cosim_arch_state_events == null)
       be_reporter::fatal_static("[BE] be_agent requires COSIM architectural state mailbox");
-    getter = new(getter_vif, cfg);
+    pub = new(ob_vif, ob_cosim_vif, cosim_commit_events,
+              cosim_arch_state_events, cfg);
+    getter = new(cfg);
     stop_requested = 1'b0;
     model_ready = 1'b0;
     last_redirect_valid = 1'b0;
@@ -203,14 +226,21 @@ class be_agent;
     cycle_count = 0;
     retire_count = 0;
     retire_print_interval = 1;
-    mem_store_observation_seen = 1'b0;
-    last_mem_store_order = 0;
+    exit_pending = 1'b0;
+    exit_wait_valid = 1'b0;
+    exit_wait_rob = 0;
+    exit_ready = 1'b0;
+    exit_wait_cycles = 0;
+    last_mem_store_rob = 0;
+    last_mem_store_rob_valid = 1'b0;
+    last_commit_cycle = 0;
+    exit_stall_reported = 1'b0;
     void'($value$plusargs("RETIRE_PRINT_INTERVAL=%d", retire_print_interval));
     if (retire_print_interval == 0)
       cfg.reporter.fatal("[BE] RETIRE_PRINT_INTERVAL must be non-zero");
     next_allocation_order = 0;
     ob_vif.dpi_be_phase_seq = 0;
-    if (MOCK_ROB_ADDR_W != DPI_ROB_IDX_W)
+    if (BE_ROB_ADDR_W != DPI_ROB_IDX_W)
       cfg.reporter.fatal("[BE] observer/model ROB width mismatch");
   endfunction
 
@@ -269,77 +299,8 @@ class be_agent;
       cfg.reporter.fatal($sformatf("[BE] %s failed rc=%0d", operation, rc));
   endtask
 
-  task automatic refresh_mock_cosim_arf_observation();
-`ifdef ORBE_DUT_RTL_V1
-    return;
-`else
-    // MOCK_RTL has no independently implemented architectural register file.
-    // After the BE-side shared model has consumed all commits for this cycle,
-    // mirror its committed state into the observation boundary. This makes
-    // the MOCK run an end-to-end transport/ordering test only; real RTL must
-    // replace this task's producer with its own INT/FP ARF observation nets.
-    if (!cfg.cosim_enable || ob_cosim_vif.rst_n !== 1'b1)
-      return;
-    for (int index = 0; index < COSIM_ARF_REG_NUM; index++) begin
-      ob_cosim_vif.int_arf[index] = isa_dpi_get_gpr(MODEL_CORE_ID, index);
-      ob_cosim_vif.fp_arf[index] = isa_dpi_get_fpr(MODEL_CORE_ID, index);
-    end
-`endif
-  endtask
-
   task automatic publish_cosim_arch_state_observation();
-    cosim_arch_state_event_t state_event;
-
-    if (!cfg.cosim_enable)
-      return;
-    if (ob_cosim_vif.rst_n !== 1'b1)
-      return;
-    if (ob_cosim_vif.csr_valid !== 1'b0 &&
-        ob_cosim_vif.csr_valid !== 1'b1)
-      cfg.reporter.fatal("[BE][COSIM] csr_valid is X/Z");
-
-    for (int index = 0; index < COSIM_ARF_REG_NUM; index++) begin
-      if (^ob_cosim_vif.int_arf[index] === 1'bx ||
-          ^ob_cosim_vif.fp_arf[index] === 1'bx)
-        cfg.reporter.fatal($sformatf(
-            "[BE][COSIM] ARF observation contains X/Z index=%0d", index));
-      state_event.int_arf[index] = ob_cosim_vif.int_arf[index];
-      state_event.fp_arf[index] = ob_cosim_vif.fp_arf[index];
-    end
-
-    state_event.csr_valid = ob_cosim_vif.csr_valid;
-    state_event.csr_state_valid = ob_cosim_vif.csr_state_valid;
-    state_event.csr_state_addr = ob_cosim_vif.csr_state_addr;
-    state_event.csr_state = ob_cosim_vif.csr_state;
-    state_event.csr_event_valid = ob_cosim_vif.csr_event_valid;
-    state_event.csr_event_addr = ob_cosim_vif.csr_event_addr;
-    state_event.csr_event_wdata = ob_cosim_vif.csr_event_wdata;
-    state_event.csr_event_rdata = ob_cosim_vif.csr_event_rdata;
-
-    if (state_event.csr_valid === 1'b1) begin
-      for (int index = 0; index < COSIM_CSR_STATE_NUM; index++) begin
-        if (state_event.csr_state_valid[index] !== 1'b0 &&
-            state_event.csr_state_valid[index] !== 1'b1)
-          cfg.reporter.fatal($sformatf(
-              "[BE][COSIM] csr_state_valid[%0d] is X/Z", index));
-        if (state_event.csr_state_valid[index] === 1'b1 &&
-            (^state_event.csr_state_addr[index] === 1'bx ||
-             ^state_event.csr_state[index] === 1'bx))
-          cfg.reporter.fatal($sformatf(
-              "[BE][COSIM] valid CSR entry contains X/Z index=%0d", index));
-      end
-    end
-
-    if (state_event.csr_event_valid !== 1'b0 &&
-        state_event.csr_event_valid !== 1'b1)
-      cfg.reporter.fatal("[BE][COSIM] csr_event_valid is X/Z");
-    if (state_event.csr_event_valid === 1'b1 &&
-        (^state_event.csr_event_addr === 1'bx ||
-         ^state_event.csr_event_wdata === 1'bx ||
-         ^state_event.csr_event_rdata === 1'bx))
-      cfg.reporter.fatal("[BE][COSIM] valid CSR event contains X/Z");
-
-    cosim_arch_state_events.put(state_event);
+    pub.publish_arch_state();
   endtask
 
   task automatic wait_for_model();
@@ -359,6 +320,13 @@ class be_agent;
     lsu_by_rob.delete();
     execute_started_by_rob.delete();
     pending_by_rob.delete();
+    exec_queue.delete();
+    exit_wait_set.delete();          // [R9-b''] after recovery there are no older in-flight instructions
+    executed_by_rob.delete();
+    exec_rc_by_rob.delete();
+    lsu_issued_by_rob.delete();
+    lsu_issued_cycle_by_rob.delete();
+    wb_seen_by_rob.delete();
     full_tag_by_rob.delete();
     pc_by_rob.delete();
     ref_pc_by_rob.delete();
@@ -392,54 +360,17 @@ class be_agent;
                                             input longint signed mnemonic_code,
                                             input int unsigned ref_recovery_kind,
                                             input longint unsigned ref_redirect_pc);
-    cosim_commit_event_t commit_event;
+    bit l2_mismatch;
 
-    if (!cfg.cosim_enable)
-      return;
-    commit_event = '0;
-    commit_event.group = group;
-    commit_event.kind = COSIM_EVENT_COMMIT;
-    commit_event.pc = pc;
-    commit_event.rob_idx = rob_idx;
-    commit_event.ref_pc = '0;
-    commit_event.order = '0;
-    commit_event.vaddr = '0;
-    commit_event.data = '0;
-    commit_event.mask = '0;
-    commit_event.terminal = 1'b0;
-    commit_event.result = ob_cosim_vif.commit_result[group];
-    commit_event.rd_idx = ob_cosim_vif.commit_rd_idx[group];
-    commit_event.rd_is_fp = ob_cosim_vif.commit_rd_is_fp[group];
-    commit_event.rd_write_enable = ob_cosim_vif.commit_rd_write_enable[group];
-    commit_event.fflags = ob_cosim_vif.commit_fflags[group];
-    commit_event.exception_valid = ob_cosim_vif.commit_exception_valid;
-    commit_event.exception_cause = ob_cosim_vif.commit_exception_cause;
-    commit_event.exception_tval = ob_cosim_vif.commit_exception_tval;
-    // Redirect is a cycle-global RTL observation, but a commit event is
-    // lane-specific.  Attach it only to the commit whose ROB tag is the
-    // recovery origin; otherwise a same-cycle younger/older lane can compare
-    // the redirect target against its own reference next PC.
-    commit_event.redirect_valid =
-        ob_cosim_vif.commit_redirect_valid &&
-        ob_vif.recovery_valid &&
-        (ob_vif.recovery_origin_tag == rob_idx);
-    commit_event.recovery_kind = commit_event.redirect_valid
-        ? ob_cosim_vif.commit_recovery_kind : '0;
-    commit_event.redirect_pc = commit_event.redirect_valid
-        ? ob_cosim_vif.commit_redirect_pc : '0;
-    commit_event.mnemonic = mnemonic_code;
-    commit_event.ref_result = ref_result;
-    commit_event.ref_rd_idx = ref_rd_idx[4:0];
-    commit_event.ref_rd_is_fp = ref_rd_is_fp;
-    commit_event.ref_recovery_kind = ref_recovery_kind[2:0];
-    commit_event.ref_redirect_pc = ref_redirect_pc;
 `ifdef ORBE_DUT_RTL_V1
-    commit_event.level2_mismatch = l2_any_mismatch_by_rob.exists(rob_idx) &&
-                                   l2_any_mismatch_by_rob[rob_idx];
+    l2_mismatch = l2_any_mismatch_by_rob.exists(rob_idx) &&
+                  l2_any_mismatch_by_rob[rob_idx];
 `else
-    commit_event.level2_mismatch = 1'b0;
+    l2_mismatch = 1'b0;
 `endif
-    cosim_commit_events.put(commit_event);
+    pub.publish_commit(group, pc, rob_idx, ref_result, ref_rd_idx, ref_rd_is_fp,
+                       mnemonic_code, ref_recovery_kind, ref_redirect_pc,
+                       l2_mismatch);
   endtask
 
   task automatic publish_cosim_recovery_event(input longint unsigned rob_idx,
@@ -448,42 +379,24 @@ class be_agent;
                                               input longint unsigned ref_redirect_pc,
                                               input longint unsigned ref_cause,
                                               input longint unsigned ref_tval);
-    cosim_commit_event_t recovery_event;
-    recovery_event = '0;
-    if (!cfg.cosim_enable)
-      return;
-    recovery_event.kind = COSIM_EVENT_RECOVERY;
-    recovery_event.rob_idx = rob_idx;
-    recovery_event.pc = pc_by_rob.exists(rob_idx) ? pc_by_rob[rob_idx] : 0;
-    recovery_event.redirect_valid = ob_cosim_vif.commit_redirect_valid;
-    recovery_event.recovery_kind = ob_cosim_vif.commit_recovery_kind;
-    recovery_event.redirect_pc = ob_cosim_vif.commit_redirect_pc;
-    recovery_event.exception_valid = ob_cosim_vif.commit_exception_valid;
-    recovery_event.commit_valid = (|ob_cosim_vif.commit_valid);
-    recovery_event.exception_cause = ob_cosim_vif.commit_exception_cause;
-    recovery_event.exception_tval = ob_cosim_vif.commit_exception_tval;
-    recovery_event.fflags = '0;
-    for (int g = 0; g < MOCK_ISSUE_NUM; g++) begin
-      if (ob_cosim_vif.commit_valid[g] &&
-          ob_cosim_vif.commit_rob_idx[g] == rob_idx[MOCK_ROB_ADDR_W-1:0])
-        recovery_event.fflags = ob_cosim_vif.commit_fflags[g];
-    end
-    recovery_event.ref_pc = ref_pc;
-    recovery_event.ref_recovery_kind = ref_kind[2:0];
-    recovery_event.ref_redirect_pc = ref_redirect_pc;
-    recovery_event.ref_exception_cause = ref_cause[62:0];
-    recovery_event.ref_exception_tval = ref_tval;
-`ifdef ORBE_DUT_RTL_V1
-    recovery_event.level2_mismatch = l2_any_mismatch_by_rob.exists(rob_idx) &&
-                                     l2_any_mismatch_by_rob[rob_idx];
-`else
-    recovery_event.level2_mismatch = 1'b0;
-`endif
+    longint signed mnemonic_code;
+    bit l2_mismatch;
+
+    mnemonic_code = '0;
 `ifdef ORBE_EXTERNAL_MNEMONICS
     if (inst_type_by_rob.exists(rob_idx))
-      recovery_event.mnemonic = inst_type_by_rob[rob_idx];
+      mnemonic_code = inst_type_by_rob[rob_idx];
 `endif
-    cosim_commit_events.put(recovery_event);
+`ifdef ORBE_DUT_RTL_V1
+    l2_mismatch = l2_any_mismatch_by_rob.exists(rob_idx) &&
+                  l2_any_mismatch_by_rob[rob_idx];
+`else
+    l2_mismatch = 1'b0;
+`endif
+    pub.publish_recovery(rob_idx,
+                         pc_by_rob.exists(rob_idx) ? pc_by_rob[rob_idx] : 0,
+                         ref_pc, ref_kind, ref_redirect_pc, ref_cause, ref_tval,
+                         mnemonic_code, l2_mismatch);
   endtask
 
   task automatic publish_cosim_commit_observation();
@@ -492,79 +405,38 @@ class be_agent;
   endtask
 
   task automatic publish_cosim_mem_observation();
-    cosim_commit_event_t mem_event;
+    bit published;
     bit terminal_store;
+    longint unsigned rob_out;
 
-    if (ob_cosim_vif.rst_n !== 1'b1 ||
-        ob_cosim_vif.mem_store_commit_valid !== 1'b1)
+    // Publishing belongs to pub; exit orchestration and ROB bookkeeping are the advancing
+    // side's job and stay in this class.
+    // terminal_hint: the model's exit is latched only at tick_finish at the end of this cycle,
+    // so when this observation is sampled is_to_exit() is most likely still 0 -- which is
+    // exactly why [R9-b] below remembers the most recent store.
+    pub.publish_mem_store((isa_dpi_is_to_exit() != 0),
+                          published, rob_out, terminal_store);
+    if (!published)
       return;
-    if (^ob_cosim_vif.mem_store_commit_order === 1'bx ||
-        ^ob_cosim_vif.mem_store_commit_vaddr === 1'bx ||
-        ^ob_cosim_vif.mem_store_commit_data === 1'bx ||
-        ^ob_cosim_vif.mem_store_commit_mask === 1'bx ||
-        ^ob_cosim_vif.mem_store_commit_pc === 1'bx ||
-        ^ob_cosim_vif.mem_store_commit_rob_idx === 1'bx)
-      cfg.reporter.fatal(
-          "[BE][COSIM] memory store observation contains X/Z");
 
-    if (mem_store_observation_seen &&
-        (ob_cosim_vif.mem_store_commit_order == last_mem_store_order))
-      return;
-    mem_store_observation_seen = 1'b1;
-    last_mem_store_order = ob_cosim_vif.mem_store_commit_order;
-
-    // Some ISA model builds recognize a tohost write in storeCommit and some
-    // only latch the exit state at tick_finish. Re-check the shared model at
-    // the BE sampling boundary so the terminal store is marked consistently.
-    terminal_store = ob_cosim_vif.mem_store_commit_terminal ||
-                     (isa_dpi_is_to_exit() != 0);
-    mem_event.kind = COSIM_EVENT_MEM_STORE;
-    mem_event.group = '0;
-    mem_event.pc = ob_cosim_vif.mem_store_commit_pc;
-    mem_event.rob_idx = ob_cosim_vif.mem_store_commit_rob_idx;
-    mem_event.order = ob_cosim_vif.mem_store_commit_order;
-    mem_event.vaddr = ob_cosim_vif.mem_store_commit_vaddr;
-    mem_event.data = ob_cosim_vif.mem_store_commit_data;
-    mem_event.mask = ob_cosim_vif.mem_store_commit_mask;
-    mem_event.terminal = terminal_store;
-    cosim_commit_events.put(mem_event);
-    // Cache owns production of the record. Once this sampler has copied it
-    // into the structured event mailbox, clear the boundary so the next
-    // cache phase can publish a new store event.
-    ob_cosim_vif.mem_store_commit_valid = 1'b0;
-    ob_cosim_vif.mem_store_commit_terminal = 1'b0;
+    // [R9-b] Remember the rob of the most recent store. The real wait target is taken from
+    // here when run() sees exit: the last store before exit is by construction the tohost one.
+    last_mem_store_rob = rob_out;
+    last_mem_store_rob_valid = 1'b1;
+    if (allocated_by_rob.exists(rob_out))
+      store_wait_by_rob[rob_out] = 1'b1;   // [R9-b'] wait for its ROB commit
+    if (terminal_store && !exit_wait_valid) begin
+      exit_wait_valid = 1'b1;              // configurations where the model reports exit in the same cycle go here
+      exit_wait_rob = rob_out;
+    end
   endtask
 
   task automatic publish_cosim_dut_exit_observation();
-    cosim_commit_event_t exit_event;
-
-    exit_event.kind = COSIM_EVENT_DUT_EXIT;
-    exit_event.group = '0;
-    exit_event.pc = '0;
-    exit_event.rob_idx = '0;
-    exit_event.order = '0;
-    exit_event.vaddr = '0;
-    exit_event.data = '0;
-    exit_event.mask = '0;
-    exit_event.terminal = 1'b1;
-    cosim_commit_events.put(exit_event);
+    pub.publish_dut_exit();
   endtask
 
   task automatic publish_cosim_cycle_end_observation();
-    cosim_commit_event_t end_event;
-
-    if (!cfg.cosim_enable)
-      return;
-    end_event.kind = COSIM_EVENT_CYCLE_END;
-    end_event.group = '0;
-    end_event.pc = '0;
-    end_event.rob_idx = '0;
-    end_event.order = '0;
-    end_event.vaddr = '0;
-    end_event.data = '0;
-    end_event.mask = '0;
-    end_event.terminal = 1'b0;
-    cosim_commit_events.put(end_event);
+    pub.publish_cycle_end();
   endtask
 
   task automatic observe_allocations();
@@ -575,33 +447,28 @@ class be_agent;
 
     if (ob_vif.recovery_valid || ob_vif.alloc_valid == '0)
       return;
-    for (int group = 0; group < MOCK_ISSUE_NUM; group++) begin
+    for (int group = 0; group < BE_ISSUE_NUM; group++) begin
       if (!ob_vif.alloc_valid[group])
         continue;
       rob_idx = ob_vif.alloc_tag[group];
-      insn_id = isa_dpi_decode_and_issue(
-          MODEL_CORE_ID, dpi_rob_idx(rob_idx), ob_vif.alloc_pld[group].pc,
-          ob_vif.alloc_pld[group].inst_bits,
-          ob_vif.alloc_pld[group].is_compressed);
-      if (insn_id == ISA_API_INVALID_INSN_ID)
-        cfg.reporter.fatal($sformatf(
-            "[BE] decodeAndIssue lost anchor group=%0d rob=%0d pc=0x%016h inst=0x%08h compressed=%0b",
-            group, rob_idx, ob_vif.alloc_pld[group].pc,
-            ob_vif.alloc_pld[group].inst_bits,
-            ob_vif.alloc_pld[group].is_compressed));
-      if (ob_vif.alloc_pld[group].fetch_excp_vld) begin
-        trap_rc = isa_dpi_trigger_trap(
-            MODEL_CORE_ID, dpi_rob_idx(rob_idx),
-            ob_vif.alloc_pld[group].exception_cause,
-            ob_vif.alloc_pld[group].exception_tval);
+      // [Advance convergence] Event 1 · alloc is handed to the single advance implementation
+      // of the BE domain. The advance sequence (decode_and_issue → trigger_trap on a fetch
+      // exception) is owned by the predictor; only diagnostic prints remain here. The contract
+      // states explicitly that event 1 has "outputs: none"; failures $fatal inside the predictor.
+      predictor_alloc(MODEL_CORE_ID, dpi_rob_idx(rob_idx),
+                      ob_vif.alloc_pld[group].pc,
+                      ob_vif.alloc_pld[group].inst_bits,
+                      ob_vif.alloc_pld[group].is_compressed,
+                      ob_vif.alloc_pld[group].fetch_excp_vld,
+                      ob_vif.alloc_pld[group].exception_cause,
+                      ob_vif.alloc_pld[group].exception_tval);
+      if (ob_vif.alloc_pld[group].fetch_excp_vld)
         cfg.print_be(2, $sformatf(
-            "[BE][FETCH_TRAP] cycle=%0d group=%0d rob=%0d pc=0x%016h cause=%0d tval=0x%016h rc=%0d",
+            "[BE][FETCH_TRAP] cycle=%0d group=%0d rob=%0d pc=0x%016h cause=%0d tval=0x%016h",
             cycle_count, group, rob_idx, ob_vif.alloc_pld[group].pc,
             ob_vif.alloc_pld[group].exception_cause,
-            ob_vif.alloc_pld[group].exception_tval, trap_rc));
-        check_rc($sformatf("triggerTrap rob=%0d", rob_idx), trap_rc);
-      end
-      full_tag_by_rob[rob_idx] = ob_vif.alloc_tag[group][MOCK_ROB_TAG_W-1:0];
+            ob_vif.alloc_pld[group].exception_tval));
+      full_tag_by_rob[rob_idx] = ob_vif.alloc_tag[group][BE_ROB_TAG_W-1:0];
       getter.after_decode(group, full_tag_by_rob[rob_idx], dpi_rob_idx(rob_idx),
                           getter_is_lsu);
 `ifdef ORBE_DUT_RTL_V1
@@ -741,6 +608,12 @@ class be_agent;
       lsu_by_rob[rob_idx] = getter_is_lsu;
       execute_started_by_rob.delete(rob_idx);
       pending_by_rob.delete(rob_idx);
+      executed_by_rob.delete(rob_idx);
+      exec_rc_by_rob.delete(rob_idx);
+      lsu_issued_by_rob.delete(rob_idx);
+      lsu_issued_cycle_by_rob.delete(rob_idx);
+      wb_seen_by_rob.delete(rob_idx);
+      exec_queue.push_back(rob_idx);   // [R9] program order = allocation order
       pc_by_rob[rob_idx] = ob_vif.alloc_pld[group].pc;
       allocation_order_by_rob[rob_idx] = next_allocation_order++;
 `ifdef ORBE_EXTERNAL_MNEMONICS
@@ -762,6 +635,7 @@ class be_agent;
           ob_vif.alloc_pld[group].is_compressed, getter_is_lsu,
           ob_vif.alloc_pld[group].fetch_excp_vld));
     end
+    drain_exec_queue();   // [R9]
   endtask
 
   task automatic finish_execute(input longint unsigned rob_idx, input int rc,
@@ -788,23 +662,100 @@ class be_agent;
     getter.after_execute(full_tag_by_rob[rob_idx], dpi_rob_idx(rob_idx));
   endtask
 
-  task automatic retry_pending_execution();
+  // ── [R9] The model advances in program order ──────────────────────────────
+  // isa_model's dependency lookup (SpecCore::lookupOlderWriter) only recognizes "executed"
+  // writers: it identifies writers by output.rd.valid, which is set only at execute. So
+  // execute_insn must be called in program order -- if an older one has not executed, a
+  // younger one computes with the stale committed register.
+  // RTL is an out-of-order machine and exec/LSU events interleave across cycles
+  // (rv64ui-p-simple: the store is issued to LSU at cycle 175, while the exec event of the
+  // auipc producing its base address arrives only at cycle 176, and the model computes
+  // paddr=-52 with the old x30).
+  // Hence: enqueue at allocation; non-memory head → execute_insn immediately; memory head →
+  // Cache completes execute_insn + proc_mem_load in the LSU issue cycle (same cycle, and it
+  // runs after this agent), released next cycle.
+  // Only the head is executed, younger always after older; writeback events no longer
+  // advance the model.
+  task automatic observe_lsu_issue_handshake();
     longint unsigned rob_idx;
-    foreach (pending_by_rob[rob_idx]) begin
-      int rc;
-      if (!pending_by_rob[rob_idx])
-        continue;
-      if (!allocated_by_rob.exists(rob_idx) || lsu_by_rob[rob_idx]) begin
-        pending_by_rob.delete(rob_idx);
+    if (ob_cosim_vif.be_lsu_issue_valid !== 1'b1) return;
+    if (ob_cosim_vif.lsu_be_issue_ready !== 1'b1) return;
+    rob_idx = ob_cosim_vif.be_lsu_issue_pld.self_tag;
+    if (!allocated_by_rob.exists(rob_idx)) return;
+    lsu_issued_by_rob[rob_idx] = 1'b1;
+    lsu_issued_cycle_by_rob[rob_idx] = cycle_count;
+  endtask
+
+  task automatic capture_l2_ref(input longint unsigned rob_idx);
+    int rc;
+    wb_seen_by_rob.delete(rob_idx);
+    if (!exec_rc_by_rob.exists(rob_idx)) return;
+    rc = exec_rc_by_rob[rob_idx];
+`ifdef ORBE_DUT_RTL_V1
+    if (!l2_wb_by_rob.exists(rob_idx) || !l2_wb_by_rob[rob_idx].valid) return;
+    if (level2_enabled() && (rc == ISA_API_PASS || rc == ISA_API_SKIP)) begin
+        l2_wb_by_rob[rob_idx].ref_result = isa_dpi_get_insn_rd_value(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
+        l2_wb_by_rob[rob_idx].ref_mispredict = isa_dpi_is_insn_redirect(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
+        l2_wb_by_rob[rob_idx].ref_target = isa_dpi_get_next_pc_of_insn(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
+        l2_wb_by_rob[rob_idx].ref_exception = isa_dpi_has_trap(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
+        if (l2_wb_by_rob[rob_idx].ref_exception) begin
+          byte unsigned cap;
+          longint unsigned cc;
+          longint unsigned tt;
+
+          cap = 0;
+          cc = 0;
+          tt = 0;
+          void'(isa_dpi_get_execute_metadata(
+              MODEL_CORE_ID, dpi_rob_idx(rob_idx), cap, cc, tt));
+          l2_wb_by_rob[rob_idx].ref_cause = cc[62:0];
+          l2_wb_by_rob[rob_idx].ref_tval = tt;
+        end
+    end
+`endif
+  endtask
+
+  task automatic drain_exec_queue();
+    longint unsigned rob_idx;
+    int rc;
+    while (exec_queue.size() != 0) begin
+      rob_idx = exec_queue[0];
+      if (!allocated_by_rob.exists(rob_idx)) begin
+        void'(exec_queue.pop_front());
         continue;
       end
-      rc = isa_dpi_execute_insn(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
-      finish_execute(rob_idx, rc, $sformatf("executeInsn-retry rob=%0d", rob_idx));
+      if (lsu_by_rob[rob_idx]) begin
+        // Memory instructions are advanced by Cache. In the issue cycle itself Cache has not
+        // run yet (BE runs before Cache), so release next cycle.
+        if (lsu_issued_by_rob.exists(rob_idx) &&
+            (lsu_issued_cycle_by_rob[rob_idx] < cycle_count)) begin
+          executed_by_rob[rob_idx] = 1'b1;
+          void'(exec_queue.pop_front());
+          continue;
+        end
+        return;
+      end
+      // [Advance convergence] Event 2 · execute is handed to the single advance implementation
+      // of the BE domain. Memory entries do not go here (they belong to cache_agent's LSU
+      // domain; the two domains are complementary, no overlap).
+      rc = predictor_execute(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
+      finish_execute(rob_idx, rc, $sformatf("executeInsn@alloc rob=%0d", rob_idx));
+      if (rc == ISA_API_PENDING)
+        return;                       // finish_execute has registered pending; retry from the head next cycle
+      executed_by_rob[rob_idx] = 1'b1;
+      exec_rc_by_rob[rob_idx] = rc;
+      if (wb_seen_by_rob.exists(rob_idx))
+        capture_l2_ref(rob_idx);
+      void'(exec_queue.pop_front());
     end
   endtask
 
+  task automatic retry_pending_execution();
+    drain_exec_queue();   // [R9] the only retry point is the queue head
+  endtask
+
   task automatic observe_execution_writebacks();
-    for (int source = 0; source < MOCK_ROB_CMT_NUM; source++) begin
+    for (int source = 0; source < BE_ROB_CMT_NUM; source++) begin
       longint unsigned rob_idx;
       int rc;
       if (!ob_vif.exec_valid[source])
@@ -834,29 +785,14 @@ class be_agent;
         l2_wb_by_rob[rob_idx].fpu_fflags = ob_cosim_vif.fu_after_fflags[source];
       end
 `endif
-      rc = isa_dpi_execute_insn(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
-      finish_execute(rob_idx, rc, $sformatf("executeInsn rob=%0d", rob_idx));
-`ifdef ORBE_DUT_RTL_V1
-      if (level2_enabled() && (rc == ISA_API_PASS || rc == ISA_API_SKIP)) begin
-        l2_wb_by_rob[rob_idx].ref_result = isa_dpi_get_insn_rd_value(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
-        l2_wb_by_rob[rob_idx].ref_mispredict = isa_dpi_is_insn_redirect(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
-        l2_wb_by_rob[rob_idx].ref_target = isa_dpi_get_next_pc_of_insn(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
-        l2_wb_by_rob[rob_idx].ref_exception = isa_dpi_has_trap(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
-        if (l2_wb_by_rob[rob_idx].ref_exception) begin
-          byte unsigned cap;
-          longint unsigned cc;
-          longint unsigned tt;
-
-          cap = 0;
-          cc = 0;
-          tt = 0;
-          void'(isa_dpi_get_execute_metadata(
-              MODEL_CORE_ID, dpi_rob_idx(rob_idx), cap, cc, tt));
-          l2_wb_by_rob[rob_idx].ref_cause = cc[62:0];
-          l2_wb_by_rob[rob_idx].ref_tval = tt;
-        end
-      end
-`endif
+      // [R9] The model was already advanced in program order at the allocation cycle; here we
+      // only take the reference-side values for the Level-2 comparison.
+      // If the model has not executed it yet (a memory instruction ahead in the queue is
+      // waiting for Cache), defer until it executes.
+      if (executed_by_rob.exists(rob_idx))
+        capture_l2_ref(rob_idx);
+      else
+        wb_seen_by_rob[rob_idx] = 1'b1;
     end
   endtask
 
@@ -1201,7 +1137,7 @@ class be_agent;
     if (ob_cosim_vif.lsu_be_issue_ready !== 1'b1)
       return;
 
-    rob_idx = ob_cosim_vif.be_lsu_issue_pld.tag;
+    rob_idx = ob_cosim_vif.be_lsu_issue_pld.self_tag;
     rc = isa_dpi_get_lsu_issue_metadata(
         MODEL_CORE_ID, dpi_rob_idx(rob_idx), ref_req_property,
         ref_exe_subop, ref_mem_funct3, ref_rd_is_fp, ref_rs1_data,
@@ -1226,7 +1162,7 @@ class be_agent;
         ob_cosim_vif.be_lsu_issue_pld.rs1_data;
     l2_lsu_by_rob[rob_idx].ref_rs1_data = ref_rs1_data;
     l2_lsu_by_rob[rob_idx].store_data =
-        ob_cosim_vif.be_lsu_issue_pld.store_data;
+        ob_cosim_vif.be_lsu_issue_pld.rs2_data;
     l2_lsu_by_rob[rob_idx].ref_store_data = ref_rs2_data;
     l2_lsu_by_rob[rob_idx].imm_valid =
         ob_cosim_vif.be_lsu_issue_pld.imm_valid;
@@ -1299,15 +1235,15 @@ class be_agent;
     if (!level2_enabled())
       return;
     if (ob_cosim_vif.lsu_be_done_valid === 1'b1) begin
-      rob_idx = ob_cosim_vif.lsu_be_writeback_pld.tag;
+      rob_idx = ob_cosim_vif.lsu_be_done_pld.tag;
       l2_lsu_response_by_rob[rob_idx].done_valid = 1'b1;
-      l2_lsu_response_by_rob[rob_idx].done_data = ob_cosim_vif.lsu_be_writeback_pld.data;
+      l2_lsu_response_by_rob[rob_idx].done_data = ob_cosim_vif.lsu_be_done_pld.data;
     end
     if (ob_cosim_vif.lsu_be_exception_valid === 1'b1) begin
-      rob_idx = ob_cosim_vif.lsu_be_writeback_pld.tag;
+      rob_idx = ob_cosim_vif.lsu_be_exception_pld.tag;
       l2_lsu_response_by_rob[rob_idx].exception_valid = 1'b1;
-      l2_lsu_response_by_rob[rob_idx].exception_cause = ob_cosim_vif.lsu_be_writeback_pld.exception_cause;
-      l2_lsu_response_by_rob[rob_idx].exception_tval = ob_cosim_vif.lsu_be_writeback_pld.exception_tval;
+      l2_lsu_response_by_rob[rob_idx].exception_cause = ob_cosim_vif.lsu_be_exception_pld.cause;
+      l2_lsu_response_by_rob[rob_idx].exception_tval = ob_cosim_vif.lsu_be_exception_pld.tval;
     end
     if (ob_cosim_vif.lsu_be_bypass_valid === 1'b1) begin
       rob_idx = ob_cosim_vif.lsu_be_bypass_pld.tag;
@@ -1450,7 +1386,7 @@ class be_agent;
     bit model_rd_is_fp;
     byte unsigned model_rd_valid, model_rd_fp, model_rd_we, model_recovery_kind;
     int metadata_rc;
-    for (int group = 0; group < MOCK_ISSUE_NUM; group++) begin
+    for (int group = 0; group < BE_ISSUE_NUM; group++) begin
       longint unsigned rob_idx;
 `ifdef ORBE_EXTERNAL_MNEMONICS
       longint signed inst_type;
@@ -1460,11 +1396,23 @@ class be_agent;
       bit final_trap;
       bit level2_mismatch_detected;
       int rc;
+      // [Advance convergence C1] Outputs of predictor_commit. In this DUT kind the three trap
+      // items are consumed by the exception path of observe_recoveries, so here they are only
+      // received and unused; they are still received because the contract requires the
+      // predictor to query them on our behalf between commit_auto and tick_finish.
+      byte unsigned    pc_trap_record_valid;
+      longint unsigned pc_trap_cause;
+      longint unsigned pc_trap_tval;
+      longint unsigned pc_spec_pc;
       if (!ob_vif.commit_valid[group])
         continue;
       rob_idx = ob_vif.commit_tag[group];
       if (!allocated_by_rob.exists(rob_idx))
         cfg.reporter.fatal($sformatf("[BE] commit for unallocated rob=%0d", rob_idx));
+      if (!executed_by_rob.exists(rob_idx))
+        cfg.reporter.fatal($sformatf(
+            "[BE][R9] commit rob=%0d before the model executed it (queue head=%0d depth=%0d) -- environment ordering bug, not the DUT",
+            rob_idx, exec_queue.size() ? exec_queue[0] : -1, exec_queue.size()));
       if (cfg.cosim_enable) begin
         metadata_rc = isa_dpi_get_insn_metadata(
             MODEL_CORE_ID, dpi_rob_idx(rob_idx), model_rd_valid, model_rd_fp,
@@ -1527,12 +1475,39 @@ class be_agent;
         l2_any_mismatch_by_rob.delete(rob_idx);
 `endif
       end
-      precommit_trap = isa_dpi_has_trap(MODEL_CORE_ID, dpi_rob_idx(rob_idx)) != 0;
-      rc = isa_dpi_commit_auto(MODEL_CORE_ID, dpi_rob_idx(rob_idx));
-      check_rc($sformatf("commitAuto rob=%0d", rob_idx), rc);
+      // [Advance convergence C1] Event 3 · commit is handed to the single advance
+      // implementation of the BE domain. has_trap must be read before commit_auto, and
+      // tick_finish must immediately follow commit_auto -- these two timing rules are owned by
+      // the predictor; this place no longer orchestrates them itself.
+      //
+      // [C2] redirect_pending takes ob_cosim.commit_redirect_valid (the source this DUT kind
+      // uses per the contract's "two event sources" table). The model squash moves into
+      // branch 2 of predictor_commit accordingly, with the start computed per the contract as
+      // (rob_idx+1) % ROB_SIZE, no longer the RTL-observed recovery_squash_tag.
+      predictor_commit(MODEL_CORE_ID, dpi_rob_idx(rob_idx),
+                       longint'(1 << BE_ROB_TAG_W),
+                       // commit_redirect_valid is a **per-cycle global** observation, while
+                       // the commit event is per lane. The contract says "whether this entry
+                       // produced a redirect" -- it must be attributed to the lane that is the
+                       // recovery source, otherwise an older lane in the same cycle flushes the
+                       // younger lane that is about to commit (observed: cyc495 dual commit
+                       // rob14/rob15, after rob14's branch 2 flush(15), rob15's commit_auto
+                       // got rc=-1).
+                       // The same attribution discipline is in cosim_publisher's publish_commit.
+                       (ob_cosim_vif.commit_redirect_valid &&
+                        ob_vif.recovery_valid &&
+                        (ob_vif.recovery_origin_tag == rob_idx)),
+                       precommit_trap, pc_trap_record_valid,
+                       pc_trap_cause, pc_trap_tval, pc_spec_pc);
+      rc = ISA_API_PASS;   // failures $fatal inside the predictor; reaching here means PASS
       getter.after_commit(full_tag_by_rob[rob_idx], dpi_rob_idx(rob_idx),
                           precommit_trap, final_trap);
       retire_count++;
+      last_commit_cycle = cycle_count;
+      if (exit_wait_valid && (rob_idx == exit_wait_rob))
+        exit_ready = 1'b1;                  // [R9-b] the terminal store has committed from the ROB
+      store_wait_by_rob.delete(rob_idx);    // [R9-b']
+      exit_wait_set.delete(rob_idx);        // [R9-b'']
       if ((retire_count % retire_print_interval) == 0) begin
 `ifdef ORBE_EXTERNAL_MNEMONICS
         cfg.print_be(2, $sformatf(
@@ -1555,6 +1530,11 @@ class be_agent;
         lsu_by_rob.delete(rob_idx);
         execute_started_by_rob.delete(rob_idx);
         pending_by_rob.delete(rob_idx);
+        executed_by_rob.delete(rob_idx);
+        exec_rc_by_rob.delete(rob_idx);
+        lsu_issued_by_rob.delete(rob_idx);
+        lsu_issued_cycle_by_rob.delete(rob_idx);
+        wb_seen_by_rob.delete(rob_idx);
         full_tag_by_rob.delete(rob_idx);
         pc_by_rob.delete(rob_idx);
         allocation_order_by_rob.delete(rob_idx);
@@ -1631,14 +1611,26 @@ class be_agent;
                 origin_rob_idx));
           model_origin_pc = isa_dpi_get_insn_pc(MODEL_CORE_ID,
               dpi_rob_idx(origin_rob_idx));
-          rc = isa_dpi_commit_auto(MODEL_CORE_ID, dpi_rob_idx(origin_rob_idx));
-          check_rc($sformatf("commitAuto exception rob=%0d", origin_rob_idx), rc);
-          // Trap information must be captured immediately after commitAuto;
-          // the model may consume/flush the ROB entry while handling the trap.
-          trap_rc = isa_dpi_get_commit_auto_trap_info(
-              MODEL_CORE_ID, dpi_rob_idx(origin_rob_idx), ref_trap_valid,
-              ref_trap_cause, ref_trap_tval);
-          check_rc($sformatf("get_commit_auto_trap_info rob=%0d", origin_rob_idx), trap_rc);
+          // [Advance convergence C3] This path is the fallback for when "the commit surface
+          // did not see a trap commit"; its sequence matches contract branch 1 step by step:
+          // has_trap → commit_auto → get_commit_auto_trap_info.
+          // has_trap was already read above and must be true, so the predictor must take
+          // branch 1; the window discipline of trap_info and tick_finish is likewise owned by
+          // the predictor.
+          begin
+            bit              rb_has_trap;
+            longint unsigned rb_spec_pc;
+            predictor_commit(MODEL_CORE_ID, dpi_rob_idx(origin_rob_idx),
+                             longint'(1 << BE_ROB_TAG_W), 1'b0,
+                             rb_has_trap, ref_trap_valid,
+                             ref_trap_cause, ref_trap_tval, rb_spec_pc);
+            if (!rb_has_trap)
+              cfg.reporter.fatal($sformatf(
+                  "[BE][RECOVERY_EXCEPTION] predictor saw no trap rob=%0d",
+                  origin_rob_idx));
+          end
+          rc = ISA_API_PASS;
+          trap_rc = ISA_API_PASS;
           if (!ref_trap_valid)
             cfg.reporter.fatal($sformatf(
                 "[BE][RECOVERY_EXCEPTION] ISA model did not return trap metadata rob=%0d",
@@ -1651,6 +1643,7 @@ class be_agent;
                 "[BE][RECOVERY_EXCEPTION] commitAuto rob=%0d did not consume a trap",
                 origin_rob_idx));
           retire_count++;
+          last_commit_cycle = cycle_count;
           cfg.print_be(2, $sformatf(
               "[BE][RECOVERY_EXCEPTION] cycle=%0d retire=%0d rob=%0d tag=0x%0h redirect_pc=0x%016h rc=%0d",
               cycle_count, retire_count, origin_rob_idx,
@@ -1679,12 +1672,11 @@ class be_agent;
 `endif
         trap_commit_consumed = 1'b0;
         clear_local_anchors();
-        getter.flush_local();
       end else begin
         origin_committed = 1'b0;
-        for (int g = 0; g < MOCK_ISSUE_NUM; g++)
+        for (int g = 0; g < BE_ISSUE_NUM; g++)
           if (ob_vif.commit_valid[g] &&
-              ob_vif.commit_tag[g] == origin_rob_idx[MOCK_ROB_ADDR_W-1:0])
+              ob_vif.commit_tag[g] == origin_rob_idx[BE_ROB_ADDR_W-1:0])
             origin_committed = 1'b1;
         // A same-cycle commit may already have consumed the model ROB entry.
         // Reuse metadata captured before commitAuto in that case.
@@ -1707,12 +1699,22 @@ class be_agent;
                                             dpi_rob_idx(origin_rob_idx));
         end
         rc = ISA_API_PASS;
-        if (allocated_by_rob.num() != 0) begin
-          rc = isa_dpi_flush(MODEL_CORE_ID, dpi_rob_idx(squash_rob_idx));
-          check_rc($sformatf("flush from rob=%0d kind=%s",
-                             squash_rob_idx,
-                             recovery_kind_name(ob_vif.recovery_kind)), rc);
-        end
+        // [Advance convergence C2 diagnostic] Contract branch 2 specifies the squash start as
+        // (rob_idx+1) % ROB_SIZE; this DUT kind takes the RTL-observed recovery_squash_tag. If
+        // the two are always equal, C2 can safely move the flush into predictor_commit; if not,
+        // it is a convention difference that needs a ruling. Only recorded here, behavior unchanged.
+        if (squash_rob_idx !=
+            ((origin_rob_idx + 1) % longint'(1 << BE_ROB_TAG_W)))
+          cfg.print_be(1, $sformatf(
+              "[BE][FLUSH_IDX_DIVERGE] cycle=%0d origin=%0d rtl_squash=%0d contract_squash=%0d kind=%s",
+              cycle_count, origin_rob_idx, squash_rob_idx,
+              (origin_rob_idx + 1) % longint'(1 << BE_ROB_TAG_W),
+              recovery_kind_name(ob_vif.recovery_kind)));
+        // [Advance convergence C2] The model squash has moved into branch 2 of predictor_commit.
+        // Contract section "About flush": isa_dpi_flush is issued only inside the redirect
+        // branch of event 3 and is not an event on its own; the slot-occupant-side flush
+        // (clearing its own ROB, driving global_flush_late and be_fe_redirect) is internal
+        // behavior of the slot occupant, unrelated to advancing the model, and stays here.
         cfg.print_be(2, $sformatf(
             "[BE][RECOVERY_FLUSH] cycle=%0d kind=%s origin=%0d squash=%0d redirect_pc=0x%016h commits_origin=%0b anchors_before=%0d rc=%0d",
             cycle_count, recovery_kind_name(ob_vif.recovery_kind),
@@ -1740,7 +1742,6 @@ class be_agent;
         end
         trap_commit_consumed = 1'b0;
         clear_local_anchors();
-        getter.flush_local();
       end
     end
     last_recovery_valid = recovery_event;
@@ -1768,7 +1769,6 @@ class be_agent;
         return;
       cycle_count++;
       publish_cosim_mem_observation();
-      getter.retire_responses();
       sample_trap_commit();
       observe_redirects();
 `ifdef ORBE_DUT_RTL_V1
@@ -1777,8 +1777,7 @@ class be_agent;
       observe_isq_issue();
       observe_csr_events();
 `endif
-      getter.service_lsu_metadata();
-      retry_pending_execution();
+      retry_pending_execution();       // [R9] = drain_exec_queue
       observe_execution_writebacks();
       observe_commits();
       observe_recoveries(recovery_event);
@@ -1787,13 +1786,69 @@ class be_agent;
 `ifdef ORBE_DUT_RTL_V1
       sample_lsu_issue();
 `endif
-      isa_dpi_tick_finish(1'b1);
+      // [R9] Record this cycle's LSU issues; the queue head is released next cycle. Must come
+      // after observe_allocations: RTL can issue a FENCE to LSU in its allocation cycle
+      // (0x80000190 in rv64ui-p-simple); if placed before, allocated_by_rob has not registered
+      // that rob yet and the handshake would be dropped as an unknown tag.
+      observe_lsu_issue_handshake();
+      // [Advance convergence C1] The per-cycle tick has been removed. tick_finish is now issued
+      // by predictor_commit inside each commit event, at the same rhythm as stage 1 (each of
+      // the three branches of contract event 3 ticks once).
+      //
+      // Note: tickFinish advances CLINT/mtime and polls HTIF tohost, so this is not just
+      // bookkeeping -- "following commit events" means model time is proportional to the
+      // number of retired instructions, "following the clock" means proportional to cycles.
+      // In a dual-issue DUT kind the two differ by 2x. Existing -p- tests do not use timers and
+      // cannot tell them apart; this convention difference is logged pending a ruling.
       model_to_exit = isa_dpi_is_to_exit() != 0;
       ob_vif.dpi_be_phase_seq++;
+      // [R9-b] The shared model's exit is set the moment the store drains, and the store is
+      // authorized to drain early via st_br_resolve, before its own ROB commit and those of
+      // older instructions. Returning at that point, the remaining commits would never become
+      // tickets and the reference side would stop at the previous one. Instead, wait for RTL
+      // to commit the rob holding the terminal store.
+      if (model_to_exit && !exit_pending) begin
+        exit_pending = 1'b1;
+        // The model latches exit only at tick_finish, which is not yet visible when the store
+        // observation is sampled, so the wait target is fixed only here: the rob of the last
+        // store before exit. If RTL has already committed it, release directly.
+        // [R9-b''] Snapshot all robs in flight right now: the tohost store has drained but may
+        // not have committed yet, and older ones may not have committed either; their tickets
+        // still have to be sent to the reference side.
+        exit_wait_set.delete();
+        foreach (allocated_by_rob[r]) exit_wait_set[r] = 1'b1;
+        exit_wait_valid = 1'b1;
+        exit_ready = (exit_wait_set.num() == 0);
+        cfg.print_be(1, $sformatf(
+            "[BE][R9] model exit seen at cycle=%0d; %0d rob(s) still in flight, waiting for their commits",
+            cycle_count, exit_wait_set.num()));
+      end
+      // [R9-b''] Exit only once the snapshot set is empty.
+      if (exit_pending && exit_wait_valid) begin
+        exit_ready = (exit_wait_set.num() == 0);
+        // Fallback: no RTL commit for 32 consecutive cycles = truly hung (a spin loop also
+        // commits every cycle, so no false positive).
+        if (!exit_ready && (cycle_count - last_commit_cycle >= 32)) begin
+          if (!exit_stall_reported) begin
+            exit_stall_reported = 1'b1;
+            cfg.print_be(1, $sformatf(
+                "[BE][R9] no RTL commit for %0d cycles after model exit; %0d rob(s) left in flight, exiting anyway",
+                cycle_count - last_commit_cycle, exit_wait_set.num()));
+          end
+          exit_ready = 1'b1;
+        end
+      end
+      if (exit_pending && exit_wait_valid && !exit_ready) begin
+        exit_wait_cycles++;
+        if (exit_wait_cycles > 256)
+          cfg.reporter.fatal($sformatf(
+              "[BE][R9] model exited %0d cycles ago but %0d rob(s) never committed",
+              exit_wait_cycles, exit_wait_set.num()));
+        model_to_exit = 1'b0;               // do not exit this cycle yet
+      end
       if (model_to_exit) begin
         publish_cosim_dut_exit_observation();
         publish_cosim_cycle_end_observation();
-        refresh_mock_cosim_arf_observation();
         // The final post-commit architectural state must be published before
         // the BE worker returns, otherwise the COSIM adapter can block forever
         // waiting for the last snapshot.
@@ -1803,7 +1858,6 @@ class be_agent;
         return;
       end
       publish_cosim_cycle_end_observation();
-      refresh_mock_cosim_arf_observation();
       // Put the state snapshot after the exit marker, when present. The
       // adapter blocks on this mailbox, so all events for this cycle are
       // visible before it drains the commit mailbox.

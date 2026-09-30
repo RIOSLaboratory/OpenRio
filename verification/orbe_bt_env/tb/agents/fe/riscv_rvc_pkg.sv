@@ -1,3 +1,4 @@
+// [This file] RVC expansion helper for the FE agent
 // RV64C decompressor used by the FE agent before presenting instructions to BE.
 package riscv_rvc_pkg;
 

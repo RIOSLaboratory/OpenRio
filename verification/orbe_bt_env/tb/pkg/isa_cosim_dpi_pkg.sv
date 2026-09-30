@@ -1,3 +1,4 @@
+// [This file] DPI boundary of the golden instance (second handle family)
 // DPI declarations for the independent, step-driven cosim reference model.
 // These functions intentionally use a separate C++ handle from isa_dpi_pkg.
 package isa_cosim_dpi_pkg;

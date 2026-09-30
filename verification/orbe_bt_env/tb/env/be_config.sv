@@ -1,3 +1,4 @@
+// [This file] plusargs configuration
 class be_config;
   localparam int unsigned DEFAULT_ISSUE_WIDTH = 2;
   int unsigned issue_width;
@@ -22,7 +23,10 @@ class be_config;
     smoke_wait_cycles = 1000;
     cache_load_return_delay_cycles = 0;
     cache_store_done_delay_cycles = 0;
-    reporter_error_fatal_threshold = 0;
+    // [R9] Default 1: the first divergence (the checker's [AT COMMIT] summary is counted via mismatch_pair) is fatal.
+    // Previously default 0 (unlimited); the first rtl_v1 run kept erroring until timeout: 88,198 PC_MISMATCH, 2.25M log lines.
+    // To see later behavior, lift it with +ERROR_LIMIT=0. The agent kind has 216 cases with zero errors, unaffected.
+    reporter_error_fatal_threshold = 1;
     cosim_enable = 1'b0;
     cosim_level = 1;
     cosim_backend = "isa_step";
