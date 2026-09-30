@@ -1,0 +1,274 @@
+<svg width="1500" height="1690" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1690" role="img" aria-labelledby="diagram-title diagram-description">
+  <style><![CDATA[
+  /* 由 tools/html_to_svg.mjs 从 HTML 的 <style> 中提取；仅保留与 SVG 有关的规则 */
+  svg { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; fill: #25353d; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; fill: #25353d; }
+  .region { stroke-width: 1; }
+  .front { fill: #fbf5df; stroke: #e4d8ae; }
+  .engine { fill: #eaf3ed; stroke: #c4d9cb; }
+  .memory { fill: #eeedf7; stroke: #d2cee2; }
+  .block { fill: #fffdf6; stroke: #93866a; stroke-width: 1.4; }
+  .exec-block { fill: #f9fcfa; stroke: #749280; stroke-width: 1.4; }
+  .mem-block { fill: #faf9fd; stroke: #8b829f; stroke-width: 1.4; }
+  .register { fill: #e1ece8; stroke: #749280; stroke-width: 1.4; }
+  .buffer { fill: #e2deef; stroke: #8b829f; stroke-width: 1.4; }
+  .nested { fill: #dfede3; stroke: #9bb5a3; stroke-width: 1; }
+  .external { fill: #fff; stroke: #88949a; stroke-width: 1.3; stroke-dasharray: 5 4; }
+  .region-title { font-size: 24px; font-weight: 700; letter-spacing: .25px; }
+  .name { font-size: 21px; font-weight: 650; text-anchor: middle; }
+  .detail { font-size: 17px; fill: #526069; text-anchor: middle; }
+  .small { font-size: 15px; fill: #526069; }
+  .label { font-size: 15px; fill: #355563; }
+  .center { text-anchor: middle; }
+  .main-path { fill: none; stroke: #365c68; stroke-width: 3; stroke-linejoin: round; marker-end: url(#arrow); }
+  .wire { fill: none; stroke: #365c68; stroke-width: 1.8; stroke-linejoin: round; marker-end: url(#arrow); }
+  .bus { fill: none; stroke: #365c68; stroke-width: 3; stroke-linejoin: round; }
+  .feedback { fill: none; stroke: #536a60; stroke-width: 1.8; stroke-linejoin: round; marker-end: url(#feedback-arrow); }
+  .control { fill: none; stroke: #64717a; stroke-width: 1.6; stroke-dasharray: 5 4; marker-end: url(#control-arrow); }
+  .writeback { fill: none; stroke: #78638e; stroke-width: 2.3; stroke-linejoin: round; marker-end: url(#wb-arrow); }
+  .boundary { fill: none; stroke: #64717a; stroke-width: 1.5; marker-start: url(#boundary-arrow); marker-end: url(#control-arrow); }
+  .terminal { fill: #fff; stroke: #64717a; stroke-width: 1.5; }
+  .terminal-text { font-size: 14px; font-weight: 700; text-anchor: middle; }
+  .junction { fill: #365c68; }
+  .wb-junction { fill: #78638e; }
+  ]]></style>
+  <rect id="page-background" x="0" y="0" width="1500" height="1690" fill="#ffffff"/>
+
+  <title id="diagram-title">OR Core microarchitecture</title>
+  <desc id="diagram-description">A static microarchitecture overview reconstructed from OR_TOP_ARCHITECTURE_VIEW.drawio. Fetch and prediction feed predecode and an eight-entry, two-lane instruction buffer. The instruction buffer provides instructions to Decoder, register addresses to FP and INT architectural register files, and payload directly to Dispatch. Four issue groups feed AGU, FU_Group0, FU_Group1, and FPU. Functional-unit results and load data feed both bypass to Dispatch and a sixteen-entry result-and-PC Buffer. Buffer writes back to both architectural register files. AGU provides a direct cache index in parallel with DTLB address translation. Store and miss structures feed a sixteen-KiB L1 data cache. H terminals identify the external next-level memory hierarchy; T terminals identify the external PTW and page-table boundary. No pipeline width or retirement behavior is inferred.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#365c68"/></marker>
+    <marker id="feedback-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#536a60"/></marker>
+    <marker id="control-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#64717a"/></marker>
+    <marker id="boundary-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#64717a"/></marker>
+    <marker id="wb-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#78638e"/></marker>
+  </defs>
+
+  <text x="85" y="43" font-size="31" font-weight="700">OR Core</text>
+  <text x="240" y="43" font-size="23" fill="#526069">Microarchitecture</text>
+  <text x="1205" y="43" class="small" text-anchor="end">Instruction flow · execution · memory</text>
+
+  <!-- The three backgrounds describe conceptual regions, not RTL module boundaries. -->
+  <rect x="85" y="75" width="1120" height="495" rx="9" class="region front"/>
+  <rect x="85" y="585" width="1120" height="535" rx="9" class="region engine"/>
+  <rect x="85" y="1135" width="1120" height="470" rx="9" class="region memory"/>
+  <text x="110" y="111" class="region-title">Front End</text>
+  <text x="690" y="610" class="region-title">Execution Engine</text>
+  <text x="450" y="1173" class="region-title">Memory Subsystem</text>
+
+  <!-- Front end: PC/translation/prediction are parallel inputs to fetch/predecode. -->
+  <rect x="170" y="145" width="220" height="70" class="block"/>
+  <text x="280" y="174" class="name">ITLB</text>
+  <text x="280" y="198" class="detail">VA → PA / PBMT</text>
+  <rect x="480" y="145" width="230" height="70" class="block"/>
+  <text x="595" y="174" class="name">PC_GEN</text>
+  <text x="595" y="198" class="detail">Next fetch PC</text>
+  <rect x="870" y="145" width="290" height="70" class="block"/>
+  <text x="1015" y="174" class="name" font-size="19">L1BTB / RAS / DirectJump</text>
+  <text x="1015" y="198" class="detail">predict / return / direct</text>
+  <path d="M480 180H390" class="wire"/>
+  <text x="435" y="169" class="label center">VA</text>
+  <path d="M710 163H870" class="wire"/>
+  <text x="790" y="153" class="label center">PC</text>
+  <path d="M870 196H710" class="control"/>
+  <text x="790" y="218" class="small center">Next PC</text>
+
+  <rect x="170" y="265" width="570" height="65" class="block"/>
+  <text x="455" y="291" class="name">ICache</text>
+  <text x="455" y="316" class="detail">16 KiB / 4-way / 32 B / VIPT</text>
+  <path d="M280 215V265" class="wire"/>
+  <text x="292" y="246" class="label">PA</text>
+  <path d="M620 215V265" class="main-path"/>
+  <text x="633" y="246" class="label">Fetch</text>
+
+  <rect x="170" y="375" width="990" height="65" class="block"/>
+  <text x="665" y="402" class="name">InstrData_Expand / Predecode / Precheck</text>
+  <text x="665" y="426" class="detail">RVC / align / slot</text>
+  <path d="M455 330V375" class="main-path"/>
+  <text x="470" y="359" class="label">Instruction data</text>
+  <path d="M1015 215V375" class="control"/>
+  <text x="1028" y="306" class="small">Predict</text>
+  <rect x="170" y="485" width="990" height="65" class="buffer"/>
+  <text x="665" y="512" class="name">Instruction Buffer</text>
+  <text x="665" y="537" class="detail">8 entries / 2 lanes</text>
+  <path d="M665 440V485" class="main-path"/>
+  <text x="680" y="470" class="label">Instructions</text>
+
+  <!-- Decode and architectural operand reads precede Dispatch. -->
+  <rect x="170" y="650" width="190" height="70" class="exec-block"/>
+  <text x="265" y="680" class="name">Decoder</text>
+  <text x="265" y="705" class="detail">ISA decode</text>
+  <rect x="480" y="650" width="230" height="70" class="register"/>
+  <text x="595" y="680" class="name">FP ARF</text>
+  <text x="595" y="705" class="detail">3R / 1W</text>
+  <rect x="850" y="650" width="230" height="70" class="register"/>
+  <text x="965" y="680" class="name">INT ARF</text>
+  <text x="965" y="705" class="detail">4R / 2W</text>
+  <path d="M265 550V650" class="main-path"/>
+  <text x="278" y="644" class="label">Instr.</text>
+  <path d="M550 550V650" class="wire"/>
+  <text x="563" y="593" class="label">Register addr.</text>
+  <path d="M920 550V650" class="wire"/>
+  <text x="933" y="593" class="label">Register addr.</text>
+  <path d="M410 550V755" class="wire"/>
+  <text x="423" y="690" class="label">Payload</text>
+
+  <rect x="170" y="755" width="990" height="60" class="exec-block"/>
+  <text x="665" y="780" class="name">Dispatch</text>
+  <text x="665" y="803" class="detail">Dependency check / 4 ISQ groups</text>
+  <path d="M265 720V755" class="main-path"/>
+  <path d="M595 720V755" class="wire"/>
+  <text x="610" y="743" class="label">Operands</text>
+  <path d="M965 720V755" class="wire"/>
+  <text x="980" y="743" class="label">Operands</text>
+
+  <!-- Each arrow identifies a sourced execution destination, not an issue-rate claim. -->
+  <path d="M260 815V855" class="main-path"/>
+  <path d="M505 815V855" class="main-path"/>
+  <path d="M750 815V855" class="main-path"/>
+  <path d="M1020 815V855" class="main-path"/>
+  <text x="1100" y="841" class="label center">Issue</text>
+  <rect x="170" y="855" width="180" height="105" class="exec-block"/>
+  <text x="260" y="896" class="name">AGU</text>
+  <text x="260" y="925" class="detail">VA / cross-line</text>
+  <rect x="395" y="855" width="220" height="105" class="exec-block"/>
+  <text x="505" y="882" class="name">FU_Group0</text>
+  <rect x="409" y="896" width="88" height="24" class="nested"/>
+  <rect x="513" y="896" width="88" height="24" class="nested"/>
+  <rect x="409" y="927" width="88" height="24" class="nested"/>
+  <rect x="513" y="927" width="88" height="24" class="nested"/>
+  <text x="453" y="914" class="detail">ALU0</text>
+  <text x="557" y="914" class="detail">BRU</text>
+  <text x="453" y="945" class="detail">CSR</text>
+  <text x="557" y="945" class="detail">DIV</text>
+  <rect x="655" y="855" width="195" height="105" class="exec-block"/>
+  <text x="752" y="882" class="name">FU_Group1</text>
+  <rect x="669" y="908" width="77" height="33" class="nested"/>
+  <rect x="759" y="908" width="77" height="33" class="nested"/>
+  <text x="707" y="930" class="detail">ALU1</text>
+  <text x="797" y="930" class="detail">MUL</text>
+  <rect x="895" y="855" width="265" height="105" class="exec-block"/>
+  <text x="1027" y="896" class="name">FPU</text>
+  <text x="1027" y="925" class="detail">RV64FD</text>
+
+  <!-- Result collection forks independently to bypass and Buffer. -->
+  <path d="M505 960V995M750 960V995M1020 960V995M505 995H1180" class="bus"/>
+  <circle cx="750" cy="995" r="3.5" class="junction"/>
+  <circle cx="1020" cy="995" r="3.5" class="junction"/>
+  <text x="560" y="983" class="label">Results</text>
+  <path d="M1180 995V785H1160" class="feedback"/>
+  <text x="1198" y="965" class="small" transform="rotate(-90 1198 965)">Bypass to Dispatch</text>
+  <rect x="690" y="1030" width="470" height="70" class="buffer"/>
+  <text x="925" y="1059" class="name">Buffer</text>
+  <text x="925" y="1085" class="detail">16 entries / result + PC</text>
+  <path d="M925 995V1030" class="main-path"/>
+  <circle cx="925" cy="995" r="3.5" class="junction"/>
+
+  <!-- The arched writeback crossing at x=920 is explicitly not a junction. -->
+  <path d="M932 625Q920 607 908 625" fill="none" stroke="#fff" stroke-width="7"/>
+  <path d="M1160 1065H1240V625H932Q920 607 908 625H680V650" class="writeback"/>
+  <path d="M1240 685H1080" class="writeback"/>
+  <circle cx="1240" cy="685" r="3.5" class="wb-junction"/>
+  <text x="1259" y="1010" font-size="16" fill="#78638e" transform="rotate(-90 1259 1010)">Writeback to architectural registers</text>
+
+  <!-- AGU index is independent of DTLB translation. -->
+  <path d="M250 960V1210" class="main-path"/>
+  <text x="263" y="1090" class="label">VA</text>
+  <text x="338" y="1130" class="label">Store / AMO VA</text>
+  <path d="M170 925H140V1535H170" class="wire"/>
+  <text x="126" y="1470" class="label" transform="rotate(-90 126 1470)">Index · direct from AGU</text>
+
+  <rect x="170" y="1210" width="180" height="80" class="mem-block"/>
+  <text x="260" y="1242" class="name">DTLB</text>
+  <text x="260" y="1270" class="detail">16 entries</text>
+  <path d="M310 1290V1510" class="wire"/>
+  <text x="324" y="1460" class="label">PA</text>
+
+  <!-- Compact substructure; the two local ISB/MSHR interactions are stated below. -->
+  <rect x="430" y="1200" width="755" height="210" fill="#e5e2ef" stroke="#b4acc5" stroke-width="1"/>
+  <text x="448" y="1223" font-size="16" font-weight="600" fill="#60566f">Store / miss handling</text>
+  <path d="M325 960V1185H630V1235" class="wire"/>
+  <path d="M350 1250H455" class="wire"/>
+  <text x="400" y="1239" class="label center">PA</text>
+  <rect x="455" y="1235" width="185" height="75" class="mem-block"/>
+  <text x="547" y="1262" class="name">ISB</text>
+  <text x="547" y="1288" class="detail" style="font-size:15px">4 entries / store + AMO</text>
+  <rect x="730" y="1235" width="180" height="75" class="mem-block"/>
+  <text x="820" y="1262" class="name">Write Buffer</text>
+  <text x="820" y="1288" class="detail">4 line entries</text>
+  <rect x="975" y="1235" width="185" height="75" class="mem-block"/>
+  <text x="1067" y="1262" class="name">MSHR</text>
+  <text x="1067" y="1288" class="detail">2 entries / + DPB</text>
+  <path d="M640 1280H730" class="wire"/>
+  <text x="685" y="1269" class="label center" style="font-size:14px">Store data</text>
+  <path d="M975 1280H910" class="wire"/>
+  <text x="942" y="1269" class="label center" style="font-size:14px">Refill</text>
+  <text x="455" y="1350" class="small">ISB → MSHR: miss</text>
+  <text x="455" y="1379" class="small">MSHR → ISB: wakeup</text>
+  <path d="M820 1310V1510" class="main-path"/>
+  <text x="835" y="1452" class="label">Stores / refill</text>
+  <path d="M1005 1510V1310" class="wire"/>
+  <text x="990" y="1460" class="label" text-anchor="end">Miss</text>
+  <path d="M1135 1310V1510" class="control"/>
+  <text x="1120" y="1430" class="small" text-anchor="end">Replay</text>
+
+  <rect x="170" y="1510" width="990" height="70" class="mem-block"/>
+  <text x="665" y="1539" class="name">L1 DCache</text>
+  <text x="665" y="1565" class="detail">16 KiB / 4-way / 64 B / VIPT</text>
+  <path d="M1210 1077Q1192 1065 1210 1053" fill="none" stroke="#fff" stroke-width="8"/>
+  <path d="M1160 1535H1210V1077Q1192 1065 1210 1053V995H1180" class="main-path"/>
+  <circle cx="1180" cy="995" r="3.5" class="junction"/>
+  <text x="1230" y="1500" class="label" transform="rotate(-90 1230 1500)">Load data → result / bypass network</text>
+
+  <!-- Matching boundary terminals replace only long external wires. -->
+  <path d="M142 180H170" class="boundary"/>
+  <circle cx="130" cy="180" r="12" class="terminal"/>
+  <text x="130" y="185" class="terminal-text">T</text>
+  <path d="M220 1290V1328" class="boundary"/>
+  <circle cx="220" cy="1340" r="12" class="terminal"/>
+  <text x="220" y="1345" class="terminal-text">T</text>
+  <text x="240" y="1324" class="small">Request</text>
+  <text x="240" y="1345" class="small">/ PTE</text>
+  <path d="M740 298H805" class="boundary"/>
+  <circle cx="817" cy="298" r="12" class="terminal"/>
+  <text x="817" y="303" class="terminal-text">H</text>
+  <text x="786" y="280" class="small center">Miss / refill</text>
+  <path d="M1160 1280H1178" class="wire"/>
+  <circle cx="1190" cy="1280" r="12" class="terminal"/>
+  <text x="1190" y="1285" class="terminal-text">H</text>
+  <path d="M1160 1563H1178" class="boundary"/>
+  <circle cx="1190" cy="1563" r="12" class="terminal"/>
+  <text x="1190" y="1568" class="terminal-text">H</text>
+
+  <!-- External endpoint definitions are part of the drawing, not additional core blocks. -->
+  <text x="1270" y="111" font-size="17" font-weight="650">External boundaries</text>
+  <rect x="1270" y="145" width="200" height="125" class="external"/>
+  <circle cx="1294" cy="169" r="12" class="terminal"/>
+  <text x="1294" y="174" class="terminal-text">T</text>
+  <text x="1380" y="178" font-size="16" class="center" font-weight="600">PTW / Page Table</text>
+  <text x="1370" y="207" class="small center">ITLB and DTLB</text>
+  <text x="1370" y="232" class="small center">Request → / ← PTE</text>
+  <text x="1370" y="255" class="small center">External</text>
+  <rect x="1270" y="305" width="200" height="150" class="external"/>
+  <circle cx="1294" cy="329" r="12" class="terminal"/>
+  <text x="1294" y="334" class="terminal-text">H</text>
+  <text x="1380" y="336" font-size="18" class="center" font-weight="650">Next Level</text>
+  <text x="1370" y="361" font-size="18" class="center" font-weight="650">Memory Hierarchy</text>
+  <text x="1370" y="393" class="small center">ICache / DCache / MSHR</text>
+  <text x="1370" y="418" class="small center">Miss / refill boundary</text>
+  <text x="1370" y="443" class="small center">No level or size specified</text>
+  <text x="1270" y="487" class="small">Matching letters identify</text>
+  <text x="1270" y="509" class="small">the same external endpoint.</text>
+  <text x="1270" y="531" class="small">Not extra core structures.</text>
+
+  <!-- Static legend and reading conventions. -->
+  <path d="M170 1643H220" class="main-path"/>
+  <text x="234" y="1648" class="small">Instruction / data path</text>
+  <path d="M460 1643H510" class="control"/>
+  <text x="524" y="1648" class="small">Selected control / prediction</text>
+  <path d="M800 1643H850" class="writeback"/>
+  <text x="864" y="1648" class="small">Architectural writeback</text>
+  <text x="170" y="1676" class="small">Dots join paths; an arched crossing does not. Arrows indicate connectivity, not throughput or cycle boundaries.</text>
+</svg>
