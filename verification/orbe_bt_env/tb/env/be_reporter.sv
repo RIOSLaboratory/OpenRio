@@ -1,3 +1,4 @@
+// [This file] Log conventions: leveled printing and error/fatal counting
 class be_reporter;
   localparam int unsigned TIME_FIELD_WIDTH = 12;
   string name;

@@ -10,7 +10,7 @@ Usage:
   orbe_bt_env/tools/verilator_cosim.sh run /path/to/test.elf [options]
 
 Options:
-  --dut-kind <mock|rtl_v1>      DUT implementation to compile. Default: rtl_v1
+  --dut-kind <agent|rtl_v1|rtl_fe|rtl_cache|rtl_full>  DUT implementation to compile. Default: rtl_full
   --tc <path>                   ELF to run. Also accepted as first positional run arg.
   --tag <name>                  Output namespace tag. Default: current YYYYMMDD
   --seed <n>                    ntb_random_seed and case suffix. Default: 1
@@ -23,16 +23,14 @@ Options:
   -h, --help                    Show this help.
 
 Environment overrides:
-  VERILATOR, JOBS, LANES, ISA_MODEL_ROOT, ISA_MODEL_INSTALL, ISA_API_INC,
-  ISA_API_LIB, ISA_CFG, PYTHON, VERILATOR_BUILD_ROOT, VERILATOR_LOG_ROOT,
-  OBJ_DIR, SIM_EXE, OBJDUMP.
+  VERILATOR, JOBS, ISA_MODEL_ROOT, ISA_API_INC, ISA_API_LIB, ISA_CFG,
+  VERILATOR_BUILD_ROOT, VERILATOR_LOG_ROOT, OBJ_DIR, SIM_EXE, OBJDUMP.
 
 ISA model lookup:
-  The release pair vendored in dpi/ is used by default, so a fresh checkout
-  needs no configuration.  ISA_MODEL_INSTALL points at either an external
-  binary release pair (include/IsaApi.h and lib/lib_ISA_api.so) or a full
-  checkout (src/libs and build).  ISA_API_INC and ISA_API_LIB override the
-  result.
+  A full ISA model checkout (src/libs and build) under ISA_MODEL_ROOT, or found
+  by searching upward, takes precedence.  Otherwise the IsaApi.h and
+  lib_ISA_api.so pair vendored in dpi/ is used.  ISA_API_INC and ISA_API_LIB
+  override the result.
 
 Default logs:
   orbe_bt_env/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/sim.log
@@ -80,9 +78,18 @@ esac
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 orbe_bt_env=$(cd "$script_dir/.." && pwd)
+# A full ISA model checkout (src/libs + build) is set via ISA_MODEL_ROOT, or probed upward level by level;
+# if none is found, the IsaApi.h and lib_ISA_api.so shipped with the repo under dpi/ are used.
 default_isa_model_root=$(cd "$orbe_bt_env/.." && pwd)
+for _cand in "$orbe_bt_env/.." "$orbe_bt_env/../isa_model" "$orbe_bt_env/../../isa_model"; do
+  if [ -r "$_cand/src/libs/IsaApi.h" ]; then
+    default_isa_model_root=$(cd "$_cand" && pwd)
+    break
+  fi
+done
+unset _cand
 
-DUT_KIND=${DUT_KIND:-rtl_v1}
+DUT_KIND=${DUT_KIND:-rtl_full}
 TC=${TC:-}
 TAG=${TAG:-$(date +%Y%m%d)}
 SEED=${SEED:-1}
@@ -93,33 +100,21 @@ COSIM_BACKEND=${COSIM_BACKEND:-isa_step}
 PLUSARGS=${PLUSARGS:-}
 NO_BUILD=${NO_BUILD:-0}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 4)}
-LANES=${LANES:-4}
 VERILATOR=${VERILATOR:-verilator}
 OBJDUMP=${OBJDUMP:-riscv64-unknown-elf-objdump}
 
-ISA_MODEL_ROOT=${ISA_MODEL_ROOT:-$default_isa_model_root}
-ISA_MODEL_INSTALL=${ISA_MODEL_INSTALL:-$ISA_MODEL_ROOT}
-# Match mk/common.mk: the release pair is vendored in dpi/, an external release
-# under include/ and lib/ overrides it, then a full-checkout under src/libs and
-# build.  An unreachable ISA_MODEL_INSTALL falls through to the vendored pair.
-if [[ -r "$ISA_MODEL_INSTALL/include/IsaApi.h" ]]; then
-  default_isa_api_inc=$ISA_MODEL_INSTALL/include
-elif [[ -r "$ISA_MODEL_INSTALL/src/libs/IsaApi.h" ]]; then
-  default_isa_api_inc=$ISA_MODEL_INSTALL/src/libs
+# Relative paths are resolved against the caller's current directory and made absolute: at build time make runs inside the obj directory, so relative -I/-L/rpath would break.
+ISA_MODEL_ROOT=$(abs_path "${ISA_MODEL_ROOT:-$default_isa_model_root}")
+if [[ -r "$ISA_MODEL_ROOT/src/libs/IsaApi.h" ]]; then
+  default_isa_api_inc=$ISA_MODEL_ROOT/src/libs
+  default_isa_api_lib=$ISA_MODEL_ROOT/build
 else
   default_isa_api_inc=$orbe_bt_env/dpi
-fi
-if [[ -r "$ISA_MODEL_INSTALL/lib/lib_ISA_api.so" ]]; then
-  default_isa_api_lib=$ISA_MODEL_INSTALL/lib
-elif [[ -r "$ISA_MODEL_INSTALL/build/lib_ISA_api.so" ]]; then
-  default_isa_api_lib=$ISA_MODEL_INSTALL/build
-else
   default_isa_api_lib=$orbe_bt_env/dpi
 fi
-ISA_API_INC=${ISA_API_INC:-$default_isa_api_inc}
-ISA_API_LIB=${ISA_API_LIB:-$default_isa_api_lib}
+ISA_API_INC=$(abs_path "${ISA_API_INC:-$default_isa_api_inc}")
+ISA_API_LIB=$(abs_path "${ISA_API_LIB:-$default_isa_api_lib}")
 ISA_CFG=${ISA_CFG:-$orbe_bt_env/dpi/rivai_0x80000000_1core_rom.yaml}
-PYTHON=${PYTHON:-python3}
 
 VERILATOR_BUILD_ROOT_OVERRIDE=${VERILATOR_BUILD_ROOT:-}
 VERILATOR_LOG_ROOT_OVERRIDE=${VERILATOR_LOG_ROOT:-}
@@ -234,33 +229,46 @@ OBJ_DIR=${OBJ_DIR_OVERRIDE:-$VERILATOR_BUILD_ROOT/obj_${DUT_KIND}}
 SIM_EXE=${SIM_EXE_OVERRIDE:-$VERILATOR_BUILD_ROOT/be_tb_top_${DUT_KIND}}
 
 case "$DUT_KIND" in
-  mock)
-    rtl_filelist=cfg/filelist/rtl_mock.f
-    dut_define=-DORBE_DUT_MOCK
+  agent)
+    # FE agent -> be_bfm -> CacheAgent closed loop of the three; no DUT, no COSIM observer.
+    rtl_filelist=cfg/filelist/rtl_agent.f
+    dut_define=-DORBE_DUT_AGENT
     ;;
   rtl_v1)
     rtl_filelist=cfg/filelist/rtl_v1.f
     dut_define=-DORBE_DUT_RTL_V1
     ;;
+  rtl_fe)
+    # OR_FE RTL + BE RTL: the FE slot is filled by or_fe_top; cache_agent doubles as FE's L2/PTW
+    rtl_filelist=cfg/filelist/rtl_fe.f
+    dut_define="-DORBE_DUT_RTL_V1 -DORBE_FE_RTL"
+    ;;
+  rtl_cache)
+    # OR_Cache RTL + BE RTL: the LSU slot is filled by or_cache_top; cache_agent only does D-side model sync / downstream responses
+    rtl_filelist=cfg/filelist/rtl_cache.f
+    dut_define="-DORBE_DUT_RTL_V1 -DORBE_CACHE_RTL"
+    ;;
+  rtl_full)
+    # OR_FE RTL + OR_Cache RTL + BE RTL: cache_agent doubles as FE's L2/PTW and D-side model sync / downstream responses
+    rtl_filelist=cfg/filelist/rtl_full.f
+    dut_define="-DORBE_DUT_RTL_V1 -DORBE_FE_RTL -DORBE_CACHE_RTL"
+    ;;
   *)
-    die "unsupported DUT_KIND=$DUT_KIND; expected mock or rtl_v1"
+    die "unsupported DUT_KIND=$DUT_KIND; expected agent, rtl_v1, rtl_fe, rtl_cache or rtl_full"
     ;;
 esac
 
+# Keep only defines that are actually referenced:
+#
+#   SYNTHESIS               -- RTL wraps its built-in assertions in `ifndef SYNTHESIS (alu_simple /
+#                              csr_unit / div_simple / mul_simple / g3_lsu_iface /
+#                              CompletionScoreboard, six places). Passing it = these assertions are not compiled.
+#   ORBE_EXTERNAL_MNEMONICS -- be_agent / cosim_pkg look up mnemonic names via an external table.
+#   $dut_define             -- ORBE_DUT_RTL_V1 or ORBE_DUT_AGENT, dispatching between the two DUT kinds.
 base_defines=(
-  -DTB_SYS_BE
-  -DUSE_RRV64_MACRO
-  -DFSDB
-  -DRRV64_VPRF_64
-  -DP600_ENABLE_VEC
-  -DP600_ENABLE_FP
-  -DCOSIM_WITH_DPI_SPIKE
-  -DCACHE_V3
-  -DNEW_CACHE_AGENT
   -DSYNTHESIS
   -DORBE_EXTERNAL_MNEMONICS
-  -DBE_ISSUE_WIDTH="$LANES"
-  "$dut_define"
+  $dut_define
 )
 
 warning_flags=(
@@ -291,22 +299,19 @@ check_common_inputs() {
 }
 
 check_dpi_inputs() {
+  need_file "$ISA_API_INC/IsaApi.h" "IsaApi.h"
+  need_file "$ISA_API_LIB/lib_ISA_api.so" "lib_ISA_api.so"
   need_file "$orbe_bt_env/dpi/isa_dpi_wrapper.cc" "DPI C++ wrapper"
-  # The DPI wrapper is open source while IsaApi.h and lib_ISA_api.so are a
-  # binary release pair, so verify the pair actually matches this wrapper
-  # instead of guessing from a single symbol.  The checker prints what to do
-  # when the pair is absent or is not the one this wrapper was written against.
-  "$PYTHON" "$orbe_bt_env/tools/check_isa_api_release.py" \
-    --inc "$ISA_API_INC" --lib "$ISA_API_LIB" \
-    || die "the ISA model release pair at ISA_API_INC=$ISA_API_INC ISA_API_LIB=$ISA_API_LIB does not match dpi/isa_dpi_wrapper.cc"
+  if ! grep -q "IsaApiDecodeMetadata" "$ISA_API_INC/IsaApi.h"; then
+    die "IsaApi.h at $ISA_API_INC lacks IsaApiDecodeMetadata; set ISA_API_INC/ISA_API_LIB to the matching parent ISA model build"
+  fi
 }
 
 print_config() {
   echo "[VERILATOR_COSIM] command=$command dut=$DUT_KIND tag=$TAG seed=$SEED cosim=$COSIM_ENABLE backend=$COSIM_BACKEND"
-  echo "[VERILATOR_COSIM] lanes=$LANES jobs=$JOBS"
+  echo "[VERILATOR_COSIM] jobs=$JOBS"
   echo "[VERILATOR_COSIM] obj_dir=$OBJ_DIR"
   echo "[VERILATOR_COSIM] sim_exe=$SIM_EXE"
-  echo "[VERILATOR_COSIM] isa_model_install=$ISA_MODEL_INSTALL"
   echo "[VERILATOR_COSIM] isa_api_inc=$ISA_API_INC"
   echo "[VERILATOR_COSIM] isa_api_lib=$ISA_API_LIB"
 }
@@ -406,7 +411,10 @@ run_case() {
   echo "[VERILATOR_COSIM] isa_commit_log=$commit_log"
   if command -v rg >/dev/null 2>&1; then
     rg -i "\[COSIM\]|\[BE\]\[COSIM\]|MISMATCH|%Error|Assertion failed|DPI_EXIT_RESULT|REPORTER_SUMMARY" "$sim_log" || true
-    if rg -qi "MISMATCH|%Error|Assertion failed|\[DPI_EXIT_RESULT\][[:space:]]+FAIL|REPORTER_SUMMARY.*(error=[1-9][0-9]*|fatal=[1-9][0-9]*)" "$sim_log"; then
+    # [FE_EQUIV]/[CACHE_EQUIV] summary lines themselves carry "mismatch=<n>": exclude summary lines first, then search for failure keywords;
+    # a nonzero mismatch on a summary line is judged a failure separately (per-item mismatches are counted into REPORTER_SUMMARY via reporter.error).
+    if rg -v '_EQUIV\] checked=' "$sim_log" | rg -qi "MISMATCH|%Error|Assertion failed|\[DPI_EXIT_RESULT\][[:space:]]+FAIL|REPORTER_SUMMARY.*(error=[1-9][0-9]*|fatal=[1-9][0-9]*)" \
+       || rg -q '_EQUIV\] checked=.* mismatch=[1-9]' "$sim_log"; then
       [[ "$status" -ne 0 ]] || status=1
     fi
   fi

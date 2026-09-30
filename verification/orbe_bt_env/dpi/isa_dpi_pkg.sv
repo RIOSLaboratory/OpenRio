@@ -1,3 +1,4 @@
+// [This file] DPI boundary of the shared instance (model #0)
 // SystemVerilog declarations for isa_dpi_wrapper.cc.
 package isa_dpi_pkg;
 

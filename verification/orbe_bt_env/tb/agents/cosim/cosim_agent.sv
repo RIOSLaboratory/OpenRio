@@ -1,3 +1,4 @@
+// [This file] checker skeleton: holds an independent reference instance
 class cosim_agent #(int unsigned ISSUE_NUM = 1,
                     int unsigned ROB_ADDR_W = 1);
   virtual ob_cosim_if #(ISSUE_NUM, ROB_ADDR_W) vif;

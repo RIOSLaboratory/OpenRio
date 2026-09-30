@@ -1,25 +1,25 @@
 +incdir+tb/env
 +incdir+tb/interfaces
 +incdir+tb/pkg
++incdir+tb/agents/initial
 +incdir+tb/agents/fe
 +incdir+tb/agents/be
 +incdir+tb/agents/cosim
-+incdir+tb/modified_agents/fe
-+incdir+tb/modified_agents/cache
++incdir+tb/agents/cache
++incdir+tb/top
 
-tb/pkg/mock_rtl_pkg.sv
-tb/interfaces/fe_if.sv
-tb/interfaces/lsu_if.sv
-tb/interfaces/be_if.sv
+tb/pkg/orbe_be_dim_pkg.sv
 tb/interfaces/ob_if.sv
 tb/interfaces/ob_cosim_if.sv
-tb/interfaces/getter_if.sv
-tb/modified_agents/cache/lsu_if.sv
-tb/modified_agents/fe/orbe_fe_if.sv
+tb/interfaces/lsu_if.sv
+tb/interfaces/orbe_fe_if.sv
 tb/pkg/isa_cosim_dpi_pkg.sv
 tb/pkg/be_tb_pkg.sv
-tb/top/mock_rtl.sv
-tb/top/mock_obs_probe.sv
-tb/top/rtl_v1_obs_probe.sv
-tb/top/rtl_v1_wrapper.sv
+
+# F · BFM (BE). Under DUT_KIND=agent it occupies the slot and directly drives both the fe and lsu boundaries.
+tb/agents/be/be_bfm.sv
+
+# G2 · checker. be_checker is retired; stage 1 now runs the same checker (cosim_agent/cosim_pkg).
+# tb/agents/checker/be_checker.sv
+
 tb/top/be_tb_top.sv
