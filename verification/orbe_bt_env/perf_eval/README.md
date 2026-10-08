@@ -15,7 +15,7 @@ P1/P3/P4 事件做比对，回答一个问题：**RTL 的 performance 是否符�
 |---|---|
 | caselist（预测基准）、K-map、时序图 | **openrios**：`work/or-be-draft/timing/` |
 | 评估工具、链接脚本、case 模板 | **本目录**（OpenRio） |
-| 生成的 `.S` / `.elf` / 日志 / 结果 | **仓库外**构建树 `perf_eval_work/` |
+| 生成的 `.S` / `.elf` / 日志 / 结果 | **构建树**：`/work/.../model/perf_eval_work/` |
 
 caselist 自身标注 `Normative timing sources: pending promotion to spec/or-be/`，
 即它仍是 draft 且会持续变动。因此**一律按路径引用，不做拷贝** —— 拷贝会产生两份
@@ -36,7 +36,8 @@ perf_eval/
 └── compare.py          [待建] sim.log -> cycle -> delta 表
 ```
 
-仓库外的构建树：
+构建树（**不在 OpenRio / openrios 任一仓库内**；它位于上级 `model` 仓库中且为
+untracked，与同级的 `OpenRio/`、`openrios/`、`cva6/`、`isa_model/` 状态一致）：
 
 ```text
 /work/home/danielle/workspace/suncheek/model/perf_eval_work/

@@ -90,7 +90,7 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 |---|---|---|
 | caselist（预测基准）、K-map、时序图 | `openrios:/work/or-be-draft/timing/` | 是（在其自己仓库） |
 | 工具、模板、本方法文档 | `OpenRio:verification/orbe_bt_env/perf_eval/` | 是 |
-| 生成的 `.S` / `.elf` / `.dump` / `sim.log` | `/work/.../model/perf_eval_work/`（仓库外） | **否** |
+| 生成的 `.S` / `.elf` / `.dump` / `sim.log` | `/work/.../model/perf_eval_work/`（不在 OpenRio/openrios 内，见 README §2） | **否** |
 | 比对结果 `.md` | 同上 `results/` | **否** |
 
 **caselist 一律按路径引用，不做拷贝** —— 它是 draft，拷贝会产生第二份会分叉的"预期"。
