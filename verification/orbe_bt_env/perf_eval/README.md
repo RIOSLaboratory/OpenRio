@@ -3,8 +3,11 @@
 把 `or-be-draft/timing/caselists/` 里**预测**的时序行为，与 RTL 逐拍**观测**到的
 P1/P3/P4 事件做比对，回答一个问题：**RTL 的 performance 是否符合预期。**
 
-> 状态：目前只有骨架（目录、链接脚本、case 模板）。
+> 状态：目前只有骨架（目录、链接脚本、case 模板）+ 方法文档。
 > 生成器 / 跑批 / 比对脚本尚未落地，见 §6。
+>
+> **完整方法（caselist → .S → .elf → 跑 RTL → 抽取 → 人工判定）见
+> [`METHOD.md`](METHOD.md)。**
 
 ## 1. 仓库边界
 
@@ -23,6 +26,7 @@ caselist 自身标注 `Normative timing sources: pending promotion to spec/or-be
 ```text
 perf_eval/
 ├── README.md           本文件
+├── METHOD.md           方法文档（caselist -> .S -> .elf -> 跑 -> 判定）
 ├── .gitignore          生成物安全网
 ├── templates/
 │   ├── link.ld         链接脚本（0x80000000 起 + tohost）
