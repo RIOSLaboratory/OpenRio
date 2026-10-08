@@ -30,7 +30,7 @@
 24. `fpu_simple`：`temp/from_zelin/fu/fpu_simple.md`
 25. `p3_arbiter_G0`：`temp/new_v4.1/p2p3/p3_arbiter_G0.md`
 26. `p3_arbiter_G1`：`temp/new_v4.1/p2p3/p3_arbiter_G1.md`
-27. `lsu_bridge`：`temp/from_zelin/lsu/lsu_bridge.md`
+27. `g3_lsu_iface`：`temp/from_zelin/lsu/g3_lsu_iface.md`
 28. `Buffer`：`temp/new_v4.1/p4/Buffer.md`
 29. `PC_File`：`temp/new_v4.1/p4/PC_File.md`
 30. `SerialInstructionTracker`：`temp/new_v4.1/p4/SerialInstructionTracker.md`
@@ -181,13 +181,13 @@
 ### P2.4
 
 1. `ISQ_Group3.isq_free_for_dispatch -> dispatch_logic.isq_free_for_dispatch[3]`：1 bit；组合传递；当前拍有效。
-2. `ISQ_Group3.issue_valid -> lsu_bridge.issue_valid`：`ISQ_Group3` issue Event 及 payload；组合传递；当前拍有效。
+2. `ISQ_Group3.issue_valid -> g3_lsu_iface.issue_valid`：`ISQ_Group3` issue Event 及 payload；组合传递；当前拍有效。
 3. `ISQ_Group3.entry_self_tag -> CompletionScoreboard.st_br_resolve_tag`：组合传递；当前拍有效。
 4. `ISQ_Group3.isq_occupied -> CompletionScoreboard.st_br_resolve_tag_valid`：组合传递；当前拍有效。
-5. `lsu_bridge.FU_ready -> ISQ_Group3.FU_ready`：组合传递；当前拍有效。
-6. `lsu_be_issue_ready -> lsu_bridge.lsu_be_issue_ready`：1 bit；组合传递；当前拍有效。
-7. `lsu_be_writeback_valid -> lsu_bridge.lsu_be_writeback_valid`：`lsu_be_writeback_pld_t` payload Event；组合传递；当前拍有效。
-8. `lsu_be_bypass_valid -> lsu_bridge.lsu_be_bypass_valid`：`lsu_be_bypass_pld_t` payload Event；组合传递；当前拍有效。
+5. `g3_lsu_iface.FU_ready -> ISQ_Group3.FU_ready`：组合传递；当前拍有效。
+6. `lsu_be_issue_ready -> g3_lsu_iface.lsu_be_issue_ready`：1 bit；组合传递；当前拍有效。
+7. `lsu_be_writeback_valid -> g3_lsu_iface.lsu_be_writeback_valid`：`lsu_be_writeback_pld_t` payload Event；组合传递；当前拍有效。
+8. `lsu_be_bypass_valid -> g3_lsu_iface.lsu_be_bypass_valid`：`lsu_be_bypass_pld_t` payload Event；组合传递；当前拍有效。
 
 ### P3
 
@@ -210,20 +210,20 @@
 17. `fpu_simple.result_data -> lane_result_data[2]`：组合传递；当前拍有效。
 18. `fpu_simple.tag_out -> exec_tag[2]`：`TAG_W` bit；组合传递；当前拍有效。
 19. `fpu_simple.writeback_valid -> exec_valid[2]`：writeback Event；组合传递；当前拍有效。
-20. `lsu_bridge.bypass_data -> lane_bypass_data[3]`：`XLEN` bit；组合传递；当前拍有效。
-21. `lsu_bridge.bypass_publish_valid -> lane_bypass_valid[3]`：bypass Event；组合传递；当前拍有效。
-22. `lsu_bridge.bypass_tag -> lane_bypass_tag[3]`：`TAG_W` bit；组合传递；当前拍有效。
-23. `lsu_bridge.exception_cause -> lane_exception_cause[3]`：组合传递；当前拍有效。
-24. `lsu_bridge.exception_flag -> lane_exception_flag[3]`：组合传递；当前拍有效。
-25. `lsu_bridge.exception_tval -> lane_exception_tval[3]`：组合传递；当前拍有效。
-26. `lsu_bridge.fpu_fflags -> lane_fpu_fflags[3]`：组合传递；当前拍有效。
-27. `lsu_bridge.is_mret -> lane_is_mret[3]`：组合传递；当前拍有效。
-28. `lsu_bridge.is_sret -> lane_is_sret[3]`：组合传递；当前拍有效。
-29. `lsu_bridge.mispredict_flag -> lane_mispredict_flag[3]`：组合传递；当前拍有效。
-30. `lsu_bridge.mispredict_target_pc -> lane_mispredict_target_pc[3]`：组合传递；当前拍有效。
-31. `lsu_bridge.result_data -> lane_result_data[3]`：组合传递；当前拍有效。
-32. `lsu_bridge.tag_out -> exec_tag[3]`：`TAG_W` bit；组合传递；当前拍有效。
-33. `lsu_bridge.writeback_valid -> exec_valid[3]`：writeback Event；组合传递；当前拍有效。
+20. `g3_lsu_iface.bypass_data -> lane_bypass_data[3]`：`XLEN` bit；组合传递；当前拍有效。
+21. `g3_lsu_iface.bypass_publish_valid -> lane_bypass_valid[3]`：bypass Event；组合传递；当前拍有效。
+22. `g3_lsu_iface.bypass_tag -> lane_bypass_tag[3]`：`TAG_W` bit；组合传递；当前拍有效。
+23. `g3_lsu_iface.exception_cause -> lane_exception_cause[3]`：组合传递；当前拍有效。
+24. `g3_lsu_iface.exception_flag -> lane_exception_flag[3]`：组合传递；当前拍有效。
+25. `g3_lsu_iface.exception_tval -> lane_exception_tval[3]`：组合传递；当前拍有效。
+26. `g3_lsu_iface.fpu_fflags -> lane_fpu_fflags[3]`：组合传递；当前拍有效。
+27. `g3_lsu_iface.is_mret -> lane_is_mret[3]`：组合传递；当前拍有效。
+28. `g3_lsu_iface.is_sret -> lane_is_sret[3]`：组合传递；当前拍有效。
+29. `g3_lsu_iface.mispredict_flag -> lane_mispredict_flag[3]`：组合传递；当前拍有效。
+30. `g3_lsu_iface.mispredict_target_pc -> lane_mispredict_target_pc[3]`：组合传递；当前拍有效。
+31. `g3_lsu_iface.result_data -> lane_result_data[3]`：组合传递；当前拍有效。
+32. `g3_lsu_iface.tag_out -> exec_tag[3]`：`TAG_W` bit；组合传递；当前拍有效。
+33. `g3_lsu_iface.writeback_valid -> exec_valid[3]`：writeback Event；组合传递；当前拍有效。
 34. `p3_arbiter_G0.bypass_data -> lane_bypass_data[0]`：`XLEN` bit；组合传递；当前拍有效。
 35. `p3_arbiter_G0.bypass_publish_valid -> lane_bypass_valid[0]`：bypass Event；组合传递；当前拍有效。
 36. `p3_arbiter_G0.bypass_tag -> lane_bypass_tag[0]`：`TAG_W` bit；组合传递；当前拍有效。
@@ -320,8 +320,8 @@
 11. `CompletionScoreboard.recovery_mispredict_target_pc -> flush_model.mispredict_target_pc`：组合传递；当前拍有效。
 12. `CompletionScoreboard.scoreboard_exec_done_bits -> dependency_check.scoreboard_exec_done_bits`：组合传递；当前拍有效。
 13. `CompletionScoreboard.scoreboard_valid_bits -> dependency_check.scoreboard_valid_bits`：组合传递；当前拍有效。
-14. `CompletionScoreboard.st_br_resolve -> lsu_bridge.st_br_resolve`：1 bit；组合传递；当前拍有效。
-15. `CompletionScoreboard.store_wakeup_valid -> lsu_bridge.store_wakeup_valid`：`store_wakeup_tag` payload Event；组合传递；当前拍有效。
+14. `CompletionScoreboard.st_br_resolve -> g3_lsu_iface.st_br_resolve`：1 bit；组合传递；当前拍有效。
+15. `CompletionScoreboard.store_wakeup_valid -> g3_lsu_iface.store_wakeup_valid`：`store_wakeup_tag` payload Event；组合传递；当前拍有效。
 16. `flush_model.cause -> system_instruction_handler.trap_cause_in`：组合传递；当前拍有效。
 17. `flush_model.global_flush_late -> CompletionScoreboard`：无 payload Event；组合传递；当前拍 pulse。
 18. `flush_model.global_flush_late -> FP_tag_mapping`：无 payload Event；组合传递；当前拍 pulse。
@@ -336,7 +336,7 @@
 27. `flush_model.global_flush_late -> dispatch_logic`：无 payload Event；组合传递；当前拍 pulse。
 28. `flush_model.global_flush_late -> div_simple`：无 payload Event；组合传递；当前拍 pulse。
 29. `flush_model.global_flush_late -> fpu_simple`：无 payload Event；组合传递；当前拍 pulse。
-30. `flush_model.global_flush_late -> lsu_bridge`：无 payload Event；组合传递；当前拍 pulse。
+30. `flush_model.global_flush_late -> g3_lsu_iface`：无 payload Event；组合传递；当前拍 pulse。
 31. `flush_model.global_flush_late -> mul_simple`：无 payload Event；组合传递；当前拍 pulse。
 32. `flush_model.global_flush_late -> system_instruction_handler`：无 payload Event；组合传递；当前拍 pulse。
 33. `flush_model.global_flush_late -> u_alu0_bru`：无 payload Event；组合传递；当前拍 pulse。
@@ -379,7 +379,7 @@
 70. `rst_n -> csr_unit`：1 bit；持续传递。
 71. `rst_n -> div_simple`：1 bit；持续传递。
 72. `rst_n -> fpu_simple`：1 bit；持续传递。
-73. `rst_n -> lsu_bridge`：1 bit；持续传递。
+73. `rst_n -> g3_lsu_iface`：1 bit；持续传递。
 74. `rst_n -> mul_simple`：1 bit；持续传递。
 75. `rst_n -> system_instruction_handler`：1 bit；持续传递。
 76. `rst_n -> u_alu0_bru`：1 bit；持续传递。
@@ -437,19 +437,19 @@
 		- `predictor_update_cf_class = u_alu0_bru.predictor_update_cf_class`
 			- `u_alu0_bru.predictor_update_cf_class`：见 `Submodule` 第 19 条。
 3. `be_lsu_issue_valid`：Transaction，单 lane
-	- Fire来源：`be_lsu_issue_valid.fire = lsu_bridge.be_lsu_issue_valid.fire`
-		- `lsu_bridge.be_lsu_issue_valid.fire`：见 `Submodule` 第 27 条。
-	- Constraint：payload 保持和背压遵循 `lsu_bridge` 的 Transaction 接口。
+	- Fire来源：`be_lsu_issue_valid.fire = g3_lsu_iface.be_lsu_issue_valid.fire`
+		- `g3_lsu_iface.be_lsu_issue_valid.fire`：见 `Submodule` 第 27 条。
+	- Constraint：payload 保持和背压遵循 `g3_lsu_iface` 的 Transaction 接口。
 	- Payload：`be_lsu_issue_pld` `be_lsu_issue_pld_t`；fire 拍采样
-		- `be_lsu_issue_pld = lsu_bridge.be_lsu_issue_pld`
-			- `lsu_bridge.be_lsu_issue_pld`：见 `Submodule` 第 27 条。
+		- `be_lsu_issue_pld = g3_lsu_iface.be_lsu_issue_pld`
+			- `g3_lsu_iface.be_lsu_issue_pld`：见 `Submodule` 第 27 条。
 4. `be_lsu_store_wakeup_valid`：Notify，单 lane
-	- Fire来源：`be_lsu_store_wakeup_valid.fire = lsu_bridge.be_lsu_store_wakeup_valid.fire`
-		- `lsu_bridge.be_lsu_store_wakeup_valid.fire`：见 `Submodule` 第 27 条。
+	- Fire来源：`be_lsu_store_wakeup_valid.fire = g3_lsu_iface.be_lsu_store_wakeup_valid.fire`
+		- `g3_lsu_iface.be_lsu_store_wakeup_valid.fire`：见 `Submodule` 第 27 条。
 	- Constraint：无额外约束。
 	- Payload：`be_lsu_store_wakeup_tag` `TAG_W` bit；当前拍 pulse
-		- `be_lsu_store_wakeup_tag = lsu_bridge.be_lsu_store_wakeup_tag`
-			- `lsu_bridge.be_lsu_store_wakeup_tag`：见 `Submodule` 第 27 条。
+		- `be_lsu_store_wakeup_tag = g3_lsu_iface.be_lsu_store_wakeup_tag`
+			- `g3_lsu_iface.be_lsu_store_wakeup_tag`：见 `Submodule` 第 27 条。
 5. `global_flush`：Notify，单 lane
 	- Fire来源：`global_flush.fire = flush_model.global_flush_late.fire`
 		- `flush_model.global_flush_late.fire`：见 `Submodule` 第 31 条。
@@ -463,18 +463,18 @@
 		- `alloc_tag[s] = dependency_check.self_tag[s]`
 			- `dependency_check.self_tag[s]`：见 `Submodule` 第 3 条。
 7. `exec_valid[l]`：Notify，`l∈{0,...,NUM_LANES-1}`
-	- Fire来源：`exec_valid[l].fire = (l=0) ? p3_arbiter_G0.writeback_valid.fire : (l=1) ? p3_arbiter_G1.writeback_valid.fire : (l=2) ? fpu_simple.writeback_valid.fire : lsu_bridge.writeback_valid.fire`
+	- Fire来源：`exec_valid[l].fire = (l=0) ? p3_arbiter_G0.writeback_valid.fire : (l=1) ? p3_arbiter_G1.writeback_valid.fire : (l=2) ? fpu_simple.writeback_valid.fire : g3_lsu_iface.writeback_valid.fire`
 		- `p3_arbiter_G0.writeback_valid.fire`：见 `Submodule` 第 25 条。
 		- `p3_arbiter_G1.writeback_valid.fire`：见 `Submodule` 第 26 条。
 		- `fpu_simple.writeback_valid.fire`：见 `Submodule` 第 24 条。
-		- `lsu_bridge.writeback_valid.fire`：见 `Submodule` 第 27 条。
+		- `g3_lsu_iface.writeback_valid.fire`：见 `Submodule` 第 27 条。
 	- Constraint：`l=0`、`1`、`2`、`3` 分别对应 G0 arbiter、G1 arbiter、FPU 和 LSU completion lane。
 	- Payload：`exec_tag[l]` `TAG_W` bit；当前拍 pulse
-		- `exec_tag[l] = (l=0) ? p3_arbiter_G0.tag_out : (l=1) ? p3_arbiter_G1.tag_out : (l=2) ? fpu_simple.tag_out : lsu_bridge.tag_out`
+		- `exec_tag[l] = (l=0) ? p3_arbiter_G0.tag_out : (l=1) ? p3_arbiter_G1.tag_out : (l=2) ? fpu_simple.tag_out : g3_lsu_iface.tag_out`
 			- `p3_arbiter_G0.tag_out`：见 `Submodule` 第 25 条。
 			- `p3_arbiter_G1.tag_out`：见 `Submodule` 第 26 条。
 			- `fpu_simple.tag_out`：见 `Submodule` 第 24 条。
-			- `lsu_bridge.tag_out`：见 `Submodule` 第 27 条。
+			- `g3_lsu_iface.tag_out`：见 `Submodule` 第 27 条。
 8. `commit_valid[s]`：Notify，`s∈{0,...,ISSUE_WIDTH-1}`
 	- Fire来源：`commit_valid[s].fire = CompletionScoreboard.commit_valid[s].fire`
 		- `CompletionScoreboard.commit_valid[s].fire`：见 `Submodule` 第 33 条。
@@ -512,6 +512,6 @@
 
 1. `clk`：含时序逻辑的子模块在上升沿采样；`backend_top` 本身无时序存储。
 2. `rst_n`：低有效复位输入；复位属性和复位值由各含复位输入的子模块定义。
-3. `Transaction`：`fe_valid[s] ∧ fe_ready[s]` 在上升沿完成 FE 输入传输；`be_lsu_issue_valid ∧ lsu_be_issue_ready` 完成 LSU issue 传输，背压与 payload 保持由 `lsu_bridge` 定义。
+3. `Transaction`：`fe_valid[s] ∧ fe_ready[s]` 在上升沿完成 FE 输入传输；`be_lsu_issue_valid ∧ lsu_be_issue_ready` 完成 LSU issue 传输，背压与 payload 保持由 `g3_lsu_iface` 定义。
 4. `Notify`：输入和输出 Notify 在对应 valid/fire 拍有效，无 ready 回传。
 5. `Static Info`：所有 Static Info 均为当前拍持续组合值；reset 或 flush 对其影响由对应 producer 子模块定义。

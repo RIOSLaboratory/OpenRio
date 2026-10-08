@@ -706,7 +706,7 @@
     - `req_fpu_fflags`
 7. `FU_ready`: Out Static Info
 
-## lsu_bridge
+## g3_lsu_iface
 
 1. `rst_n`: In Static Info
 2. `issue_valid`: In Event, payload:

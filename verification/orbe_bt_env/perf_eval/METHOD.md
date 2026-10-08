@@ -67,8 +67,10 @@ caselist(.md)  ──gen_cases──▶  .S  ──gcc+link.ld──▶  .elf
 | **bypass 走向** | P4 → P1；P3 → P1（`dependency_check`、`isq_payload_assembly`）**和** → P2（四个 ISQ 的 snoop） |
 | **分段数 = 5** | P0/P1/P2/P3/P4，见 §2.4。目录里的 `p2p3/` 只是打包方式，不代表 P2 与 P3 合并 |
 
-> `docs/modules/` 下仍有 1 处命名漂移：HAS §6.5 链接 `lsu/g3_lsu_iface.md`，
-> 而同步进来的文件名是 `lsu/lsu_bridge.md`（RTL 里叫 `g3_lsu_iface.sv`）。待统一。
+> **命名已统一为 `g3_lsu_iface`**（2026-10 裁决：跟随 RTL，改文档不改代码）。
+> `docs/modules/lsu/g3_lsu_iface.md` 已改名，`docs/modules/` 其余引用与
+> `docs/Cache/or_cache_has_V1.0.md` 已改齐；`openrios:modules_v4/` 同步改齐，
+> 两侧 `diff -rq` 一致。
 
 ### 1.3 必须人工判定
 
@@ -138,7 +140,7 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 |---|---|---|---|---|
 | **P0** | FE→BE 边界：接收 FE 指令入 IB、回 `fe_ready` | `p1/IB.md`（目录名遗留，内容属 P0） | `fe_vif` 握手 `fe_be_instr_valid/ready` + payload | `[BE][COSIM] [FE-BE]`（observation only） |
 | **P1** | decode → dependency check → rename → **dispatch(accept)**，写入 ISQ 与 in-flight window；**P1 不持有指令状态** | `p1/decode.md`、`p1/dependency_check.md`、`p1/dispatch_logic.md`、`p1/*tag_mapping.md`、`p1/*ARF.md`、`top/isq_payload_assembly.md` | `decode_issue_valid` + `decode_issue_pld` | `[BE][DECODE]`（verbosity ≥ 2） |
-| **P2** | **ISQ 驻留 + 操作数就绪（bypass snoop）+ 发射 + FU 执行**；G3 发往外部 LSU。执行周期按 FU 不等（ALU 1 拍、MUL 3 拍、DIV N 拍、LSU 握手） | `p2p3/ISQ_Group0..3.md`、`p2p3/FU_input_mux.md`、`fu/*.md`、`lsu/lsu_bridge.md` | `isq_g0..g3_issue_valid` + `_pld.self_tag` | **待补**（数据已在 `l2_isq_by_rob`） |
+| **P2** | **ISQ 驻留 + 操作数就绪（bypass snoop）+ 发射 + FU 执行**；G3 发往外部 LSU。执行周期按 FU 不等（ALU 1 拍、MUL 3 拍、DIV N 拍、LSU 握手） | `p2p3/ISQ_Group0..3.md`、`p2p3/FU_input_mux.md`、`fu/*.md`、`lsu/g3_lsu_iface.md` | `isq_g0..g3_issue_valid` + `_pld.self_tag` | **待补**（数据已在 `l2_isq_by_rob`） |
 | **P3** | **写回 / bypass**：组内仲裁 → 各 lane 写 `CompletionScoreboard` / `Buffer`，并**同拍广播 bypass** | `p2p3/p3_arbiter_G0/G1.md`（G2/G3 直连，无仲裁） | `fu_after_valid/tag/result/mispredict/...` | **待补**（数据已在 `l2_wb_by_rob`） |
 | **P4** | **提交 / 恢复**：按序提交更新架构态（`Buffer` → ARF），或在提交边界选一个 recovery 事件广播 flush | `p4/CompletionScoreboard.md`、`p4/Buffer.md`、`p4/PC_File.md`、`p4/flush_model.md`、`p4/SerialInstructionTracker.md`、`p4/system_instruction_handler.md` | `commit_valid/tag/pc/result/rd_*`、`flush_valid/flush_tag`、`recovery_*` | `[BE][COMMIT]`(≥2)、`[BE][COSIM_OB]`(≥1)、`[BE][RECOVERY_FLUSH]`(≥2) |
 

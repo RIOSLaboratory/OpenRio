@@ -141,15 +141,26 @@ K-map 内的阶段引用只有这几种：
 
 ## 5. 顺带发现（需要你决策）
 
-### 5.1 `lsu_bridge` 与 `g3_lsu_iface` 的命名漂移
+### 5.1 `lsu_bridge` → `g3_lsu_iface`（✅ 已执行）
 
-| 位置 | 用的名字 |
+统一方向：**跟随 RTL 用 `g3_lsu_iface`**（改文档，不改代码）。
+
+| 已改 | 规模 |
 |---|---|
-| RTL（`src/core/be_rtl_v1/lsu/g3_lsu_iface.sv`，module 名、实例名 `u_g3_lsu_iface`） | `g3_lsu_iface` |
-| RTL filelist（`rtl_v1.f:50`） | `g3_lsu_iface` |
-| `docs/BE/or_be_has_V1.0.md` §6.5 | `g3_lsu_iface` |
-| `docs/modules/`（3 个文件，含 `top/backend_top.md`） | `lsu_bridge` |
-| `lsu_bridge` 在 RTL / TB / filelist 中 | **出现 0 次** |
+| `OpenRio:docs/modules/lsu/lsu_bridge.md` → `g3_lsu_iface.md` | 改名 + 2 处 |
+| `OpenRio:docs/modules/top/backend_top.md` | 38 处 |
+| `OpenRio:docs/modules/interface_definitions.md` | 1 处 |
+| `OpenRio:docs/Cache/or_cache_has_V1.0.md` | 1 处 ← **超出 module_v4 范围**，为一致性一并改 |
+| `openrios:work/or-be-draft/modules/modules_v4/` 同 3 个文件 | 41 处 + 改名 |
+| RTL / filelist / HAS | **未动**（本来就是 `g3_lsu_iface`） |
+
+两侧 `diff -rq` 已验证一致。
+
+> ⚠️ **仍有 `lsu_bridge` 残留（不在本次范围，待决策）**：
+> `openrios:work/or-be-draft/rtl/rtl_v1/` —— 这是 openrios 里一份**独立的 RTL 草稿副本**，
+> 6 个文件用 `lsu_bridge`（含文件名 `lsu/lsu_bridge.sv`，另 `top/backend_top.sv` 10 处、
+> `p2p3/ISQ_Group3.sv` 4 处、`fu/fpu_simple.sv` 1 处、`p4/CompletionScoreboard.sv` 1 处）；
+> 以及 `module_Human_Readable/00_改写规范与CVA6风格参考.md` 4 处。
 
 ### 5.2 caselist 现在有两份
 

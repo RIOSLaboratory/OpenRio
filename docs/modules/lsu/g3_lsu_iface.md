@@ -1,6 +1,6 @@
-# Module `lsu_bridge`
+# Module `g3_lsu_iface`
 
-`lsu_bridge`：LSU issue、store wakeup、终端 writeback 和 bypass 的桥接模块；按 `TAG_W` tag 维护在飞请求及终端侧状态。
+`g3_lsu_iface`：LSU issue、store wakeup、终端 writeback 和 bypass 的桥接模块；按 `TAG_W` tag 维护在飞请求及终端侧状态。
 
 ## Submodule
 

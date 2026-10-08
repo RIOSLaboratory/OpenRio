@@ -29,7 +29,7 @@
 
 ## 3. Overview
 
-OR_Cache is the memory unit of OR_BE: an L1 data cache (write-back, write-allocate) together with a store buffer, miss handling, and address translation. Through `lsu_bridge`, BE supplies at most one memory request per cycle from G3, in program order. OR_Cache computes the address, probes the DTLB, reads the D cache, performs store-to-load forwarding, executes AMO and LR/SC, and returns the terminal state of each request (done / exception, with bypass on the load side) to BE. On the write side, a store, a successful SC, or an AMO is handed from the ISB to the L1 Write Buffer after authorization and then written into the D cache, producing an architectural state change. Lower-level memory access and page-table walking are outside OR_Cache.
+OR_Cache is the memory unit of OR_BE: an L1 data cache (write-back, write-allocate) together with a store buffer, miss handling, and address translation. Through `g3_lsu_iface`, BE supplies at most one memory request per cycle from G3, in program order. OR_Cache computes the address, probes the DTLB, reads the D cache, performs store-to-load forwarding, executes AMO and LR/SC, and returns the terminal state of each request (done / exception, with bypass on the load side) to BE. On the write side, a store, a successful SC, or an AMO is handed from the ISB to the L1 Write Buffer after authorization and then written into the D cache, producing an architectural state change. Lower-level memory access and page-table walking are outside OR_Cache.
 
 ### 3.1 Key Features
 
