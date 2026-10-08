@@ -37,20 +37,40 @@ caselist(.md)  ──gen_cases──▶  .S  ──gcc+link.ld──▶  .elf
   因此结论形式是 **"RTL vs draft 预测"**，不是 "RTL vs 已冻结规范"。
 - **主 DUT 用 `rtl_v1`**（BE RTL + FE agent + cache agent），理由见 §5。
 
-### 1.1 依据来源与优先级
+### 1.1 Golden 基准与依据来源（2026-10 裁决）
 
-按 `module_Human_Readable/01_IB_OPEN冲突清单.md` 记录的评审裁决：
+**Golden = OpenRio 仓库当前提交的 `docs/` + `src/core/*_rtl_v1/`。**
+阶段划分、模块语义、时序行为，一律以 OpenRio 现有文档与代码为准。
 
-| 优先级 | 来源 | 说明 |
+| 来源 | 位置 | 状态 |
 |---|---|---|
-| 1 | `openrios:work/or-be-draft/modules/modules_v4/` | machine-readable 规范 |
-| 2 | `openrios:work/or-be-draft/rtl/rtl_v1/`、`OpenRio:src/core/*_rtl_v1/` | **与 v4 冲突时以 RTL 为准** |
-| 3 | `openrios:work/or-be-draft/interfaces/*.pdf` | 对外边界（BE_FE、BE_LSU） |
+| HAS V1.0（**阶段定义唯一出处**） | `OpenRio:docs/BE/or_be_has_V1.0.md` §5 | ✅ golden（提交于 2026-09-30） |
+| 模块文档 | `OpenRio:docs/modules/`（自 openrios `modules_v4/` 同步） | ✅ golden |
+| RTL | `OpenRio:src/core/{be,fe,cache}_rtl_v1/` | ✅ golden；**与文档冲突时以 RTL 为准** |
+| 对外边界 | `docs/modules/interface_definitions.md`、`openrios:.../interfaces/*.pdf` | ✅ |
 
-> ⛔ **`control_flow/` 已过时**（2026-09-20 评审确认，不再作为参考）。
-> 本文档此前把它当作阶段定义来源，是错的。凡引用阶段语义，一律以上表 1/2 为准。
+**每次测量必须把当时的 OpenRio commit SHA 记进 `perf_eval_work/manifest.yaml`** ——
+"以最后一次提交为准"意味着基准会随提交前移；不记 SHA 的结果无法追溯。
 
-### 1.2 必须人工判定
+> ⛔ **已作废，不得作为依据**：
+> - `control_flow/` —— 2026-09-20 评审确认过时
+> - `OpenRio:docs/BE/OR_BE_0818.drawio` —— 8 月旧划分（ISQ 不在 P2、含 `P2-1`/`P2-2`）；
+>   保留在分支里**仅作记录**，不是参考材料
+> - `P2-1` / `P2-2` —— 随 0818 一起作废
+
+### 1.2 9 月裁决的四条结论（阶段语义）
+
+| 结论 | 内容 |
+|---|---|
+| **IB ∈ P0** | `BE_SUBSYSTEM.drawio.png` 把 IB 画在 P1 区，属图画歧义；以 HAS §5 为准 |
+| **ISQ ∈ P2** | 9 月新架构。P1 只负责组装并**写入** ISQ，ISQ 本体是 P2 的存储 |
+| **bypass 走向** | P4 → P1；P3 → P1（`dependency_check`、`isq_payload_assembly`）**和** → P2（四个 ISQ 的 snoop） |
+| **分段数 = 5** | P0/P1/P2/P3/P4，见 §2.4。目录里的 `p2p3/` 只是打包方式，不代表 P2 与 P3 合并 |
+
+> `docs/modules/` 下仍有 1 处命名漂移：HAS §6.5 链接 `lsu/g3_lsu_iface.md`，
+> 而同步进来的文件名是 `lsu/lsu_bridge.md`（RTL 里叫 `g3_lsu_iface.sv`）。待统一。
+
+### 1.3 必须人工判定
 
 caselist 的 `behavior` 标签描述的是微架构机制（bypass 捕获 / commit CDB 捕获 /
 ARF 读取），脚本无法可靠推断；口径差异与不符项的归因也需要人判断。
@@ -116,21 +136,25 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 
 | 阶段 | 名称 | 代表模块（v4） | 观测信号（`ob_cosim_if`） | 打印状态 |
 |---|---|---|---|---|
-| **P0** | FE→BE 边界 / IB 入队与驻留 | `p1/IB.md` | `fe_vif` 握手 `fe_be_instr_valid/ready` + payload | `[BE][COSIM] [FE-BE]`（observation only） |
-| **P1** | decode → dependency check → rename → **dispatch(accept)** | `p1/decode.md`、`p1/dependency_check.md`、`p1/dispatch_logic.md`、`p1/*tag_mapping.md`、`p1/*ARF.md` | `decode_issue_valid` + `decode_issue_pld` | `[BE][DECODE]`（verbosity ≥ 2） |
-| **P2** | ISQ 驻留：操作数就绪解析、`wait_tag`、`missed_wakeup`、发射选择 | `p2p3/ISQ_Group0..3.md`、`p2p3/FU_input_mux.md` | **未暴露 —— 当前无法观测** | **无** |
-| **P3** | 发射 → FU 执行 → 结果发布(bypass) → 组内仲裁 | `p2p3/p3_arbiter_G0/G1.md`、`fu/*.md` | `isq_g0..g3_issue_valid` + `_pld.self_tag` | **待补**（数据已在 `l2_isq_by_rob`） |
-| **P4a** | 写回 / 完成（4 条 lane） | `p4/Buffer.md`（result 写入） | `fu_after_valid/tag/result/mispredict/...` | **待补**（数据已在 `l2_wb_by_rob`） |
-| **P4b** | 按序提交 / commit CDB / flush 边界 | `p4/CompletionScoreboard.md`、`p4/Buffer.md`、`p4/flush_model.md` | `commit_valid/tag/pc/result/rd_*`、`flush_valid/flush_tag`、`recovery_*` | `[BE][COMMIT]`(≥2)、`[BE][COSIM_OB]`(≥1)、`[BE][RECOVERY_FLUSH]`(≥2) |
+| **P0** | FE→BE 边界：接收 FE 指令入 IB、回 `fe_ready` | `p1/IB.md`（目录名遗留，内容属 P0） | `fe_vif` 握手 `fe_be_instr_valid/ready` + payload | `[BE][COSIM] [FE-BE]`（observation only） |
+| **P1** | decode → dependency check → rename → **dispatch(accept)**，写入 ISQ 与 in-flight window；**P1 不持有指令状态** | `p1/decode.md`、`p1/dependency_check.md`、`p1/dispatch_logic.md`、`p1/*tag_mapping.md`、`p1/*ARF.md`、`top/isq_payload_assembly.md` | `decode_issue_valid` + `decode_issue_pld` | `[BE][DECODE]`（verbosity ≥ 2） |
+| **P2** | **ISQ 驻留 + 操作数就绪（bypass snoop）+ 发射 + FU 执行**；G3 发往外部 LSU。执行周期按 FU 不等（ALU 1 拍、MUL 3 拍、DIV N 拍、LSU 握手） | `p2p3/ISQ_Group0..3.md`、`p2p3/FU_input_mux.md`、`fu/*.md`、`lsu/lsu_bridge.md` | `isq_g0..g3_issue_valid` + `_pld.self_tag` | **待补**（数据已在 `l2_isq_by_rob`） |
+| **P3** | **写回 / bypass**：组内仲裁 → 各 lane 写 `CompletionScoreboard` / `Buffer`，并**同拍广播 bypass** | `p2p3/p3_arbiter_G0/G1.md`（G2/G3 直连，无仲裁） | `fu_after_valid/tag/result/mispredict/...` | **待补**（数据已在 `l2_wb_by_rob`） |
+| **P4** | **提交 / 恢复**：按序提交更新架构态（`Buffer` → ARF），或在提交边界选一个 recovery 事件广播 flush | `p4/CompletionScoreboard.md`、`p4/Buffer.md`、`p4/PC_File.md`、`p4/flush_model.md`、`p4/SerialInstructionTracker.md`、`p4/system_instruction_handler.md` | `commit_valid/tag/pc/result/rd_*`、`flush_valid/flush_tag`、`recovery_*` | `[BE][COMMIT]`(≥2)、`[BE][COSIM_OB]`(≥1)、`[BE][RECOVERY_FLUSH]`(≥2) |
 
-⚠️ **两条待核实项**（不要当成已确认）：
+> **分段数是 5，依据**：HAS §5 是唯一写成表格、带 owning modules 的阶段定义，
+> 明确列 P0–P4 五行。代码侧 `p1/`、`p2p3/`、`p4/` 三个目录把 **P2 与 P3 打进同一个目录**
+> （`ISQ`+`FU` 属 P2，`p3_arbiter_*` 属 P3），`backend_top.sv` 的注释也写
+> `P2 / P3 issue to completion` —— 那是**代码分节**，不是"P2 与 P3 是一段"。
+> `modules_v4/` 同理（P 目录只有 `p1/ p2p3/ p4/`，且没有 `p0/`，因为 IB 的文档被放在 `p1/`）。
 
-1. **P0/P1 的命名归属有文档冲突**。`or-be-draft/overview.md` 说 "Decode：**P0** 子模块，
-   位于 IB 之后"；而 OpenRio `README.md` §1.2 说 "**P1** fully decodes"，且
-   `modules/modules_v4/` 把 `IB.md`、`decode.md` 都放在 `p1/` 目录下。
-   上表按 README + v4 记为 P1，但**需以 v4 原文 + RTL 落实**。
-2. **P2 完全不可观测**。这不是"打印没加"，而是观测面上没有对应信号。
-   要判定 `wait_for_p3` 与 `p3_capture` 的差别，必须新增探针（见 §11）。
+⚠️ **仍然存在的两处观测空洞**（不是待核实，是确认缺失）：
+
+1. **P1 的"尝试"不可观测**。HAS §5：`P1 holds no instruction state` —— 所以"首次 P1 尝试"
+   是**逐拍组合决策**（IB 队头是否获准派发），不是占用。而观测面只记 **accept**
+   （`alloc_valid`），被拒的拍不产生事件。见 §9.2。
+2. **P2 完全不可观测**。观测面上没有对应信号。要判定 `wait_for_p3` 与 `p3_capture`
+   的差别，必须新增探针（见 §11）。
 
 ### 2.5 规模
 
