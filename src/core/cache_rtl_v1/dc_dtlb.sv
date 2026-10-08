@@ -84,7 +84,7 @@ module dc_dtlb
 
   always_comb begin
     logic [PPN_W-1:0] msk;
-    msk = lvl_mask(m_lvl)[PPN_W-1:0];
+    msk = lvl_mask(m_lvl);
     if (!vm_en) pa64 = lk_va;
     else        pa64 = {8'd0, ((m_ppn & msk) | (lk_vpn[PPN_W-1:0] & ~msk)), lk_va[11:0]};
   end

@@ -11,10 +11,21 @@
 
 #include <svdpi.h>
 
+#include <elf.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <vector>
+
+// Exported by lib_ISA_api (extern "C" in src/libs/lib_FuncMultiCore.cpp) but not
+// declared in IsaApi.h.  Declared here so the TB-side HTIF host mirror can write
+// the BE-side model's memory without touching the ISA model sources.
+extern "C" void funcMultiCore_writeMem(FuncMultiCore* sim_ptr, uint64_t addr, uint64_t value);
 
 namespace {
 
@@ -98,9 +109,54 @@ bool array_has_bytes(svOpenArrayHandle array, std::uint64_t length,
     return true;
 }
 
+// ELF64 symbol lookup (value of the first symbol named `name`), 0 when absent.
+std::uint64_t elf64_symbol(const char* path, const char* name)
+{
+    if (path == nullptr || name == nullptr) return 0;
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return 0;
+    std::vector<char> img((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (img.size() < sizeof(Elf64_Ehdr)) return 0;
+    const auto* eh = reinterpret_cast<const Elf64_Ehdr*>(img.data());
+    if (std::memcmp(eh->e_ident, ELFMAG, SELFMAG) != 0 || eh->e_ident[EI_CLASS] != ELFCLASS64) return 0;
+    if (eh->e_shoff == 0 || eh->e_shoff + std::uint64_t(eh->e_shnum) * sizeof(Elf64_Shdr) > img.size()) return 0;
+    const auto* sh = reinterpret_cast<const Elf64_Shdr*>(img.data() + eh->e_shoff);
+    for (unsigned i = 0; i < eh->e_shnum; ++i) {
+        if (sh[i].sh_type != SHT_SYMTAB || sh[i].sh_link >= eh->e_shnum) continue;
+        const Elf64_Shdr& str = sh[sh[i].sh_link];
+        if (sh[i].sh_offset + sh[i].sh_size > img.size() || str.sh_offset + str.sh_size > img.size()) continue;
+        const auto* sym = reinterpret_cast<const Elf64_Sym*>(img.data() + sh[i].sh_offset);
+        const std::size_t n = sh[i].sh_size / sizeof(Elf64_Sym);
+        for (std::size_t k = 0; k < n; ++k)
+            if (sym[k].st_name < str.sh_size &&
+                std::strcmp(img.data() + str.sh_offset + sym[k].st_name, name) == 0)
+                return sym[k].st_value;
+    }
+    return 0;
+}
+
 } // namespace
 
 extern "C" {
+
+/* ---------- TB-side HTIF host mirror (2026-09-30) ---------- */
+
+std::uint64_t isa_dpi_elf_symbol(const char* elf_path, const char* name)
+{
+    return elf64_symbol(elf_path, name);
+}
+
+void isa_dpi_write_mem(std::uint64_t addr, std::uint64_t value)
+{
+    FuncMultiCore* sim = sim_for();
+    if (sim != nullptr) funcMultiCore_writeMem(sim, addr, value);
+}
+
+std::uint64_t isa_cosim_dpi_read_mem(std::uint64_t addr)
+{
+    FuncMultiCore* sim = cosim_sim_for();
+    return sim == nullptr ? 0 : funcMultiCore_readMem(sim, addr);
+}
 
 /* ---------- lifecycle ---------- */
 

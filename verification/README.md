@@ -65,6 +65,17 @@ orbe_bt_env/sim/verilator_<TAG>/log/<kind>/<case-name>_<SEED>/
 
 `<TAG>` defaults to today's date; `sim/` is not checked in.
 
+## Values the ISA model cannot predict
+
+Two sources differ between the RTL and the ISA model by nature, not by bug; the testbench makes the DUT follow the reference for them. Both are on by default and only change the `rtl_*` kinds.
+
+| Source | Handling | Log tag | Disable |
+|---|---|---|---|
+| `mcycle` / `cycle` reads | The CSR read result is replaced by the value the COSIM reference reads for that instruction; `minstret` / `instret` are still compared | `[COSIM][CNT_SYNC]` | `+COSIM_CNT_SYNC=0` |
+| HTIF system calls (e.g. `printf` through `tohost` / `fromhost`) | The testbench acts as the host on the DUT side: loads of host-written words (`fromhost`, the syscall's return slot) wait until they are the oldest instruction and return the reference value | `[HTIF_SYNC]` | `+COSIM_HTIF_SYNC=0` |
+
+Benchmarks that time themselves or print results (for example Embench) need both; the 216 ISA cases touch neither.
+
 ## Acceptance scope
 
 216 cases: `rv64ui` 104, `rv64um` 26, `rv64ua` 38, `rv64uf` 22, `rv64ud` 24, `rv64uc` 2.

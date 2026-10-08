@@ -47,4 +47,8 @@ package isa_cosim_dpi_pkg;
   import "DPI-C" function longint unsigned isa_cosim_dpi_get_committed_pc(
     input int unsigned model_core_id
   );
+  // 8-byte physical read of the golden instance (used by the TB-side HTIF host mirror)
+  import "DPI-C" function longint unsigned isa_cosim_dpi_read_mem(
+    input longint unsigned addr
+  );
 endpackage

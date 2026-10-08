@@ -14,6 +14,16 @@
 //      exception cause+tval / drain order and write data / SC success / evicted lines). +CACHE_EQUIV=0 disables comparison (model sync continues).
 //   3. Downstream: L2 line refill = read_mem_bank (read at response time, already including stores drained this cycle); PTW = get_priv -> translate_pte
 //      (queried once each for LOAD and STORE); dirty line eviction = compared against read_mem_bank.
+//   4. HTIF host mirror: the program issues a system call through tohost (e.g. printstr's write) and then polls fromhost.
+//      The golden instance's HTIF host answers right after it steps that tohost store (fromhost=1, magic_mem[0]=return value,
+//      tohost=0); this model instance's host answers only at the next tick after the store drains, and the DUT side has no host.
+//      Handling: (a) right after a non-exit tohost store drains, write this model's tohost back to 0 so its host never answers;
+//      (b) "host-owned" 8-byte words htif_owned = {fromhost (permanent), tohost and magic_mem[0] of an answered request};
+//      (c) a load reading those words makes no model call at accept and be_tb_top holds its RTL done; once it is the ROB head
+//          (the golden has stepped every older instruction), copy that word from the golden into this model, then do the
+//          deferred execute_insn / proc_mem_load and replay the done with the model value; (d) a whole-word DUT store removes
+//          the word from the set; eviction compare skips words in the set.
+//      +COSIM_HTIF_SYNC=0 disables it.
   localparam int unsigned DC_L2_LAT  = 6;   // fixed line refill latency (cycles)
   localparam int unsigned DC_PTW_LAT = 4;   // fixed page table walk latency (cycles)
 
@@ -34,8 +44,22 @@
     bit                term;
     bit                rd_ref_valid;
     logic [63:0]       rd_ref;
+    bit                htif_defer;    // reads a host-owned word: model calls deferred to the ROB head
+    bit                htif_rtl_done; // its RTL done has arrived (held)
   } dc_rec_t;
   dc_rec_t           dc_rec [1 << LSU_TAG_W];
+
+  // HTIF host mirror (header item 4)
+  bit                htif_en;
+  longint unsigned   htif_tohost, htif_fromhost;
+  bit                htif_owned [longint unsigned];         // 8-byte aligned words
+  logic [(1 << LSU_TAG_W)-1:0] htif_hold_q;                 // sent to dc_vif.htif_hold by NBA at posedge
+  int unsigned       htif_head_cnt;
+  lsu_tag_t          htif_head_prev;
+  bit                htif_rpl_pending;
+  lsu_tag_t          htif_rpl_tag;
+  logic [63:0]       htif_rpl_data;
+  longint unsigned   htif_syncs;
 
   int unsigned       dc_l2_id  [$];
   longint unsigned   dc_l2_pa  [$];
@@ -74,6 +98,36 @@
     dc_vif.ptw_resp_lvl    = or_cache_pkg::PG_4K;
     dc_vif.ptw_resp_rcause = '0;
     dc_vif.ptw_resp_wcause = '0;
+    htif_attach();
+  endfunction
+
+  function void htif_attach();
+    string elf;
+    int    en;
+    htif_tohost   = 0;
+    htif_fromhost = 0;
+    htif_owned.delete();
+    htif_hold_q      = '0;
+    htif_head_cnt    = 0;
+    htif_head_prev   = '0;
+    htif_rpl_pending = 1'b0;
+    htif_rpl_tag     = '0;
+    htif_rpl_data    = '0;
+    htif_syncs       = 0;
+    dc_vif.htif_hold     = '0;
+    dc_vif.htif_rpl_vld  = 1'b0;
+    dc_vif.htif_rpl_tag  = '0;
+    dc_vif.htif_rpl_data = '0;
+    htif_en = 1'b1;
+    if ($value$plusargs("COSIM_HTIF_SYNC=%d", en) && (en == 0)) htif_en = 1'b0;
+    if (htif_en && $value$plusargs("ISA_ELF=%s", elf)) begin
+      htif_tohost   = isa_dpi_elf_symbol(elf, "tohost");
+      htif_fromhost = isa_dpi_elf_symbol(elf, "fromhost");
+    end
+    if ((htif_tohost == 0) || (htif_fromhost == 0)) htif_en = 1'b0;
+    if (htif_en) htif_owned[htif_fromhost & ~64'h7] = 1'b1;
+    $display("[HTIF_SYNC] %s tohost=0x%0h fromhost=0x%0h", htif_en ? "enabled" : "disabled",
+             htif_tohost, htif_fromhost);
   endfunction
 
   function void dq_error(string message);
@@ -85,6 +139,7 @@
     $display("[CACHE_EQUIV] checked=%0d (excp=%0d) drain=%0d evict=%0d mismatch=%0d%s",
              dq_checked, dq_excp, dq_drain, dq_evict, dq_enable ? dq_mismatch : 0,
              dq_enable ? "" : " (disabled)");
+    if (htif_en) $display("[HTIF_SYNC] synced_loads=%0d", htif_syncs);
   endfunction
 
   // Glue logic records: all terminated and drained (or flushed)
@@ -103,6 +158,9 @@
 
   function void dside_flush(bit is_reset);
     foreach (dc_rec[t]) dc_rec[t].valid = 1'b0;
+    htif_hold_q      = '0;     // in-flight holds / replays are void after a flush (withdrawn by NBA at posedge)
+    htif_rpl_pending = 1'b0;
+    htif_head_cnt    = 0;
     if (is_reset) begin
       dc_l2_id.delete(); dc_l2_pa.delete(); dc_l2_due.delete();
       dc_ptw_id.delete(); dc_ptw_vpn.delete(); dc_ptw_due.delete();
@@ -121,11 +179,6 @@
     t = vif.be_lsu_issue_pld.self_tag;
     if (dc_rec[t].valid)
       fail($sformatf("[DC_RTL] issue tag=%0d while an earlier request with this tag is still live", t));
-    rc = isa_dpi_execute_insn(MODEL_CORE_ID, longint'(t));
-    if (rc == ISA_API_SKIP)
-      fail($sformatf("execute_insn tag=%0d returned SKIP; the RTL sent the LSU an instruction the model judged illegal or already faulted on fetch -- decode disagreement", t));
-    if ((rc != ISA_API_PASS) && (rc != ISA_API_FAIL))
-      fail($sformatf("execute_insn tag=%0d returned rc=%0d", t, rc));
     dc_rec[t].valid        = 1'b1;
     dc_rec[t].prop         = p;
     dc_rec[t].vaddr        = vaddr_in();
@@ -137,12 +190,36 @@
       dc_rec[t].order = next_order;
       next_order++;
     end
+    dc_rec[t].exec_fail     = 1'b0;
+    dc_rec[t].load_fail     = 1'b0;
+    dc_rec[t].drained       = 1'b0;
+    dc_rec[t].term          = 1'b0;
+    dc_rec[t].rd_ref_valid  = 1'b0;
+    dc_rec[t].rd_ref        = '0;
+    dc_rec[t].htif_defer    = 1'b0;
+    dc_rec[t].htif_rtl_done = 1'b0;
+    // HTIF: a load reading a host-owned word defers its model calls; its RTL done is held (header item 4 (c))
+    if (htif_en && p.is_load && htif_hits(dc_rec[t].vaddr, dc_rec[t].len)) begin
+      dc_rec[t].htif_defer = 1'b1;
+      htif_hold_q[t]       = 1'b1;
+      dc_vif.htif_hold[t]  = 1'b1;   // effective immediately; withdrawn by posedge NBA
+      cfg.print_cache(2, $sformatf("[HTIF_SYNC][HOLD] tag=%0d vaddr=0x%0h", t, dc_rec[t].vaddr));
+      return;
+    end
+    dside_model_accept(t);
+  endtask
+
+  // Model calls of the accept cycle (execute_insn; data fetch for load/LR; proc_mem_req for FENCE)
+  task automatic dside_model_accept(lsu_tag_t t);
+    lsu_req_property_t p;
+    int                rc;
+    p  = dc_rec[t].prop;
+    rc = isa_dpi_execute_insn(MODEL_CORE_ID, longint'(t));
+    if (rc == ISA_API_SKIP)
+      fail($sformatf("execute_insn tag=%0d returned SKIP; the RTL sent the LSU an instruction the model judged illegal or already faulted on fetch -- decode disagreement", t));
+    if ((rc != ISA_API_PASS) && (rc != ISA_API_FAIL))
+      fail($sformatf("execute_insn tag=%0d returned rc=%0d", t, rc));
     dc_rec[t].exec_fail    = (rc == ISA_API_FAIL);
-    dc_rec[t].load_fail    = 1'b0;
-    dc_rec[t].drained      = 1'b0;
-    dc_rec[t].term         = 1'b0;
-    dc_rec[t].rd_ref_valid = 1'b0;
-    dc_rec[t].rd_ref       = '0;
     if (rc == ISA_API_PASS) begin
       if (p.is_load || p.is_lr) begin
         // Original agent [FSM-1]/[FSM-2]: fetch data in the accept cycle
@@ -162,6 +239,92 @@
       end
     end
     cfg.print_cache(3, $sformatf("[DC_RTL][ACCEPT] tag=%0d vaddr=0x%0h exec_rc=%0d", t, dc_rec[t].vaddr, rc));
+  endtask
+
+  // ---------------------------------------------------------------------
+  // HTIF host mirror (header item 4)
+  // ---------------------------------------------------------------------
+  function automatic bit htif_hits(logic [63:0] va, logic [3:0] len);
+    longint unsigned w0, w1;
+    w0 = longint'(va) & ~64'h7;
+    w1 = (longint'(va) + longint'(len) - 1) & ~64'h7;
+    return htif_owned.exists(w0) || htif_owned.exists(w1);
+  endfunction
+
+  // A store-side store drained (after the model's store_commit)
+  function void htif_on_store_drained(lsu_tag_t t, logic [7:0] mask);
+    longint unsigned w;
+    logic [63:0]     v;
+    w = longint'(dc_rec[t].vaddr) & ~64'h7;
+    v = dc_rec[t].rs2;
+    if ((w == (htif_tohost & ~64'h7)) && (mask == 8'hFF) && (v != 0) &&
+        !((v[0] == 1'b1) && (v[63:56] == 8'd0))) begin
+      // Non-exit request: this model's host must not answer by itself (the golden has answered and cleared tohost)
+      isa_dpi_write_mem(htif_tohost, 64'd0);
+      htif_owned[w] = 1'b1;
+      if (v[63:48] == 16'd0) htif_owned[longint'(v) & ~64'h7] = 1'b1;   // system call: magic_mem[0] gets the return value
+      cfg.print_cache(2, $sformatf("[HTIF_SYNC][REQ] tag=%0d tohost=0x%016h", t, v));
+    end else if ((mask == 8'hFF) && htif_owned.exists(w) && (w != (htif_fromhost & ~64'h7))) begin
+      htif_owned.delete(w);   // overwritten by a whole-word DUT store: all three sides agree
+    end
+  endfunction
+
+  // Run the deferred model calls; from_golden: first copy the golden's word into this model (ROB-head release),
+  // otherwise call directly (exception path)
+  task automatic htif_undefer(lsu_tag_t t, bit from_golden);
+    longint unsigned w0, w1;
+    w0 = longint'(dc_rec[t].vaddr) & ~64'h7;
+    w1 = (longint'(dc_rec[t].vaddr) + longint'(dc_rec[t].len) - 1) & ~64'h7;
+    if (from_golden) begin
+      isa_dpi_write_mem(w0, isa_cosim_dpi_read_mem(w0));
+      if (w1 != w0) isa_dpi_write_mem(w1, isa_cosim_dpi_read_mem(w1));
+    end
+    dc_rec[t].htif_defer = 1'b0;
+    htif_hold_q[t]       = 1'b0;
+    dside_model_accept(t);
+    if (from_golden) begin
+      htif_rpl_pending = 1'b1;
+      htif_rpl_tag     = t;
+      htif_rpl_data    = dc_rec[t].rd_ref;
+      htif_syncs++;
+      cfg.print_cache(2, $sformatf("[HTIF_SYNC][SYNC] tag=%0d vaddr=0x%0h data=0x%016h",
+                                   t, dc_rec[t].vaddr, dc_rec[t].rd_ref));
+    end
+  endtask
+
+  // Every non-flush cycle, after terminal handling
+  task automatic htif_service();
+    lsu_tag_t h, t;
+    h = dc_vif.rob_head_tag;
+    htif_head_cnt  = (h == htif_head_prev) ? htif_head_cnt + 1 : 1;
+    htif_head_prev = h;
+    // A held RTL done arrived: record it; the hold bit is withdrawn at the next posedge (after the BE samples)
+    if (dc_vif.rtl_done_vld === 1'b1) begin
+      t = dc_vif.rtl_done_tag;
+      if (dc_rec[t].valid && dc_rec[t].htif_defer) begin
+        dc_rec[t].htif_rtl_done = 1'b1;
+        htif_hold_q[t]          = 1'b0;
+      end
+    end
+    // The replay was presented this cycle (no RTL terminal this cycle): this cycle's terminal handling has
+    // already compared it as usual, so withdraw it
+    if (htif_rpl_pending && (dc_vif.htif_rpl_vld === 1'b1) &&
+        (vif.lsu_be_done_valid === 1'b1) && (vif.lsu_be_done_pld.tag == htif_rpl_tag) &&
+        (dc_vif.rtl_done_vld !== 1'b1) && (dc_vif.rtl_exc_vld !== 1'b1))
+      htif_rpl_pending = 1'b0;
+    // Release at the ROB head: RTL done already arrived, head stable for two cycles (the golden has stepped
+    // every older instruction)
+    if (!htif_rpl_pending && dc_rec[h].valid && dc_rec[h].htif_defer && dc_rec[h].htif_rtl_done &&
+        (htif_head_cnt >= 2))
+      htif_undefer(h, 1'b1);
+  endtask
+
+  // posedge drive phase: hold bits and replay sent by NBA (the BE samples the old values on the same edge)
+  task automatic dside_htif_drive();
+    dc_vif.htif_hold     <= htif_hold_q;
+    dc_vif.htif_rpl_vld  <= htif_rpl_pending;
+    dc_vif.htif_rpl_tag  <= htif_rpl_tag;
+    dc_vif.htif_rpl_data <= htif_rpl_data;
   endtask
 
   // ---------------------------------------------------------------------
@@ -214,6 +377,7 @@
       dq_error($sformatf("drain tag=%0d: store_commit rc=%0d (model refused the store the RTL landed)", t, rc));
     if (isa_dpi_clear_mem_reserve(MODEL_CORE_ID) != ISA_API_PASS)
       fail($sformatf("clear_mem_reserve after store_commit tag=%0d failed", t));
+    if (htif_en && dc_rec[t].prop.is_store) htif_on_store_drained(t, mask);
 
     // COSIM write observation: fields identical to the original agent's publish_store_commit
     if (ob_cosim_vif.mem_store_commit_valid === 1'b1)
@@ -311,7 +475,13 @@
   task automatic dside_phase();
     if ((vif.be_lsu_issue_valid === 1'b1) && (vif.lsu_be_issue_ready === 1'b1)) dside_accept();
     if (dc_vif.ms_drain_vld === 1'b1) dside_drain();
+    // A load with deferred model calls that terminates with an exception: run the model calls first
+    // (without the golden value), then compare as usual
+    if (htif_en && (vif.lsu_be_exception_valid === 1'b1) &&
+        dc_rec[vif.lsu_be_exception_pld.tag].valid && dc_rec[vif.lsu_be_exception_pld.tag].htif_defer)
+      htif_undefer(vif.lsu_be_exception_pld.tag, 1'b0);
     if ((vif.lsu_be_done_valid === 1'b1) || (vif.lsu_be_exception_valid === 1'b1)) dside_terminal();
+    if (htif_en) htif_service();
   endtask
 
   // ---------------------------------------------------------------------
@@ -392,7 +562,9 @@
       if (rc != ISA_API_PASS) dq_error($sformatf("evicted line pa=0x%016h is not readable in the model", epa));
       else
         for (int i = 0; i < or_cache_pkg::LINE_BYTES; i++)
-          if (dc_vif.evict_data[8*i +: 8] !== line[i]) begin
+          // Host-owned words: the DUT line holds the pre-answer value, the model was synced to the golden (header item 4 (d))
+          if (!(htif_en && htif_owned.exists((epa + longint'(i)) & ~64'h7)) &&
+              (dc_vif.evict_data[8*i +: 8] !== line[i])) begin
             dq_error($sformatf("evicted line pa=0x%016h byte %0d = 0x%02h, model memory 0x%02h",
                                epa, i, dc_vif.evict_data[8*i +: 8], line[i]));
             break;

@@ -12,6 +12,7 @@ module predecode
   input  logic [VA_W-1:0]            line_pc,
   input  logic                       line_excp_vld,
   input  logic [CAUSE_W-1:0]         line_excp_cause,
+  input  logic                       line_pred_taken,  // L1BTB predicts this line taken: the sequential successor won't come, keep no cross-line half
   input  logic [VA_W-1:0]            dec_pc,
   // Out Static Info
   output logic                       xline_vld,
@@ -94,8 +95,11 @@ module predecode
   // ---------------- events and storage update ----------------
   logic xline_set;
   logic xline_use;
-  assign xline_set = line_hsk & cross_line & ~xline_clear;
-  assign xline_use = line_hsk & ~cross_line & ~xline_clear;
+  // Every handshake rewrites the cross-line state: keep it for the successor only when this line crosses
+  // and is not predicted taken; otherwise clear it (including "consumed the previous half, crosses itself,
+  // but predicted taken")
+  assign xline_set = line_hsk & cross_line & ~line_pred_taken & ~xline_clear;
+  assign xline_use = line_hsk & ~xline_set & ~xline_clear;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

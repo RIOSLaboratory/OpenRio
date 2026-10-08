@@ -103,6 +103,7 @@ module or_fe_top
   // L1BTB
   logic                  l1btb_redirect;
   logic [VA_W-1:0]       l1btb_redirect_pc;
+  logic                  l1btb_pred_taken;
   l1btb_meta_t           l1btb_meta;
   // INSTR_DATA_EXPAND
   logic [SLOT_NUM-1:0][31:0] expd_inst;
@@ -391,6 +392,7 @@ module or_fe_top
     .pred_pc         (ic_predcd_pc_q),
     .redirect        (l1btb_redirect),
     .redirect_pc     (l1btb_redirect_pc),
+    .pred_taken      (l1btb_pred_taken),
     .meta            (l1btb_meta)
   );
 
@@ -414,6 +416,7 @@ module or_fe_top
     .line_pc         (ic_predcd_pc_q),
     .line_excp_vld   (ic_rsp_excp_vld),
     .line_excp_cause (ic_rsp_excp_cause),
+    .line_pred_taken (l1btb_pred_taken),
     .dec_pc          (predcd_prechk_pc_q),
     .xline_vld       (predcd_xline_vld),
     .xline_half      (predcd_xline_half),

@@ -502,6 +502,59 @@ module be_tb_top;
   // `include is textual expansion, creates no new module hierarchy, equivalent to inlining everything.
   `include "rtl_v1_obs.svh"
 
+  // ════════════════════════════════════════════════════════════════════
+  // Counter sync (COSIM_CNT_SYNC): the value read from mcycle(0xB00) / cycle(0xC00) depends on the
+  // microarchitecture, and the reference model cannot know the real cycle count, so the two sides always
+  // differ (embench's start/stop_trigger read it).
+  // Handled as "the DUT follows the reference": the read result in csr_unit's completion request is replaced,
+  // when this instruction reads one of those two CSRs, by the value the COSIM golden instance
+  // (isa_cosim_dpi_*, stepped once per DUT commit) will read when it executes this instruction.
+  //   Value: the golden's step() runs tickFinish (mcycle+1) before executing each instruction, so this
+  //   instruction reads "golden mcycle now + 1". CSR instructions are serial (dispatch requires an empty
+  //   buffer): every older instruction has committed and been stepped by the golden, and no younger one
+  //   commits first, so the value does not change between issue and this instruction's commit.
+  //   Resampled every cycle while the request waits for arbitration, to absorb golden step latency.
+  //   The shared predictor instance ticks after commit; its counter origin is lifted to match the golden by
+  //   predictor_init_align (orbe_predictor_pkg event 0), so the rd it computes at alloc equals this value
+  //   and the commit_result check and later loads/stores depending on the value also agree.
+  //   Only req_result_data toward the arbiter is replaced; the write path req_csr_wdata and
+  //   minstret / instret are untouched and compared as usual.
+  //   No RTL file is changed; +COSIM_CNT_SYNC=0 disables it. Each replacement prints one [COSIM][CNT_SYNC].
+  // ════════════════════════════════════════════════════════════════════
+  int                cnt_sync_en = 1;
+  initial void'($value$plusargs("COSIM_CNT_SYNC=%d", cnt_sync_en));
+
+  logic              cnt_sync_hit;
+  logic              cnt_sync_hit_q;
+  logic [63:0]       cnt_sync_ref_q;
+  logic [63:0]       cnt_sync_val;
+
+  function automatic logic cnt_sync_addr(input logic [11:0] a);
+    return (a == 12'hB00) || (a == 12'hC00);
+  endfunction
+
+  assign cnt_sync_hit = (cnt_sync_en != 0) && u_backend.u_csr_unit.request_valid &&
+                        cnt_sync_addr(u_backend.u_csr_unit.csr_addr_q);
+
+  // Sample once at the issue handshake (csr_unit.accept, csr_rdata is latched into result_data_q that
+  // cycle), and resample every cycle while the request is pending
+  always_ff @(posedge clk) begin
+    if (((cnt_sync_en != 0) && u_backend.u_csr_unit.accept &&
+         cnt_sync_addr(u_backend.u_csr_unit.exe_csr_addr)) ||
+        (cnt_sync_hit && !u_backend.u_csr_unit.winner_grant))
+      cnt_sync_ref_q <= 64'(isa_cosim_dpi_pkg::isa_cosim_dpi_get_csr(0, 16'hB00)) + 64'd1;
+  end
+  assign cnt_sync_val = cnt_sync_hit ? cnt_sync_ref_q : u_backend.u_csr_unit.result_data_q;
+  initial force u_backend.u_csr_unit.req_result_data = cnt_sync_val;
+
+  always_ff @(posedge clk) begin
+    cnt_sync_hit_q <= cnt_sync_hit && !u_backend.u_csr_unit.winner_grant;
+    if (cnt_sync_hit && !cnt_sync_hit_q)
+      $display("[%012t] [BE_TB] [L1] [COSIM][CNT_SYNC] tag=%0d csr=0x%03h dut=0x%016h ref=0x%016h",
+               $time, u_backend.u_csr_unit.req_tag, u_backend.u_csr_unit.csr_addr_q,
+               u_backend.u_csr_unit.result_data_q, cnt_sync_ref_q);
+  end
+
 `ifdef ORBE_CACHE_RTL
   // ════════════════════════════════════════════════════════════════════
   // DUT_KIND=rtl_cache / rtl_full: OR_Cache RTL occupies the LSU slot, replacing cache_agent's D side.
@@ -621,7 +674,28 @@ module be_tb_top;
       lsu_vif.lsu_be_done_pld.data   = dc_done_p.data ^ 64'h1;
       lsu_vif.lsu_be_bypass_pld.data = dc_byp_p.data ^ 64'h1;
     end
+    // HTIF host mirror (see cache_agent_dside_rtl.svh): for a load reading a host-written word, the RTL done
+    // is held and not presented; cache_agent replays it with the golden value once it becomes the ROB head
+    // (done and bypass carry the same payload), presented only in a cycle with no RTL terminal event.
+    if (dc_done_v && dc_mem_vif.htif_hold[dc_done_p.tag]) begin
+      lsu_vif.lsu_be_done_valid_q   = 1'b0;
+      lsu_vif.lsu_be_bypass_valid_q = 1'b0;
+    end
+    if ((dc_mem_vif.htif_rpl_vld === 1'b1) && !dc_done_v && !dc_exc_v && !dc_byp_v) begin
+      lsu_vif.lsu_be_done_valid_q     = 1'b1;
+      lsu_vif.lsu_be_done_pld.tag     = dc_mem_vif.htif_rpl_tag;
+      lsu_vif.lsu_be_done_pld.data    = dc_mem_vif.htif_rpl_data;
+      lsu_vif.lsu_be_bypass_valid_q   = 1'b1;
+      lsu_vif.lsu_be_bypass_pld.tag   = dc_mem_vif.htif_rpl_tag;
+      lsu_vif.lsu_be_bypass_pld.data  = dc_mem_vif.htif_rpl_data;
+    end
   end
+
+  assign dc_mem_vif.rtl_done_vld = dc_done_v;
+  assign dc_mem_vif.rtl_done_tag = dc_done_p.tag;
+  assign dc_mem_vif.rtl_exc_vld  = dc_exc_v;
+  assign dc_mem_vif.rtl_exc_tag  = dc_exc_p.tag;
+  assign dc_mem_vif.rob_head_tag = u_backend.u_CompletionScoreboard.head0_tag;
 
   final begin
     if (cache_agent_h != null) cache_agent_h.dside_report();

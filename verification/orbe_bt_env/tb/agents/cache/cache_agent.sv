@@ -850,7 +850,11 @@ class cache_agent #(int unsigned COSIM_ISSUE_NUM,
       // driving the same signal from two places is legal, but the posedge NBA would make the RTL sample one cycle late.
 
       if (dside_is_rtl()) begin
-        // LSU outputs are driven by RTL; this agent does not present
+        // LSU outputs are driven by RTL; this agent does not present, it only drives the HTIF mirror's
+        // hold bits and replay (NBA)
+`ifdef ORBE_CACHE_RTL
+        dside_htif_drive();
+`endif
       end else if (flush_fire) begin
         vif.lsu_be_done_valid_q      <= 1'b0;
         vif.lsu_be_exception_valid_q <= 1'b0;

@@ -260,6 +260,9 @@ module or_cache_top
   logic             e3_hit_q;
   logic [WAY_W-1:0] e3_hit_idx_q;
   logic [63:0]      e3_bytes_q;
+  logic [7:0]       e2_byte_mask;
+
+  assign e2_byte_mask = byte_mask(e2_plen_q);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -278,10 +281,10 @@ module or_cache_top
       e3_pa_q         <= tlb_pa;
       e3_hit_q        <= e2_hit;
       e3_hit_idx_q    <= e2_hit_idx;
-      e3_bytes_q      <= rd_bytes[e2_hit_idx] & {{8{byte_mask(e2_plen_q)[7]}}, {8{byte_mask(e2_plen_q)[6]}},
-                                                 {8{byte_mask(e2_plen_q)[5]}}, {8{byte_mask(e2_plen_q)[4]}},
-                                                 {8{byte_mask(e2_plen_q)[3]}}, {8{byte_mask(e2_plen_q)[2]}},
-                                                 {8{byte_mask(e2_plen_q)[1]}}, {8{byte_mask(e2_plen_q)[0]}}};
+      e3_bytes_q      <= rd_bytes[e2_hit_idx] & {{8{e2_byte_mask[7]}}, {8{e2_byte_mask[6]}},
+                                                 {8{e2_byte_mask[5]}}, {8{e2_byte_mask[4]}},
+                                                 {8{e2_byte_mask[3]}}, {8{e2_byte_mask[2]}},
+                                                 {8{e2_byte_mask[1]}}, {8{e2_byte_mask[0]}}};
     end
   end
 

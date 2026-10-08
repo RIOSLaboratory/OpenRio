@@ -53,6 +53,15 @@ package isa_dpi_pkg;
   import "DPI-C" function longint unsigned isa_dpi_read_mem(
     input longint unsigned addr
   );
+  // TB-side HTIF host mirror: 8-byte physical write; ELF symbol value by name (0 when absent)
+  import "DPI-C" function void isa_dpi_write_mem(
+    input longint unsigned addr,
+    input longint unsigned value
+  );
+  import "DPI-C" function longint unsigned isa_dpi_elf_symbol(
+    input string elf_path,
+    input string name
+  );
   import "DPI-C" function int isa_dpi_read_mem_bank(
     input longint unsigned addr,
     input longint unsigned length,

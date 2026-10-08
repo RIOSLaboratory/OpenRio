@@ -26,6 +26,7 @@ module l1btb
   output logic                  redirect,
   output logic [VA_W-1:0]       redirect_pc,
   // Out Static Info
+  output logic                  pred_taken,   // S2 line is predicted taken (not gated by done_q; held while in S2)
   output l1btb_meta_t           meta
 );
 
@@ -74,6 +75,7 @@ module l1btb
   end
 
   assign redirect        = pred_vld & pred.taken & ~done_q;
+  assign pred_taken      = pred_vld & pred.taken;
   assign redirect_pc = pred.tk_target;
   assign meta         = meta_q;
 

@@ -41,4 +41,17 @@ interface orbe_dc_mem_if (
   isb_kind_e              ms_drain_kind;
   logic [63:0]            ms_drain_data;
   logic                   ms_drain_sc_ok;
+
+  // ---------------- TB-side HTIF host mirror (see cache_agent_dside_rtl.svh) ----------------
+  // be_tb_top -> cache_agent: raw RTL terminal events (before holding) and the ROB head
+  logic                   rtl_done_vld;
+  lsu_tag_t               rtl_done_tag;
+  logic                   rtl_exc_vld;
+  lsu_tag_t               rtl_exc_tag;
+  lsu_tag_t               rob_head_tag;
+  // cache_agent -> be_tb_top: hold the RTL done of these tags; replay one done (done + bypass, same payload)
+  logic [(1 << LSU_TAG_W)-1:0] htif_hold;
+  logic                   htif_rpl_vld;
+  lsu_tag_t               htif_rpl_tag;
+  logic [63:0]            htif_rpl_data;
 endinterface : orbe_dc_mem_if

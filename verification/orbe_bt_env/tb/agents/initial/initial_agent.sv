@@ -84,6 +84,9 @@ class initial_agent;
     isa_dpi_add_arg(isa_elf);
     check_rc("isa_dpi_finalize_config", isa_dpi_finalize_config());
 
+    // 7.5 align the counter origin with the COSIM golden (see orbe_predictor_pkg event 0)
+    predictor_init_align();
+
     // 8. get_spec_pc: fetch the entry PC; called only once in the whole lifetime.
     initial_pc  = isa_dpi_get_spec_pc(MODEL_CORE_ID);
     initialized = 1'b1;

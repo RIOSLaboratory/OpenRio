@@ -27,6 +27,21 @@ package orbe_predictor_pkg;
   import isa_dpi_pkg::*;
 
   // =====================================================================
+  // Event 0 · init_align -- called once after the model's finalize_config, before the first alloc
+  //
+  // Counter alignment: the COSIM golden instance is driven by step(), which runs tickFinish once
+  // **before** executing each instruction; this shared instance is ticked by predictor_commit below
+  // **after** each instruction commits. So while executing instruction N the golden mcycle is N+1 and
+  // this instance's is N, and any cycle / mcycle read differs by 1 between the two (embench's
+  // start/stop_trigger read it). Ticking once up front lifts this instance's counter origin to match
+  // the golden. tickFinish otherwise only advances the CLINT mtime (the golden advances it every step
+  // too) and polls HTIF (tohost is 0 at this point).
+  // =====================================================================
+  function automatic void predictor_init_align();
+    isa_dpi_tick_finish(8'd0);
+  endfunction
+
+  // =====================================================================
   // Event 1 · alloc -- instruction enters the ROB
   //
   // Caller convention: the caller may query isa_dpi_get_decode_metadata only after this event returns.
