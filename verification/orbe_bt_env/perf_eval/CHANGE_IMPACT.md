@@ -281,12 +281,27 @@ E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
 
 #### 待办
 
-1. 用**观测面**测 G3 的 `isq_g3_issue_valid` → lane-3 写回事件的拍差，应得 **3**；
-   同法测 ALU（应得 1）、MUL（应得 3）作为方法自检。
-2. ⛔ **不要用 latency ELF 报的"latency"数字来定 `L`** —— 该数字**自带口径**，
-   而 ALU / MUL 恰好"占用 = 拍差"，**根本标定不出它用的是哪一种**。
-3. latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」。
-4. 向 Cache 侧反馈第 38 / 56 行的修正。
+| # | 事项 | 状态 |
+|---|---|---|
+| 1 | 用**观测面**测 G3 的 `isq_g3_issue_valid` → lane-3 写回事件的拍差，应得 **3**；同法测 ALU（应得 1）、MUL（应得 3）作方法自检 | ⏳ |
+| 2 | ⛔ **不要用 latency ELF 报的"latency"数字来定 `L`** —— 该数字**自带口径**，而 ALU / MUL 恰好"占用 = 拍差"，**根本标定不出它用的是哪一种** | 规矩 |
+| 3 | latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」 | ⏳ |
+| 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7（原第 38 / 56 / 212 / 217 行） | ✅ **已做**（`62c4700`，含修订表 `V1.0 rev.1`） |
+| 5 | 修正 cache agent 的 load done 时刻（原比真实 cache **早 1 拍**） | ✅ **已做**（`CDB_PRESENT_CYCLES`，见下） |
+
+#### ⚠️ 由第 5 项引出的两件事
+
+**① LOAD 不能用 cache agent 来"测"。**
+拿 agent 测，测到的只是 agent 自己的配置值（`LSU_LOAD_PIPE_STAGES + CDB_PRESENT_CYCLES + cfg`），
+**是循环论证**。要拿真实延迟，必须接**真实 Cache RTL**。
+
+**② 工具已经支持 `--dut-kind rtl_cache`** —— `BE RTL + OR_Cache RTL + FE agent`
+（`cfg/filelist/rtl_cache.f`；`--dut-kind <agent|rtl_v1|rtl_fe|rtl_cache|rtl_full>`）。
+这正是 LOAD latency 测试该用的组合：**真实 cache 提供延迟，FE 仍是 agent**（不受真实取指节奏干扰），
+**避开了 `METHOD.md` §10 反对用 `rtl_full` 的那条理由**。
+
+**⇒ 待决**：阶段 1 的 DUT 是否从 `rtl_v1` 改为 `rtl_cache`？
+若改，`rtl_v1` 可留作快速回归；但 **LOAD 家族的判定必须以 `rtl_cache` 为准**。
 
 > **教训**：这一处我和用户来回争了多轮，**根因是一直在拿 HAS 的散文推数字**。
 > 上述结论只有一条依据 —— **读 RTL**。已把这条写进 `METHOD.md` §9.7。

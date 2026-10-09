@@ -129,6 +129,12 @@ class cache_agent #(int unsigned COSIM_ISSUE_NUM,
   // ---------------------------------------------------------------------
   localparam int unsigned IF_L2_LAT  = 6;   // fixed line refill latency (cycles)
   localparam int unsigned IF_PTW_LAT = 4;   // fixed page table walk latency (cycles)
+  // BE-visible load completion. LSU_LOAD_PIPE_STAGES covers the AGU -> Load Data Arbiter
+  // pipeline (E1 -> E3); the cache-side CDB presentation register adds one more cycle,
+  // because dc_cdb enqueues the arbiter / merge result at the clock edge and presents it
+  // from the head register in the next cycle (Cache HAS V1.0 rev.1, 3.1 / 3.2 / 6.7).
+  // Without this term the agent returns a load one cycle earlier than cache_rtl_v1 does.
+  localparam int unsigned CDB_PRESENT_CYCLES = 1;
   virtual orbe_fe_mem_if  fe_mem_vif;
   int unsigned            if_l2_id  [$];
   longint unsigned        if_l2_pa  [$];
@@ -276,7 +282,8 @@ class cache_agent #(int unsigned COSIM_ISSUE_NUM,
 
   // ---------------------------------------------------------------------
   // Presentation buffer enqueue (Interface Timing item 4)
-  //   load_side : fire cycle + LSU_LOAD_PIPE_STAGES + cache_load_return_delay_cycles
+  //   load_side : fire cycle + LSU_LOAD_PIPE_STAGES + CDB_PRESENT_CYCLES
+  //               + cache_load_return_delay_cycles
   //   store_side: fire cycle + cache_store_done_delay_cycles
   // ---------------------------------------------------------------------
   function automatic void enqueue_done(lsu_tag_t t,
@@ -293,7 +300,8 @@ class cache_agent #(int unsigned COSIM_ISSUE_NUM,
     r.bypass_pld.tag          = t;
     r.bypass_pld.data         = data;
     r.ready_cycle             = cycle_count +
-        (load_side ? (longint'(LSU_LOAD_PIPE_STAGES) + longint'(cfg.cache_load_return_delay_cycles))
+        (load_side ? (longint'(LSU_LOAD_PIPE_STAGES) + longint'(CDB_PRESENT_CYCLES)
+                      + longint'(cfg.cache_load_return_delay_cycles))
                    : longint'(cfg.cache_store_done_delay_cycles));
     done_buf.push_back(r);
   endfunction
@@ -310,7 +318,8 @@ class cache_agent #(int unsigned COSIM_ISSUE_NUM,
     r.exc_pld.tval            = tval;
     r.has_bypass              = 1'b0;
     r.ready_cycle             = cycle_count +
-        (load_side ? (longint'(LSU_LOAD_PIPE_STAGES) + longint'(cfg.cache_load_return_delay_cycles))
+        (load_side ? (longint'(LSU_LOAD_PIPE_STAGES) + longint'(CDB_PRESENT_CYCLES)
+                      + longint'(cfg.cache_load_return_delay_cycles))
                    : longint'(cfg.cache_store_done_delay_cycles));
     exc_buf.push_back(r);
   endfunction
