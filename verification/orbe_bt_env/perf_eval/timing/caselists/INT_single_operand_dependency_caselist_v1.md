@@ -30,30 +30,53 @@ This v2 caselist reduces the previous full producer-dependent expansion to one r
 Total case count:
 
 ```text
-ALU  5 cases  + MUL 7 cases + DIV 12 cases + LOAD 7 cases + JALR 7 cases = 38 cases
+ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases + JALR 5 cases = 32 cases
 ```
 
-> **Revision (2026-10): LOAD producer latency corrected 2 → 3.**
-> The August value treated the cache load-data arbiter as a transparent path and missed the
-> **CDB presentation register**: `dc_cdb.sv` writes the arbiter result into the FIFO and drives
-> `done_valid_q` / `byp_valid_q` from the head register, so BE sees the load result at **E4**,
-> i.e. 3 cycles after the issue. Nothing else changed; the rule `P3 delta = latency + 1` is unchanged.
+> **Revision (2026-10): producer latencies replaced by measured values.**
+> All five families' `L` were measured on the current RTL (`--dut-kind rtl_full`) through the
+> observation surface. The method was accepted only after the three known points came out right
+> (ALU = 1, MUL = 3, LOAD = 3). Source: `../../latency_bench/Latency_Report.md`.
+>
+> | Family | was | now | effect |
+> |---|---:|---:|---|
+> | ALU | 1 | **1** | unchanged |
+> | MUL | 3 | **3** | unchanged |
+> | DIV | 8 | **4** | 12 → **8** cases |
+> | LOAD | 2 → 3 | **3** | 6 → **7** cases (previous revision) |
+> | JALR link | 3 | **1** | 7 → **5** cases |
+>
+> The rule `P3 delta = latency + 1` is unchanged.
+>
+> **JALR now uses the link-value latency.** `JALR` with `rd != x0` writes `rd = PC + 4`; that
+> register result is visible 1 cycle after issue, so the dependency formula uses `L = 1`. The
+> figure of "about 3 cycles" in the performance report is the **taken / redirect** metric
+> (measured 2 on this RTL). It is a control-flow event with no "rd value reaching the consumer",
+> so it is **not** part of this dependency enumeration.
+>
+> **LOAD timing wording** follows Cache HAS `V1.0 rev.1`: E1 AGU, E2 L1 D cache, E3 load-data
+> arbiter together with the CDB FIFO. Three cycles is the **earliest** case; it holds only when
+> the new entry becomes the CDB head.
 
 ## Delta Meaning
 
 Normal no-older-blocker path:
 
-| Producer | Producer latency | P3 delta | P4 delta | ARF boundary delta | Enumerated deltas |
+| Producer | Producer latency (measured) | P3 delta | P4 delta | ARF boundary delta | Enumerated deltas |
 |---|---:|---:|---:|---:|---|
 | ALU | 1 | 2 | 3 | 4 | 0..4 |
 | MUL | 3 | 4 | 5 | 6 | 0..6 |
-| DIV | 8 | 9 | 10 | 11 | 0..11 |
-| LOAD | **3** | **4** | **5** | **6** | **0..6** |
-| JALR link | 3 | 4 | 5 | 6 | 0..6 |
+| DIV | **4** | **5** | **6** | **7** | **0..7** |
+| LOAD | 3 | 4 | 5 | 6 | 0..6 |
+| JALR link | **1** | **2** | **3** | **4** | **0..4** |
 
 JAL/JALR note:
 
-`JAL` and `JALR` with `rd != x0` produce an INT register-result link value (`rd = PC + 4`). The performance report measures taken `JAL` and `JALR` at about 3 cycles; this caselist uses `JALR` as the representative link-result producer family and enumerates deltas `0..6`.
+`JAL` and `JALR` with `rd != x0` produce an INT register-result link value (`rd = PC + 4`). This
+caselist uses `JALR` as the representative **link-result producer** family, so it takes the
+**link-value** latency: measured **1** cycle, enumerated deltas `0..4`. The performance report's
+"about 3 cycles" for taken `JAL`/`JALR` is the **redirect-ready** metric (measured 2 here); it is a
+control-flow event and is not enumerated as a dependency delta.
 
 Case behavior labels:
 
@@ -69,6 +92,17 @@ Condition A extension:
 
 If an older head blocker delays the producer's P4 commit after producer P3 has already passed, then additional `delta_n` attempts between P3 and delayed P4 are Condition A stalls. For example, if an ALU producer's P4 is delayed from `delta_3` to `delta_6`, then `delta_3`, `delta_4`, and `delta_5` are Condition A stalls, `delta_6` is P4 capture, and `delta_7` is ARF read. This extension is derived from the spec and is not repeated as separate nominal cases below.
 
+## Group rule for `delta_0`
+
+The ISQ holds **one entry per group**, so a group can dispatch at most one instruction per cycle.
+Two instructions in the **same group** therefore differ by at least one dispatch cycle:
+**`delta_0` (`overlay`) is reachable only when the producer and the consumer are in different groups.**
+
+Every `delta_0` row states its groups in the `G` column, and for that case the consumer is routed to
+the group other than the producer's. Rows with `delta >= 1` may be same-group.
+
+Every case table below carries a `G` column: **`producer group → consumer group`**.
+
 ## ALU_to_ALU
 
 Representative:
@@ -78,13 +112,13 @@ add x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | Instructions | Behavior |
-|---|---|---|
-| `ALU_to_ALU_delta_0` | `add x5, x1, x2 -> add x6, x5, x3` | `overlay`; slot0 producer ALU claims G0 first and slot1 dependent ALU routes to G1 in the post-slot0 view. |
-| `ALU_to_ALU_delta_1` | `sub x5, x3, x4 -> add x6, x5, x7` | `wait_for_p3` |
-| `ALU_to_ALU_delta_2` | `add x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
-| `ALU_to_ALU_delta_3` | `add x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
-| `ALU_to_ALU_delta_4` | `add x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Behavior |
+|---|---|---|---|
+| `ALU_to_ALU_delta_0` | G0 → G1 | `add x5, x1, x2 -> add x6, x5, x3` | `overlay`; slot0 producer ALU claims G0 first and slot1 dependent ALU routes to G1 in the post-slot0 view. |
+| `ALU_to_ALU_delta_1` | G0 → G0 | `sub x5, x3, x4 -> add x6, x5, x7` | `wait_for_p3` |
+| `ALU_to_ALU_delta_2` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
+| `ALU_to_ALU_delta_3` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
+| `ALU_to_ALU_delta_4` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
 
 ## MUL_to_ALU
 
@@ -95,15 +129,15 @@ mul x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | Instructions | Behavior |
-|---|---|---|
-| `MUL_to_ALU_delta_0` | `mul x5, x1, x2 -> add x6, x5, x3` | `overlay`; producer MUL targets G1 and dependent ALU can route to G0. |
-| `MUL_to_ALU_delta_1` | `mul x5, x3, x4 -> add x7, x5, x8` | `wait_for_p3` |
-| `MUL_to_ALU_delta_2` | `mul x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `MUL_to_ALU_delta_3` | `mul x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `MUL_to_ALU_delta_4` | `mul x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
-| `MUL_to_ALU_delta_5` | `mul x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
-| `MUL_to_ALU_delta_6` | `mul x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Behavior |
+|---|---|---|---|
+| `MUL_to_ALU_delta_0` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `overlay`; producer MUL targets G1 and dependent ALU can route to G0. |
+| `MUL_to_ALU_delta_1` | G1 → G0 | `mul x5, x3, x4 -> add x7, x5, x8` | `wait_for_p3` |
+| `MUL_to_ALU_delta_2` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
+| `MUL_to_ALU_delta_3` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
+| `MUL_to_ALU_delta_4` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
+| `MUL_to_ALU_delta_5` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
+| `MUL_to_ALU_delta_6` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
 
 ## DIV_to_ALU
 
@@ -114,20 +148,16 @@ div x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | Instructions | Behavior |
-|---|---|---|
-| `DIV_to_ALU_delta_0` | `div x5, x1, x2 -> add x6, x5, x3` | `overlay`; producer DIV targets G0 and dependent ALU can route to G1. |
-| `DIV_to_ALU_delta_1` | `div x5, x3, x4 -> add x7, x5, x8` | `wait_for_p3` |
-| `DIV_to_ALU_delta_2` | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_3` | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_4` | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_5` | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_6` | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_7` | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_8` | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_9` | `div x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
-| `DIV_to_ALU_delta_10` | `div x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
-| `DIV_to_ALU_delta_11` | `div x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Behavior |
+|---|---|---|---|
+| `DIV_to_ALU_delta_0` | G0 → G1 | `div x5, x1, x2 -> add x6, x5, x3` | `overlay`; producer DIV targets G0 and dependent ALU can route to G1. |
+| `DIV_to_ALU_delta_1` | G0 → G0 | `div x5, x3, x4 -> add x7, x5, x8` | `wait_for_p3` |
+| `DIV_to_ALU_delta_2` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
+| `DIV_to_ALU_delta_3` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
+| `DIV_to_ALU_delta_4` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
+| `DIV_to_ALU_delta_5` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
+| `DIV_to_ALU_delta_6` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
+| `DIV_to_ALU_delta_7` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
 
 ## LOAD_to_ALU
 
@@ -138,15 +168,17 @@ ld x5, 0(x1)
 add x6, x5, x3
 ```
 
-| Case | Instructions | Behavior |
-|---|---|---|
-| `LOAD_to_ALU_delta_0` | `ld x5, 0(x1) -> add x6, x5, x3` | `overlay`; producer LOAD targets G3 and dependent ALU can route to G0/G1. |
-| `LOAD_to_ALU_delta_1` | `lw x5, 8(x2) -> add x7, x5, x8` | `wait_for_p3` |
-| `LOAD_to_ALU_delta_2` | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
-| `LOAD_to_ALU_delta_3` | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
-| `LOAD_to_ALU_delta_4` | `ld x5, 0(x1) -> add x6, x5, x3` | `p3_capture` |
-| `LOAD_to_ALU_delta_5` | `ld x5, 0(x1) -> add x6, x5, x3` | `p4_capture` |
-| `LOAD_to_ALU_delta_6` | `ld x5, 0(x1) -> add x6, x5, x3` | `arf_read` |
+Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates).
+
+| Case | G | Instructions | Behavior |
+|---|---|---|---|
+| `LOAD_to_ALU_delta_0` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `overlay`; producer LOAD targets G3 and dependent ALU can route to G0/G1. |
+| `LOAD_to_ALU_delta_1` | G3 → G0 | `lw x5, 8(x2) -> add x7, x5, x8` | `wait_for_p3` |
+| `LOAD_to_ALU_delta_2` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
+| `LOAD_to_ALU_delta_3` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
+| `LOAD_to_ALU_delta_4` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `p3_capture` |
+| `LOAD_to_ALU_delta_5` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `p4_capture` |
+| `LOAD_to_ALU_delta_6` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `arf_read` |
 
 ## JALR_to_ALU
 
@@ -159,15 +191,15 @@ add  x6, x5, x3
 
 `x10` is assumed to hold a valid jump target. For `delta_0`, arrange the target so the slot1 dependent is on the architecturally correct path, or treat the row as the data-forwarding representative for the JAL/JALR link-result family. Conditional no-link branches remain producer `don't exist`.
 
-| Case | Instructions | Behavior |
-|---|---|---|
-| `JALR_to_ALU_delta_0` | `jalr x5, 0(x10) -> add x6, x5, x3` | `overlay`; producer JALR targets G0 and dependent ALU can route to G1. |
-| `JALR_to_ALU_delta_1` | `jalr x5, 0(x10) -> add x7, x5, x8` | `wait_for_p3` |
-| `JALR_to_ALU_delta_2` | `jalr x5, 0(x10) -> add x6, x5, x3` | `wait_for_p3` |
-| `JALR_to_ALU_delta_3` | `jalr x5, 0(x10) -> add x6, x5, x3` | `wait_for_p3` |
-| `JALR_to_ALU_delta_4` | `jalr x5, 0(x10) -> add x6, x5, x3` | `p3_capture` |
-| `JALR_to_ALU_delta_5` | `jalr x5, 0(x10) -> add x6, x5, x3` | `p4_capture` |
-| `JALR_to_ALU_delta_6` | `jalr x5, 0(x10) -> add x6, x5, x3` | `arf_read` |
+`L = 1` here is the **link-value** latency. JALR also has a redirect-ready latency (measured 2), which is a control-flow metric and is not enumerated in this caselist.
+
+| Case | G | Instructions | Behavior |
+|---|---|---|---|
+| `JALR_to_ALU_delta_0` | G0 → G1 | `jalr x5, 0(x10) -> add x6, x5, x3` | `overlay`; producer JALR targets G0 and dependent ALU can route to G1. |
+| `JALR_to_ALU_delta_1` | G0 → G0 | `jalr x5, 0(x10) -> add x7, x5, x8` | `wait_for_p3` |
+| `JALR_to_ALU_delta_2` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | `p3_capture` |
+| `JALR_to_ALU_delta_3` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | `p4_capture` |
+| `JALR_to_ALU_delta_4` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | `arf_read` |
 
 ## Notes
 
@@ -176,3 +208,4 @@ add  x6, x5, x3
 - `*_to_LOAD` and `*_to_STORE` dependent cases are MEM/LSU operand cases and should be enumerated in a MEM K-map/caselist.
 - Store instructions have no architectural destination register and remain producer `don't exist` for ordinary register-result dependency K-maps.
 - CSR producer timing is covered by CSR serialization rather than ordinary live bypass timing.
+- Producer latencies above are **measured** values for the current RTL (see the revision note); `L` is the issue-accepted-to-result-visible cycle difference. `L` is parameterised, so a change in `L` changes the enumerated range and the case count.
