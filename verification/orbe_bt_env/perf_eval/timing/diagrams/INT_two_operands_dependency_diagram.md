@@ -10,8 +10,8 @@ The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md
 
 | Cell | Stage | Meaning |
 |---|---|---|
-| `IB` | P0 → P1 | The instruction is present in the instruction buffer. Enqueue is P0; the head is read in P1 to form the dispatch bundle. The figures only show that the instruction is in IB. |
-| `RS0` … `RS3` | **P1** | Rename / dispatch into that group's ISQ. |
+| `IB` | **P0** | The instruction is enqueued into the instruction buffer. This cell marks the enqueue cycle only. |
+| `RS0` … `RS3` | **P1** | Rename / dispatch into that group's ISQ. The IB head read that forms the dispatch bundle is also a P1 activity. |
 | `ISQ Wait` | **P2** | Resident in the ISQ, waiting for a source. |
 | `SL (<FU> …)` | **P2** | The issue is accepted and the FU starts. All of the FU's internal stages sit in P2, so a multi-cycle FU occupies several consecutive cells. |
 | `WB` | **P3** | Result writeback / bypass broadcast. |
