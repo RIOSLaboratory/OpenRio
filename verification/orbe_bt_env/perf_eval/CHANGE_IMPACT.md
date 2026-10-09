@@ -158,29 +158,27 @@ caselist 第 40 行现在把 latency 写死成**公司内部算子**的值（ALU
 | 枚举范围 | **0 .. L+3**（共 L+4 条 case） |
 | 机制阶梯 | `0`=overlay；`1..L`=wait_for_p3（L 条）；`L+1`=p3_capture；`L+2`=p4_capture；`L+3`=arf_read |
 
-**对现表逐行验证（全中）**：
+**对现表逐行验证**：
 
-| 家族 | L | P3=L+1 | P4=L+2 | ARF=L+3 | 枚举 0..L+3 | 应有 case | 实际 case |
-|---|---:|---:|---:|---:|---|---:|---:|
-| ALU | 1 | 2 | 3 | 4 | 0..4 | 5 | **5** ✓ |
-| MUL | 3 | 4 | 5 | 6 | 0..6 | 7 | **7** ✓ |
-| DIV | 8 | 9 | 10 | 11 | 0..11 | 12 | **12** ✓ |
-| LOAD | 2 | 3 | 4 | 5 | 0..5 | 6 | **6** ✓ |
-| JALR | 3 | 4 | 5 | 6 | 0..6 | 7 | **7** ✓ |
-| | | | | | | **37** | **37** ✓ |
+| 家族 | L | P3=L+1 | P4=L+2 | ARF=L+3 | 枚举 0..L+3 | 应有 case | 8 月 caselist | 一致 |
+|---|---:|---:|---:|---:|---|---:|---:|---|
+| ALU | 1 | 2 | 3 | 4 | 0..4 | 5 | 5 | ✅ |
+| MUL | 3 | 4 | 5 | 6 | 0..6 | 7 | 7 | ✅ |
+| DIV | N | N+1 | N+2 | N+3 | 0..N+3 | N+4 | 12（按 N=8） | ⏳ 待实测 N |
+| **LOAD** | **3** | **4** | **5** | **6** | **0..6** | **7** | **6** | ❌ **差 1 条，见 §4.6** |
+| JALR | 3 | 4 | 5 | 6 | 0..6 | 7 | 7 | ✅ |
+| **合计（DIV 暂按 N=8）** | | | | | | **38** | **37** | ❌ |
 
-**⇒ 材料里没有一个"幻数"是独立信息，全部由 L 唯一决定。**
-所以 caselist 的阈值表应与 diagram 并用，但形式必须是 `L → (L+1, L+2, L+3) → 0..L+3`，
-而不是那串公司算子的绝对值。
+**⇒ `L` 是唯一的自由参数；`L` 一变，枚举范围与 case 数都跟着变。**
+
+**8 月 caselist 的 LOAD 写的是 `L=2`（6 条 case），与 RTL 不符 —— 应为 `L=3`（7 条）。** 详见 §4.6。
 
 **两条规矩**：
 
-1. **`L` 必须由 FU 边界实测**（`issue_valid → result_valid` / `request_valid`）。
+1. **`L` = 指令在 FU / Cache 里占用的拍数**，等价于 FU 边界的 `issue_valid → result_valid`。
    ⛔ **不得从"dispatch → bypass 的距离"反推** —— 因为 `P3 delta = L+1` 里的 "+1"
    正是 dispatch→issue 那一段；反推会让公式退化成**恒真式**，什么都测不出来。
 2. **`L` 一变，枚举范围跟着变、case 数量跟着变** —— 不只是改数字，要**增删 case**。
-
-> ⚠️ **待裁决：LOAD 的 L 是 2 还是 4** —— 见 §4.6。
 
 ### 4.3 判定怎么做
 
@@ -221,72 +219,77 @@ caselist 第 40 行现在把 latency 写死成**公司内部算子**的值（ALU
 ⚠️ delta 是**动态量**（dispatch→dispatch，含 ISQ 占用、组冲突、bypass 命中），
 静态阅读只覆盖 no-blocker 路径，**不能替代仿真实测**。
 
-### 4.6 ⚠️ 待裁决：LOAD 的 L 是 2 还是 4
+### 4.6 LOAD 的 `L` = **3**（已定案，附 RTL 证据）
 
-| 来源 | 值 | 依据 |
+**结论：8 月 caselist 的 LOAD `L=2` 是错的，应为 `L=3`。**
+
+#### RTL 证据链
+
+| 模块 | 看的是什么 | 结论 |
 |---|---|---|
-| 8 月 caselist | **2** | 第 40 行 |
-| 9 月 Cache HAS（**冻结接口**） | **2** | `docs/Cache/or_cache_has_V1.0.md`：`LSU_LOAD_PIPE_STAGES = 2` —— "Direct load-hit latency in the frozen interface. A merged load takes 3 cycles."；§2 亦称 "A D-cache hit that needs no merge returns in two cycles" |
-| 用户观察 | **≥4** | 「从 BE-LSU issue fire 到 done valid，无 store-to-load forwarding，至少 4 拍」 |
+| `src/core/cache_rtl_v1/dc_ld_arb.sv` | 全文只有一个 `always_comb`，无寄存器 | LDA **本身**是组合的 |
+| **`dc_cdb.sv:59`** | `if (l_vld[0]) begin q[wp[CDB_PTR_W-2:0]] <= l_ent[0]; wp = wp + 1'b1; end` | **LDA 的结果在时钟沿被写进 CDB FIFO 寄存器** |
+| **`dc_cdb.sv:33/35/37`** | `h = q[rptr_q[…]]`；`done_valid_q = hv && !h.is_exc`；`byp_valid_q = hv && !h.is_exc && h.bypass` | 给 BE 的 done / bypass **取自 head 寄存器** |
+| `or_cache_top.sv:462-467` | LDA 的 fast 路径输入是 `e3_bytes_q`（E3 寄存器） | LDA 确实在 **E3 拍**工作 |
 
-**前两者一致（都是 2），只有"≥4"是孤证**，且与冻结接口规格冲突。**裁决前先确认三件事**：
+**逐拍**：
 
-1. **"done valid" 指哪个信号？** → **已查清：`lsu_be_bypass_valid` 与 done 同拍**，所以你量
-   `issue fire → done valid` 的边界是**对的**：
-   - `docs/modules/lsu/g3_lsu_iface.md:72`：`read_mark.fire = done_in ∧ read_side_result`
-   - 同文件 `:79` Constraint：「仅 `done_in` 且同时存在 read-side bypass 时成立」
-   - `src/core/be_rtl_v1/lsu/g3_lsu_iface.sv:342` 注释：bypass "is exactly what the LSU rides with the done"
-2. **"≥4" 的出处？** `docs/Cache/or_cache_has_V1.0.md:37` 称 "four pipeline stages, E1–E4"，
-   若从 E1 算到 E4 输出至少 3 拍 —— **这很可能就是 ≥4 的来源**。
-3. **issue 边界无争议**：`g3_lsu_iface` 的 issue 侧是**纯组合**的
-   （`FU_ready = bridge_has_room && lsu_be_issue_ready`，同拍 `be_lsu_issue_valid = issue_valid && ...`），
-   所以 BE-LSU 的 issue fire **与 ISQ 发射同拍**。
+```text
+E1  accept/AGU   ← BE issue fire            （Cache HAS 第 95 行）
+E2  DCache                                  （第 96 行）
+E3  LDA          ──组合──→ 写进 CDB FIFO     （第 97 行；dc_cdb.sv:59）
+E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
+```
 
-#### 支持 "LOAD ≠ 4"（＝2）的明确证据位置
+**⇒ `issue→result` = 3 拍，`L = 3`**（不是 2）。
 
-全部在 `docs/Cache/or_cache_has_V1.0.md`：
+#### 为什么"占用 = L"在这里同样成立
 
-**① 第 38 行 —— 最直接**
+| 家族 | 占用（级） | `issue→result`（拍） | 一致 |
+|---|---|---|---|
+| ALU | 1 | 1 | ✅ |
+| MUL | 3 | 3 | ✅ |
+| **LOAD** | **3**（E1/E2/E3） | **3**（E1→E4，含 CDB 寄存器） | ✅ |
 
-> A D-cache hit that **needs no merge** returns in **two cycles** through the Load Data Arbiter.
-> A load that requires ISB / WB merging returns in **three cycles** through E4 Data Merge.
+**⇒ 「`L` = 指令在 FU / Cache 里占用的拍数」是普适定义。**
+8 月 caselist 的 LOAD=2，是把 LDA 当成透明通道、**漏算了 CDB 那一级寄存器**。
 
-你说的「**没有 store-to-load forwarding**」正对应 "**needs no merge**" → **2 拍**；
-即使需要 merge 也只有 **3 拍**。**两种情况都到不了 4。**
+#### 受影响的面
 
-**② 第 56 行 —— 参数表（接口承诺）**
+| 项 | 8 月 caselist | 修正后 |
+|---|---|---|
+| LOAD `L` | 2 | **3** |
+| P3 / P4 / ARF delta | 3 / 4 / 5 | **4 / 5 / 6** |
+| 枚举 | `0..5` | **`0..6`** |
+| LOAD case 数 | 6 | **7** |
+| 总 case 数 | 37 | **38** |
 
-> `LSU_LOAD_PIPE_STAGES` = **2** —— "Direct load-hit latency in the **frozen interface**.
-> A merged load takes 3 cycles."
+#### 📌 发现：Cache HAS 第 38 / 56 行需要修
 
-"**frozen interface**" 明确这是 BE↔LSU 冻结接口的**承诺值**。
+| 位置 | 原文 | 与 RTL |
+|---|---|---|
+| 第 38 行 | "A D-cache hit that needs no merge returns in **two cycles**" | ❌ 只数到 LDA，**漏算 CDB 呈现寄存器** |
+| 第 56 行 | `LSU_LOAD_PIPE_STAGES` = **2** | ❌ 同上 |
+| **第 217 行** | "a terminal-state **FIFO**… presents the **head entry** to BE" | ✅ FIFO head 即寄存器 → 至少 +1 拍，**与 RTL 一致** |
+| 第 212 行 | `dc_ld_arb` "**combinational** output" | ⚠️ 只描述 `dc_ld_arb` **内部**，未说明输出还要进 CDB FIFO —— **就是这句把人带偏的** |
 
-**③ 第 36 行 —— 读侧无反压**
+**建议**：向 Cache 侧反馈，第 38 / 56 行改为 **3 拍**（无 merge）/ **4 拍**（需 merge），
+并注明"含 CDB 呈现寄存器"。
 
-> the read side never rejects a request. The only backpressure condition is a full store buffer.
-
-→ 读请求不会被反压，所以拍数不会因此变长。
-
-#### 反证：为什么你的 4 不离谱
-
-**④ 第 37 行 —— 同一份文件，与 ② 字面冲突**
-
-> The design has **four pipeline stages, E1–E4**. Stages E2–E4 never stall.
-
-四级流水，若从 E1 算到 E4 输出**至少 3 拍** —— 与 ② 的 "2" 对不上。
-（阶段划分见同文件 `:95–98`：E1 = Accept / AGU，E4 = Data merge。）
-
-**⇒ 结论：Cache HAS 内部对"几拍"没有单一口径**（L37 的 E1–E4 四级 **vs** L38/L56 的 2 拍）。
-**这个不一致必须报给 Cache 侧确认，不能由 perf_eval 单方面裁决。**
+**口径提醒**：第 38 行的 2 / 3 数的是**级数**（E1→E3 / E1→E4），
+我们的 `L` 用的是**拍差**（E1→E4 = 3）。两者差 1，见 §4.2 规矩 1。
 
 #### 待办
 
-1. 用同事的 latency ELF **实测**各 FU 的 `L`（含 LOAD），填进 §4.2 的参数表。
-2. 就「E1–E4 四级 vs `LSU_LOAD_PIPE_STAGES = 2`」向 **Cache 侧求证**。
-3. 若实测 > 2，记录为**发现**（实现与冻结接口规格不符），**不静默改数**。
+1. 用**观测面**测 G3 的 `isq_g3_issue_valid` → lane-3 写回事件的拍差，应得 **3**；
+   同法测 ALU（应得 1）、MUL（应得 3）作为方法自检。
+2. ⛔ **不要用 latency ELF 报的"latency"数字来定 `L`** —— 该数字**自带口径**，
+   而 ALU / MUL 恰好"占用 = 拍差"，**根本标定不出它用的是哪一种**。
+3. latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」。
+4. 向 Cache 侧反馈第 38 / 56 行的修正。
 
-> **影响面**：若 LOAD 的 `L` 从 2 变 4，则 P3 / P4 / ARF delta 变成 **5 / 6 / 7**，
-> LOAD 家族从 **6 条 case 增到 8 条**（枚举 `0..7`）。
+> **教训**：这一处我和用户来回争了多轮，**根因是一直在拿 HAS 的散文推数字**。
+> 上述结论只有一条依据 —— **读 RTL**。已把这条写进 `METHOD.md` §9.7。
 
 **产出**：一张「**diagram 预期 vs 仿真实测**」对照表 → 明确哪些家族可原样保留、哪些需要由材料所有者修订。
 
