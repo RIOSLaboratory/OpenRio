@@ -47,6 +47,22 @@ The mechanism label is a function of `delta` and `L`, and it is what makes the t
 
 The enumerated range is `0 … L+3`, i.e. `L+4` cases per family.
 
+## Bypass paths, and where they can be consumed
+
+Each bus carries **only** the value published in that cycle; nothing is held. A dependent whose P1 misses the producer's P3 cycle **cannot go back for it**: the next opportunity is the commit CDB, and after that the ARF.
+
+| Bus (valid only in that cycle) | Consumer stage in that cycle | Use | Issues |
+|---|---|---|---|
+| P3 bypass, 4 lanes | P1 | captured into the new ISQ payload (the entry becomes ready) | next cycle |
+| P3 bypass, 4 lanes | P2 (resident) | resident wakeup; feeds the FU input directly | that cycle |
+| P4 commit CDB, 2 lanes | P1 | captured into the new ISQ payload | next cycle |
+| P4 commit CDB, 2 lanes | P2 | **not connected** | — |
+| ARF | P1, after the producer has committed | read from the ARF read ports | next cycle |
+
+That one-cycle window is what the delta ladder enumerates: `delta` places the dependent's P1 relative to the producer's P3 / P4, and the case label follows from which window it lands in.
+
+If a resident entry matches a P3 source in P2 but the selected FU cannot issue in that cycle, the matched data is latched at the clock edge and becomes `Stored Ready in ISQ` for a later cycle — it is not lost.
+
 ## Case 1: ALU_to_ALU_delta_0 (overlay)
 
 **Dimension:** INT single-operand dependency | **Equiv:** ALU_to_ALU

@@ -19,6 +19,22 @@ The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md
 
 For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL` at T3, its internal stages across T3…T(2+`L`), `WB` at **T(3+`L`)**, `C` at T(4+`L`), and ARF-ready at T(5+`L`).
 
+## Bypass paths, and where they can be consumed
+
+Each bus carries **only** the value published in that cycle; nothing is held. A dependent whose P1 misses the producer's P3 cycle **cannot go back for it**: the next opportunity is the commit CDB, and after that the ARF.
+
+| Bus (valid only in that cycle) | Consumer stage in that cycle | Use | Issues |
+|---|---|---|---|
+| P3 bypass, 4 lanes | P1 | captured into the new ISQ payload (the entry becomes ready) | next cycle |
+| P3 bypass, 4 lanes | P2 (resident) | resident wakeup; feeds the FU input directly | that cycle |
+| P4 commit CDB, 2 lanes | P1 | captured into the new ISQ payload | next cycle |
+| P4 commit CDB, 2 lanes | P2 | **not connected** | — |
+| ARF | P1, after the producer has committed | read from the ARF read ports | next cycle |
+
+That one-cycle window is what the sources in these cases enumerate: the P1 MUX cases place a source in the dependent's P1 cycle, and the P2 MUX cases keep the dependent resident so its P2 falls in that window.
+
+If a resident entry matches a P3 source in P2 but the selected FU cannot issue in that cycle, the matched data is latched at the clock edge and becomes `Stored Ready in ISQ` for a later cycle — it is not lost.
+
 ## Rules used by these figures
 
 1. **Cycle normalisation.** P1 source resolution is pinned to **T6** (Cases 1–17, 25–27); P2 resident-entry source-ready is pinned to **T8** (Cases 18–24, 28–30). A producer of latency `L` is placed so that its P3 lands on the pinned cycle: `WB column = pinned`, and therefore `IB column = pinned − 2 − L`. A longer-latency producer starts earlier — the pinned cycle never moves.

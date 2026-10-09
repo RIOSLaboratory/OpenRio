@@ -393,6 +393,25 @@ Cache HAS `V1.0 rev.1` 把 load 延迟写成**下界**：
 
 **产出**：一张「**diagram 预期 vs 仿真实测**」对照表 → 明确哪些家族可原样保留、哪些需要由材料所有者修订。
 
+### 4.7 旁路路径：预期**有 RTL 依据**（不写进 diagram）
+
+两张 diagram 头部新增的 `## Bypass paths, and where they can be consumed` 一节声明了三件事。
+**声明本身是"预期"，必须在 diagram 里；它的依据属于"归因"侧，所以记在这里**（§4 规定预期里不得含 RTL）。
+
+| 声明 | RTL 依据 | 结论 |
+|---|---|---|
+| **P3 bypass 只在发布那一拍有效**，P1 可在**同拍**把它捕进新 payload | `top/isq_payload_assembly.sv`：**纯组合、无 clk/rst**；输入含 `bypass_data [NUM_LANES]`（L85）与 `commit_data [ISSUE_WIDTH]`（L78）；源选择用 `sel_arf` / `sel_commit` / `sel_bypass`（L143–145），**由 `dependency_check` 用同拍的 `bypass_valid`/`bypass_tag` 生成**（头注释：本层"does no busy / tag compare at all"） | ✅ 同拍捕获**是 RTL 实现的** |
+| 同一拍里**驻留**的条目可走 **P3→P2** 直接喂 FU | `p2p3/FU_input_mux.sv`：`bypass_data`/`bypass_valid`/`bypass_tag`（L42–47），`hit[b] = bypass_valid[b] && (rsX_wait_tag == bypass_tag[b])`（L71），`fu_rsX_data = bypass_data[b]`（L107）；注释写明是 "**this cycle's** p3 bypass lanes" | ✅ 同拍 |
+| **P2 MUX 从不吃 P4 commit CDB** | 同上，`FU_input_mux` **输入里没有 `commit_data`** | ✅ 证实 |
+| 4 条 bypass lane = 四个组的 P3 发布 | `top/backend_top.sv` L499–501 `lane_bypass_valid/tag/data [NUM_LANES]`，由 `arbG0_*`/`arbG1_*`（两个 P3 arbiter）+ `g2fu_*` + `lsuif_*` 汇聚；`commit_data` 由 `p4/Buffer` 驱动 | ✅ |
+
+**⚠️ 表述教训（同 §9.7）**：我最初把"P3→P1 同拍有效"当成已知事实说出来，**依据其实只是材料自己的措辞** ——
+而材料正是被审计的**预测**。**用预测去证明预测是循环论证。**
+凡"能不能"类的事实，**要么读 RTL、要么实测**，不能引材料的散文。
+
+**推导出的结构（也是 delta 阶梯存在的原因）**：每条总线只有「**一拍窗口**」，错过不等 → 所以
+dependent 的 P1 落在哪一拍，决定了它用哪条窗口：P3 拍 → `p3_capture`；P4 拍 → `p4_capture`；再晚 → `arf_read`。
+
 ---
 
 ## 5. 顺带发现（需要你决策）
