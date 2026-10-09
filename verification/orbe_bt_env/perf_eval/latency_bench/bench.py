@@ -108,11 +108,20 @@ CASES.append(C("LOAD_fld", "LOAD", "rv64imafdc", SET_FS + "\n" + SET_MEM, "    f
 CASES.append(C("JALR_link", "JALR", "rv64imafdc",
                "    la   x10, jalr_target",
                "    jalr x5, 0(x10)\njalr_target:\n    addi x0, x0, 0",
-               "target = fallthrough, so no redirect bubble; measures the link写回"))
+               "link-value writeback only. NOTE: this still redirects (mispredict=1), "
+               "so it is NOT a redirect-free case -- it measures the rd writeback"))
 CASES.append(C("JAL_link", "JALR", "rv64imafdc",
                "",
                "    jal  x5, jal_target\njal_target:\n    addi x0, x0, 0",
                "fallthrough target, link value only"))
+# Real taken JALR: target != fallthrough. Measures the link-value writeback (L)
+# AND, separately, the redirect-inclusive effect (issue -> redirect target issued).
+CASES.append(C("JALR_taken", "JALR", "rv64imafdc",
+               SET_INT + "\n    la   x29, tohost\n    addi x28, zero, 1\n    la   x10, jalr_target",
+               "    jalr x5, 0(x10)\n    addi x11, zero, 1\n    addi x12, zero, 2\n"
+               "jalr_target:\n    sd   x28, 0(x29)\n1:  j    1b",
+               note="real taken JALR (target != fallthrough)",
+               raw=True))
 
 # ---- FP arithmetic: G2, FP destination -------------------------------------
 for op, su in [("fadd.s", SET_F32), ("fsub.s", SET_F32), ("fmul.s", SET_F32),
