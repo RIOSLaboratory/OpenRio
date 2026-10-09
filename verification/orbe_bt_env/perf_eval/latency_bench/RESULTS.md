@@ -75,6 +75,30 @@ L =（结果/bypass 对 BE 可见的那一拍）−（发射被接受的那一�
 | LOAD(FP) | flw/fld | 2 | 3 |
 | JALR | jalr/jal（link 值） | 2 | 1 |
 
+### 2.1 为什么 L 全是整数：仲裁只会带来整整 +1 拍
+
+L 是**两个时钟事件之间的拍数**，时钟沿是量子，因此 L 必然是整数。组内仲裁（G0 的 ALU0/CSR/DIV、G1 的 ALU1/MUL 抢同一条 lane 的呈现口）**不会**产生
+"1.01"这种小数量，它只有两种结果：没输 → 固有拍数；输了 → 整个 completion 推到**下一拍**
+重试 → 固有拍数 **+1**。会出现非整数的是"平均每条指令的周期"（吞吐/争用统计），不是 producer L。
+
+用同一 producer（`mul x5,x1,x2`）、只改 producer 之后那段 exit 代码做的 A/B（`DEMO_*`）：
+
+| case | issue 拍 | 结果拍 | L |
+|---|---|---|---|
+| `DEMO_MUL_nocontend` | `[ISQ_FIRE] cycle=20 group=1 tag=0x7` | `[FU_WB] cycle=23 lane=1 tag=0x7 result=0x23` | **3** |
+| `DEMO_MUL_contention` | `[ISQ_FIRE] cycle=18 group=1 tag=0x4` | `[FU_WB] cycle=22 lane=1 tag=0x4 result=0x23` | **4** |
+
+`DEMO_MUL_contention` 的关键三拍（原始日志）：
+
+```text
+cycle=18  [ISQ_FIRE] group=1 tag=0x4 exe_subop=0x598020         # MUL 被接受，固有结果应在 21
+cycle=21  [FU_WB] lane=1 tag=0x7 result=0x0000000080001020     # 21 拍 lane1 被独立 G1 addi 占走
+cycle=22  [FU_WB] lane=1 tag=0x4 result=0x0000000000000023     # MUL 顺延到 22 → L=3+1=4
+```
+
+即：**争用命中同拍时，L 平移整整一拍，而不是加一个小数**。
+（本任务的正式 case 都把同组 op 移出写回窗口，所以报的是**无争用固有 L**，全是整数。）
+
 三种自检之外的家族（用户要求全测）：
 
 | 家族 | BE 资源 | 覆盖 | L |
@@ -88,6 +112,16 @@ L =（结果/bypass 对 BE 可见的那一拍）−（发射被接受的那一�
 > **重要观察**：`fpu_simple` 是**全家族单周期**（注释 `N = 1`），连 `fdiv.d`/`fsqrt.d` 也是 1
 > （RTL 用组合算子 + 一级寄存）。所以若将来开 FP K-map，其 producer L 一律为 1。
 > AMO 的 RMW 比普通 LOAD 多一拍（4 vs 3）：读结果在 lane3 上的呈现多一级（store 侧）。
+
+### 2.2 CSV 产物（in-tree，`perf_eval/latency_bench/`）
+
+| 文件 | 内容 |
+|---|---|
+| `latency_results.csv` | 99 例逐例：`case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status` |
+| `family_summary.csv` | 按家族：`family,cases,L_min,L_max,L_values` |
+| `toolchain.csv` | 工具链与复现信息：verilator / riscv-gcc / ISA model / config / linker / 分支与 commit / 复现命令 |
+
+（`family_summary.csv` 里 `DEMO` 两行是 §2.1 的仲裁 A/B：`3` 与 `4`。）
 
 ---
 

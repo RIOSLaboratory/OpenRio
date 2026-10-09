@@ -20,6 +20,7 @@ import argparse
 import concurrent.futures as cf
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -69,12 +70,12 @@ SET_F64 = SET_FS + """
     fmv.d.x f2, x2"""
 
 
-def C(cid, family, march, setup, body, note=""):
+def C(cid, family, march, setup, body, note="", post="", raw=False):
     # verilator_cosim.sh takes the log dir name from ${elf_base%%.*}, i.e. it cuts
     # at the FIRST dot. A case id with a dot (amoadd.w) would collapse to the same
     # log dir as amoadd.d and overwrite it. Keep ids dot-free.
     return dict(id=cid.replace(".", "_"), family=family, march=march,
-                setup=setup, body=body, note=note)
+                setup=setup, body=body, note=note, post=post, raw=raw)
 
 
 CASES = []
@@ -153,6 +154,22 @@ CASES.append(C("AMO_sc.d", "AMO", "rv64imafdc",
                SET_MEM + "\n    lr.d x6, (x2)\n    add  x7, x6, x0",
                "    sc.d x5, x3, (x2)"))
 
+# ---- arbitration demo (A/B): same producer, only the exit layout differs -----
+# Arbitration is a whole-cycle event: a loser re-drives on the NEXT cycle, so L
+# moves by exactly +1, never by a fraction. Both use `mul x5,x1,x2`:
+#   DEMO_MUL_nocontend : x28/x29 precomputed before the producer, then `sd`+spin
+#   DEMO_MUL_contention: the exit does `addi x28` + `la x29` right after the
+#       producer; that independent G1 addi reaches its lane-1 writeback in the
+#       producer's own writeback cycle, wins the G1 arbiter, and pushes the MUL
+#       completion out by one whole cycle.
+_RAW_EXIT = "    la   x29, tohost\n    addi x28, zero, 1"
+CASES.append(C("DEMO_MUL_nocontend", "DEMO", "rv64imafdc", SET_INT + "\n" + _RAW_EXIT,
+               "    mul x5, x1, x2", note="contention-free reference (expect 3)",
+               post="    sd   x28, 0(x29)\n1:  j    1b", raw=True))
+CASES.append(C("DEMO_MUL_contention", "DEMO", "rv64imafdc", SET_INT,
+               "    mul x5, x1, x2", note="post-producer G1 op wins lane1 (expect 3+1=4)",
+               post="    addi x28, zero, 1\n    la   x29, tohost\n    sd   x28, 0(x29)\n1:  j    1b", raw=True))
+
 SRC_TMPL = """.option norvc
 .section .text
 .globl _start
@@ -166,9 +183,30 @@ _start:
     addi x28, zero, 1
 PRODUCER:
 {body}
+{post}
 _exit:
     sd   x28, 0(x29)
 1:  j    1b
+
+.section .data
+.align 4
+wdata:
+    .dword 0
+    .dword 0
+    .dword 0
+    .dword 0
+"""
+
+# raw mode: the case supplies its own exit sequence after the producer, so an A/B
+# pair can differ ONLY in the post-producer code (nothing precomputed).
+RAW_TMPL = """.option norvc
+.section .text
+.globl _start
+_start:
+{setup}
+PRODUCER:
+{body}
+{post}
 
 .section .data
 .align 4
@@ -184,13 +222,53 @@ def sh(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+def _cap(cmd):
+    r = sh(cmd)
+    out = (r.stdout or r.stderr).strip().splitlines()
+    return out[0] if out else "?"
+
+
+def _git(*args):
+    r = sh(["git", "-C", str(REPO)] + list(args))
+    return r.stdout.strip() or "?"
+
+
+def toolchain_rows():
+    """Everything needed to reproduce/attribute a latency run."""
+    isa_so = Path(ISA_MODEL_ROOT) / "build/lib_ISA_api.so"
+    return [
+        ("L_definition", "L = (lane result/bypass visible cycle) - (issue accepted cycle); unit = clock cycle"),
+        ("latency_unit", "integer clock cycles; arbitration moves it by whole cycles only"),
+        ("dut_kind", DUT),
+        ("tag", TAG),
+        ("verilator_version", _cap(["verilator", "--version"])),
+        ("verilator_path", shutil.which("verilator") or "?"),
+        ("riscv_gcc_version", _cap([GCC, "--version"])),
+        ("riscv_gcc_path", GCC),
+        ("riscv_objdump_version", _cap([OBJDUMP, "--version"])),
+        ("isa_model_root", ISA_MODEL_ROOT),
+        ("isa_api_so", str(isa_so.resolve()) if isa_so.exists() else ISA_MODEL_ROOT + "/build/lib_ISA_api.so"),
+        ("isa_cfg", ISA_CFG),
+        ("linker_script", str(LINK)),
+        ("python_version", sys.version.split()[0]),
+        ("openrio_branch", _git("branch", "--show-current")),
+        ("openrio_base_commit_perf_eval_danielle", _git("rev-parse", "--short", "perf_eval_danielle")),
+        ("openrio_head_commit", _git("rev-parse", "--short", "HEAD")),
+        ("known_issue_opt_riscv", "/opt/riscv GCC 11.1.0 unusable: cc1 cannot load libisl.so.15"),
+        ("repro_cmd_build", "JOBS=8 tools/verilator_cosim.sh build --dut-kind rtl_full --tag fu_latency"),
+        ("repro_cmd_run", "python3 perf_eval/latency_bench/bench.py --jobs 8"),
+    ]
+
+
 def gen_and_build(case):
     cid = case["id"]
     src = WORK / "cases" / f"{cid}.S"
     elf = WORK / "elf" / f"{cid}.elf"
     src.parent.mkdir(parents=True, exist_ok=True)
     elf.parent.mkdir(parents=True, exist_ok=True)
-    src.write_text(SRC_TMPL.format(setup=case["setup"], body=case["body"]))
+    tmpl = RAW_TMPL if case.get("raw") else SRC_TMPL
+    src.write_text(tmpl.format(setup=case["setup"], body=case["body"],
+                               post=case.get("post", "")))
     r = sh([GCC, f"-march={case['march']}", "-mabi=lp64", "-nostdlib", "-nostartfiles",
             f"-Wl,-T,{LINK}", "-o", str(elf), str(src)])
     if r.returncode != 0:
@@ -245,10 +323,12 @@ def analyze(cid, pc, family):
         issue = [c for c, t in fires if t == rob]
         wb = [(c, lane) for (c, lane, t) in wbs if t == rob]
     if not issue or not wb:
-        return dict(id=cid, status="NO_EVENT", rob=rob, n_fire=len(issue), n_wb=len(wb))
+        return dict(id=cid, status="NO_EVENT", producer_pc=hex(pc), rob=rob,
+                    n_fire=len(issue), n_wb=len(wb))
     ic = min(issue)
     wc, lane = min(wb)
-    return dict(id=cid, status="OK", rob=rob, issue=ic, wb=wc, lane=lane, L=wc - ic)
+    return dict(id=cid, status="OK", producer_pc=hex(pc), rob=rob, issue=ic,
+                wb=wc, lane=lane, L=wc - ic)
 
 
 def run_case(case):
@@ -318,7 +398,27 @@ def main():
         for k in sorted(fam):
             v = sorted(fam[k])
             f.write(f"{k}\t{len(v)}\t{v}\t{v[0]}\t{v[-1]}\n")
-    print(f"[bench] wrote {out/'raw.tsv'} and {out/'by_family.tsv'}")
+
+    # ---- CSV deliverables, kept in-tree under perf_eval/latency_bench/ ----
+    csvdir = ENV / "perf_eval/latency_bench"
+    csvdir.mkdir(parents=True, exist_ok=True)
+    with (csvdir / "latency_results.csv").open("w") as f:
+        f.write("case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status\n")
+        for r in rows:
+            f.write(",".join(str(r.get(k, "")) for k in
+                    ["id", "family", "producer_pc", "rob", "issue", "wb", "lane", "L", "status"]) + "\n")
+    with (csvdir / "family_summary.csv").open("w") as f:
+        f.write("family,cases,L_min,L_max,L_values\n")
+        for k in sorted(fam):
+            v = sorted(fam[k])
+            f.write(f'{k},{len(v)},{v[0]},{v[-1]},"{";".join(str(x) for x in v)}"\n')
+    with (csvdir / "toolchain.csv").open("w") as f:
+        f.write("item,value\n")
+        for k, v in toolchain_rows():
+            f.write(f'"{k}","{str(v).replace(chr(34), chr(39))}"\n')
+
+    print(f"[bench] wrote {out/'raw.tsv'}, {out/'by_family.tsv'}, "
+          f"{csvdir/'latency_results.csv'}, {csvdir/'family_summary.csv'}, {csvdir/'toolchain.csv'}")
 
 
 if __name__ == "__main__":
