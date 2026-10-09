@@ -41,8 +41,8 @@ ARF boundary delta = L + 3
 case 数 6 → 7，总数 37 → 38。
 
 **④ 唯一一处书面的延迟恰恰是错的。**
-Cache HAS 曾写 `LSU_LOAD_PIPE_STAGES = 2` 为 load 延迟，但 RTL 实际是 **3**
-（`dc_ld_arb.sv` 组合，结果要经 `dc_cdb.sv` 写进 CDB FIFO，再由 head 寄存器给 BE —— 漏算了一级）。
+Cache HAS 曾写"无 merge 的命中 **2 拍**"并且 `LSU_LOAD_PIPE_STAGES = 2`，但真实值（作者确认）是 **3 拍**
+——拍 1 AGU / 拍 2 L1 D cache / 拍 3 **arbiter + CDB FIFO 共占**，原文漏掉了第 3 拍。
 该 HAS 已修正（`V1.0 rev.1`）。**这说明"照文档抄"不可靠。**
 
 > 结论：**`L` 是当前 BE 的待标定参数，只能实测。** 依据是 `perf_eval/METHOD.md` §9.7：

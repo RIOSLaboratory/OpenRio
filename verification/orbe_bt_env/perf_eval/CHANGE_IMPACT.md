@@ -223,33 +223,34 @@ caselist 第 40 行现在把 latency 写死成**公司内部算子**的值（ALU
 
 **结论：8 月 caselist 的 LOAD `L=2` 是错的，应为 `L=3`。**
 
-#### RTL 证据链
+#### 依据（按 Cache HAS 作者的更正口径）
 
-| 模块 | 看的是什么 | 结论 |
-|---|---|---|
-| `src/core/cache_rtl_v1/dc_ld_arb.sv` | 全文只有一个 `always_comb`，无寄存器 | LDA **本身**是组合的 |
-| **`dc_cdb.sv:59`** | `if (l_vld[0]) begin q[wp[CDB_PTR_W-2:0]] <= l_ent[0]; wp = wp + 1'b1; end` | **LDA 的结果在时钟沿被写进 CDB FIFO 寄存器** |
-| **`dc_cdb.sv:33/35/37`** | `h = q[rptr_q[…]]`；`done_valid_q = hv && !h.is_exc`；`byp_valid_q = hv && !h.is_exc && h.bypass` | 给 BE 的 done / bypass **取自 head 寄存器** |
-| `or_cache_top.sv:462-467` | LDA 的 fast 路径输入是 `e3_bytes_q`（E3 寄存器） | LDA 确实在 **E3 拍**工作 |
+> ⚠️ **我最初的推导被作者更正了。** 我曾说"CDB 有一个呈现寄存器、多占一拍"，
+> 作者指出：**第三拍是 load-data arbiter 与 CDB FIFO 这两块组合逻辑本身占有的**，
+> **没有额外的流水寄存器**。
+> **结论（3 拍）双方一致**，机制叙述以作者为准 → Cache HAS 已按此更新为 `V1.0 rev.1`。
 
-**逐拍**：
+**逐拍**（Cache HAS `V1.0 rev.1` §3.1 的表述）：
 
 ```text
-E1  accept/AGU   ← BE issue fire            （Cache HAS 第 95 行）
-E2  DCache                                  （第 96 行）
-E3  LDA          ──组合──→ 写进 CDB FIFO     （第 97 行；dc_cdb.sv:59）
-E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
+拍 1      AGU                          ← BE issue fire
+拍 2      L1 D cache
+拍 3      load-data arbiter + CDB FIFO  （两块组合逻辑共同占用这一拍，无额外流水寄存器）
+拍 4 起   BE 即拿到 load data
 ```
 
-**⇒ `issue→result` = 3 拍，`L = 3`**（不是 2）。
+**⇒ 从发射到 BE 可见 = `3` 拍，`L = 3`**（不是 2）。
+
+**`LSU_LOAD_PIPE_STAGES = 2`** 只覆盖拍 1–2（AGU + D cache），**不含拍 3**，
+所以它不是 BE 可见延迟。
 
 #### 为什么"占用 = L"在这里同样成立
 
-| 家族 | 占用（级） | `issue→result`（拍） | 一致 |
+| 家族 | 占用（拍） | `issue→result`（拍） | 一致 |
 |---|---|---|---|
 | ALU | 1 | 1 | ✅ |
 | MUL | 3 | 3 | ✅ |
-| **LOAD** | **3**（E1/E2/E3） | **3**（E1→E4，含 CDB 寄存器） | ✅ |
+| **LOAD** | **3**（AGU / D cache / arbiter + FIFO） | **3** | ✅ |
 
 **⇒ 「`L` = 指令在 FU / Cache 里占用的拍数」是普适定义。**
 8 月 caselist 的 LOAD=2，是把 LDA 当成透明通道、**漏算了 CDB 那一级寄存器**。
@@ -264,20 +265,20 @@ E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
 | LOAD case 数 | 6 | **7** |
 | 总 case 数 | 37 | **38** |
 
-#### 📌 发现：Cache HAS 第 38 / 56 行需要修
+#### 📌 Cache HAS 已按作者口径修正
 
-| 位置 | 原文 | 与 RTL |
+| 位置 | 原文 | 处置 |
 |---|---|---|
-| 第 38 行 | "A D-cache hit that needs no merge returns in **two cycles**" | ❌ 只数到 LDA，**漏算 CDB 呈现寄存器** |
-| 第 56 行 | `LSU_LOAD_PIPE_STAGES` = **2** | ❌ 同上 |
-| **第 217 行** | "a terminal-state **FIFO**… presents the **head entry** to BE" | ✅ FIFO head 即寄存器 → 至少 +1 拍，**与 RTL 一致** |
-| 第 212 行 | `dc_ld_arb` "**combinational** output" | ⚠️ 只描述 `dc_ld_arb` **内部**，未说明输出还要进 CDB FIFO —— **就是这句把人带偏的** |
+| 第 38 行 | "A D-cache hit that needs no merge returns in **two cycles**" | ❌ 只数到拍 2（AGU + D cache），**漏掉拍 3** → 已改为 **3 拍**（无 merge）/ **4 拍**（需 merge） |
+| 第 56 行 | `LSU_LOAD_PIPE_STAGES` = **2** | ❌ 同上 → 值**保留 2**（与 RTL 常量一致），**描述改为"只覆盖拍 1–2"** |
+| 第 212 行 | `dc_ld_arb` "**combinational** output" | ⚠️ 只描述 `dc_ld_arb` 内部，未说明它还与 CDB FIFO 共占第三拍 → 已补 Timing 条 |
+| 第 217 行 | `dc_cdb` "presents the **head entry** to BE" | ⚠️ 未说明时序 → 已补 Timing 条 |
 
-**建议**：向 Cache 侧反馈，第 38 / 56 行改为 **3 拍**（无 merge）/ **4 拍**（需 merge），
-并注明"含 CDB 呈现寄存器"。
+> **作者更正了我的机制推导**（见上方）：第三拍是 arbiter 与 CDB FIFO **两块组合逻辑共同占用**，
+> 不是"多了一级呈现寄存器"。**"3 拍"这个结论双方一致**，HAS 按作者的措辞写。
 
-**口径提醒**：第 38 行的 2 / 3 数的是**级数**（E1→E3 / E1→E4），
-我们的 `L` 用的是**拍差**（E1→E4 = 3）。两者差 1，见 §4.2 规矩 1。
+**口径提醒**：第 38 行原有的 2 / 3 数的是**拍 1–2 / 拍 1–3**；我们的 `L` 是
+**从发射到 BE 可见的拍差** = 3。两者口径不同，见 §4.2 规矩 1。
 
 #### 待办
 
@@ -286,8 +287,8 @@ E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
 | 1 | 用**观测面**测 G3 的 `isq_g3_issue_valid` → lane-3 写回事件的拍差，应得 **3**；同法测 ALU（应得 1）、MUL（应得 3）作方法自检 | ⏳ |
 | 2 | ⛔ **不要用 latency ELF 报的"latency"数字来定 `L`** —— 该数字**自带口径**，而 ALU / MUL 恰好"占用 = 拍差"，**根本标定不出它用的是哪一种** | 规矩 |
 | 3 | latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」 | ⏳ |
-| 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7（原第 38 / 56 / 212 / 217 行） | ✅ **已做**（`62c4700`，含修订表 `V1.0 rev.1`） |
-| 5 | 修正 cache agent 的 load done 时刻（原比真实 cache **早 1 拍**） | ✅ **已做**（`CDB_PRESENT_CYCLES`，见下） |
+| 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7 | ✅ **已做**（`62c4700`，作者复核后按他的口径重写） |
+| 5 | ~~修正 cache agent 的 load done 时刻~~ → **作者确认不需要改**（agent 只保证行为正确性，不承担性能） | ✅ **已回退** |
 | 6 | 测量时**规避 G0 / G1 的 lane 仲裁** —— 否则 `L` 会被量成"真值 + 仲裁等待" | 规矩（见下） |
 | 7 | **静态推算 DIV 的 `L = 4`**（现 caselist 写 8）；**待实测确认，暂不改参数** | 待实测（见下） |
 
@@ -326,8 +327,8 @@ E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
 #### ⚠️ 由第 5 项引出的两件事
 
 **① LOAD 不能在 `rtl_v1` 上标定。**
-`rtl_v1` 后面接的是 `cache_agent`，它的返回时刻由 agent 的参数算出来
-（`LSU_LOAD_PIPE_STAGES + CDB_PRESENT_CYCLES + cfg…`）—— 拿它"测"LOAD 延迟是**循环论证**。
+`rtl_v1` 后面接的是 `cache_agent`，它的返回时刻由 **agent 自己的延迟参数**算出来
+—— 拿它"测"LOAD 延迟是**循环论证**。
 
 **② 裁定：latency 标定用 `rtl_full`（FE + BE + Cache 完全体），一次跑完、中途不换 DUT。**
 理由：一批 case 里 LOAD 与其它指令**混在一起测**，用完全体就能一次拿到**所有**相关指令的
@@ -336,15 +337,13 @@ latency，中途不必切 DUT。
 反而不如 `rtl_full` 干净。**以 `rtl_full` 为准。**）
 
 **③ `cache_agent` 的定位：只负责"行为正确性"，不承担性能标定。**
-所以它的固定延迟参数**对 latency 标定没有意义**，改不改都行；
-唯一要保证的是 **能正确返回 load 的 data**（功能正确）。
+**Cache 作者已确认：agent 不需要改。** 唯一要保证的是**能正确返回 load 的 data**（功能正确）。
+（我此前给 agent 加过 `CDB_PRESENT_CYCLES`，**已回退**。）
 
-**④ 一处例外必须说清**：agent 的 load 返回时刻**确实影响"跑在 `rtl_v1` 上的 LOAD delta 判定"**
-（`delta` = P1 派发 → P3 发布，而 `rtl_v1` 的 P3 发布时刻由 agent 决定）。所以：
-
-- 若 LOAD 家族的 delta 判定也移到真实 cache（`rtl_cache` / `rtl_full`）→ agent 的参数**彻底无所谓**；
-- 若仍用 `rtl_v1` → 该判定反映的是 **agent**，不是真 cache。
-  （`CDB_PRESENT_CYCLES` 的改动至少让它与真 cache 一致，所以那处改动虽然"无所谓"，但不白改。）
+**④ 一条仍然成立的提醒**：`rtl_v1` 的 LOAD 返回时刻由 `cache_agent` 决定，所以
+**「跑在 `rtl_v1` 上的 LOAD delta」不能当作真 cache 的行为来判定**
+（`delta` = P1 派发 → P3 发布，而 P3 发布时刻正由 agent 决定）。
+这一点与 agent 改不改无关 —— 若要判定 LOAD 家族，就该用真实 cache（`rtl_cache` / `rtl_full`）。
 
 #### ⚠️ 测量陷阱：G0 / G1 的 lane 仲裁会污染量到的 `L`
 

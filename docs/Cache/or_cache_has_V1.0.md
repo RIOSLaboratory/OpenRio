@@ -5,7 +5,7 @@
 | Revision | Change Note | Author | Date |
 |---|---|---|---|
 | V1.0 | Initial version (corresponding to architecture spec v5 / RTL R3) | OR_Cache team | 2026/09/29 |
-| V1.0 rev.1 | Clarified load completion timing. 3.1 and 3.2 previously said a direct load hit returns in two cycles, which contradicted 6.7 and the RTL: the two-cycle figure is the AGU → Load Data Arbiter pipeline (`LSU_LOAD_PIPE_STAGES`), while the **BE-visible** latency is **three** cycles (four when ISB / WB merging is needed), because the CDB presentation register adds one cycle. Added explicit timing notes to `dc_ld_arb` and `dc_cdb` in 6.7, and a reference point for the cycle count. No parameter value, interface or behaviour changed. | OR_Cache team (clarification requested by perf_eval) | 2026/10/09 |
+| V1.0 rev.1 | Clarified load completion timing. 3.1 and 3.2 previously said a direct load hit returns in two cycles, which contradicted 6.7 and the RTL: the two-cycle figure (`LSU_LOAD_PIPE_STAGES`) covers only the AGU and D-cache cycles, while the **BE-visible** latency is **three** cycles (four when ISB / WB merging is needed), because the third cycle is occupied by the load-data arbiter together with the CDB FIFO. Added explicit timing notes to `dc_ld_arb` and `dc_cdb` in 6.7, and a reference point for the cycle count. No parameter value, interface or behaviour changed. | OR_Cache team (clarification requested by perf_eval) | 2026/10/09 |
 
 ## 2. Contents
 
@@ -36,10 +36,10 @@ OR_Cache is the memory unit of OR_BE: an L1 data cache (write-back, write-alloca
 
 - The subsystem accepts one memory request per cycle, and the read side never rejects a request. The only backpressure condition is a full store buffer (`lsu_store_buffer_full`).
 - The design has four pipeline stages, E1–E4. Stages E2–E4 never stall. A request that must wait or that encounters a miss enters MissQ and is replayed from E1 once its waiting condition is satisfied.
-- Load completion timing is counted in **cycles from the E1 accept cycle**, which is the same cycle in which BE fires the issue, to the cycle in which the done / bypass result becomes **visible to BE** on CDB. The register that accounts for the final cycle is described in 6.7.
-  - A D-cache hit that needs no merge is visible to BE in **three cycles** (E1 → E2 → E3 Load Data Arbiter → CDB presentation register).
-  - A load that requires ISB / WB merging is visible to BE in **four cycles**, because it is the E4 Data Merge result that enters the CDB presentation register.
-  - `LSU_LOAD_PIPE_STAGES` (2) counts only the AGU → Load Data Arbiter pipeline (E1 → E3) and does **not** include the CDB presentation register. That parameter is not the BE-visible load latency.
+- Load completion timing is counted in cycles from the cycle in which E1 accepts the BE request, which is the same cycle in which BE fires the issue.
+  - A D-cache hit that needs no merge: **E1 AGU, E2 L1 D cache, E3 load-data arbiter together with the CDB FIFO**. The arbiter and the CDB FIFO are combinational and between them occupy that third cycle; neither adds a pipeline register of its own. BE has the load data from the start of the next cycle, so the load is visible to BE **three cycles** after the issue.
+  - A load that requires ISB / WB merging takes the E4 Data Merge path instead and is visible to BE **four cycles** after the issue.
+  - `LSU_LOAD_PIPE_STAGES` (2) counts the AGU and D-cache cycles only. It does not include the cycle occupied by the load-data arbiter and the CDB FIFO, so it is **not** the BE-visible load latency.
 - The cache is 16 KiB, four-way set associative, and uses 64-byte lines and VIPT indexing (the page offset covers both the index and line offset, so there are no aliases). It uses write-back and write-allocate policies, tree-PLRU replacement, one data read port, and one write port. The ISB head also has a separate read-only tag lookup port.
 - Store-to-load forwarding uses two comparison levels. In E2, the subsystem performs a byte-granular pre-filter on the VA page offset. In E3, it performs exact confirmation using the PA page number. For each byte, the youngest older store is selected, with data priority ISB > WB > D cache.
 - The four-entry ISB commits stores in program order. After the head is authorized, the ISB determines whether the access hits or misses. A hit is sent to WB, while a miss is registered with the MSHR and retains its data in the ISB. During refill, the data enters WB together with the DPB line. A miss at the head blocks younger stores.
@@ -57,7 +57,7 @@ OR_Cache is the memory unit of OR_BE: an L1 data cache (write-back, write-alloca
 | `XLEN` | 64 | Datapath width |
 | `LSU_TAG_W` | 4 | Request-tag width. The frozen BE↔LSU interface supports at most 16 in-flight requests. |
 | `ISB_N` | 4 | Number of store-buffer entries (= `LSU_STORE_BUFFER_DEPTH`, frozen interface) |
-| `LSU_LOAD_PIPE_STAGES` | 2 | Depth of the fixed AGU → Load Data Arbiter pipeline (E1 → E3), i.e. when the arbiter output is produced. This is **not** the BE-visible load latency: the arbiter output is registered into the CDB presentation FIFO, so a direct load hit is visible to BE **three** cycles after the E1 accept cycle and a merged load **four** cycles (see 3.1 and 6.7). |
+| `LSU_LOAD_PIPE_STAGES` | 2 | Number of cycles in the AGU → L1 D cache pipeline. It does **not** include the following cycle, which the load-data arbiter and the CDB FIFO occupy, so this parameter is **not** the BE-visible load latency. That latency is **three** cycles for a direct hit and **four** when ISB / WB merging is needed (see 3.1 and 6.7). |
 | `LINE_BYTES` | 64 | Cache-line size in bytes |
 | `DC_SETS` / `DC_WAYS` | 64 / 4 | Number of sets / ways (16 KiB) |
 | `PA_W` / `VPN_W` | 56 / 52 | Physical-address width / VPN comparison width (`VA[63:12]`) |
@@ -214,13 +214,13 @@ Each sub-module description states only its responsibility, owned state, and pri
 **`dc_ld_arb`** (OR_CACHE_LOAD_DATA_ARBITER, [LD_ARB.md](../uarch/LD_ARB.md))
 
 - **Responsibility:** Provide the combinational output for load-side done. The two sources are the E3 direct path (a D-cache hit with no ISB pre-filter candidate, no overlapping WB bytes, and no exception or wait) and the E4 merged result. The module concatenates and formats the D-cache bytes on the direct path. If both paths are valid in the same cycle, both are sent to CDB, with E4 taking priority.
-- **Timing — adds no cycle of its own, but its output is not yet visible to BE.** This module is purely combinational; the cycle that separates it from BE comes from `dc_cdb`, which registers the entry into the terminal-state FIFO at the clock edge and presents it from the head register in the following cycle. So the E3 direct path becomes visible to BE in E4, and the E4 merged path one cycle after E4.
+- **Timing.** This module is combinational. Together with the CDB FIFO it occupies the third cycle after a load issue (E1 AGU, E2 L1 D cache, E3 arbiter + CDB FIFO); neither of the two adds a pipeline register. BE has the load data from the start of the following cycle.
 - **Upstream/downstream:** E3, `dc_data_merge` → `dc_ld_arb` → `dc_cdb`.
 
 **`dc_cdb`** (OR_CACHE_CDB, [CDB.md](../uarch/CDB.md))
 
 - **Responsibility:** This module is a terminal-state FIFO. Each cycle it can accept E3 exception / FENCE terminal states, the E3 direct and E4 merged results from LDA, and an ISB store-commit done. It presents the **head** entry to BE as done / exception, with same-cycle bypass on the load side. When BE accepts the entry, the CDB dequeues it and removes the corresponding load-side tag from the in-flight set. Flush clears the FIFO.
-- **Timing — presentation register.** An entry enqueued in cycle *N* is presented to BE in cycle ***N+1***: the head is read out of the FIFO register array and is **not** bypassed from the write port. This register is part of the BE-visible load latency and must be counted (see 3.1 and 3.2). "Same-cycle bypass" above means the bypass payload rides **with the presented head entry**; it does not mean that enqueue and presentation happen in the same cycle.
+- **Timing.** The FIFO is combinational in its read-out path and does not add a pipeline register. Together with the load-data arbiter it occupies the third cycle after a load issue, and BE has the load data from the start of the following cycle (see 3.1). "Same-cycle bypass" above means the bypass payload rides with the entry being presented on the load side; it is not a statement about any enqueue-to-presentation path.
 - **State:** Sixteen terminal-state entries `{tag, data or tval, cause, exception flag, bypass flag}`, plus read/write pointers.
 - **Upstream/downstream:** E3, `dc_ld_arb`, `dc_isb` → `dc_cdb` → BE; `dc_cdb` (acceptance) → `or_cache_top`, `dc_isb` (O1).
 

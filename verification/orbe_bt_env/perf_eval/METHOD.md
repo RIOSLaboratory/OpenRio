@@ -387,7 +387,8 @@ case 若没有 `tohost` 写入 + `wfi`，ISA model 不会请求退出 → 仿真
 ### 9.7 ⛔ 拍数类事实以 RTL / 实测为准，**文档措辞不算数**
 
 **这是本项目实际栽过的坑（LOAD latency）**：HAS 写的是"2 拍"，
-但 RTL 实际是 **3 拍**（`dc_cdb.sv` 把 LDA 结果写入 FIFO，再从 head 寄存器输出到 BE）。
+但真实值是 **3 拍**——拍 1 AGU / 拍 2 L1 D cache / 拍 3 **arbiter + CDB FIFO 共占**
+（由 Cache HAS 作者确认；原文漏掉了第 3 拍）。
 按文档措辞推演会得出错误结论，而且**多轮讨论都无法收敛**。
 
 **规矩**：
