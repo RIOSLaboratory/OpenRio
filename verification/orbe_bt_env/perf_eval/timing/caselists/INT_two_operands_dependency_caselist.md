@@ -30,7 +30,11 @@ Current INT result timing boundaries:
 | ALU/BRU result | 2 | 3 | 4 |
 | MUL result | 4 | 5 | 6 |
 | DIV/REM result | 9 | 10 | 11 |
-| LOAD hit result | 3 | 4 | 5 |
+| LOAD hit result | **4** | **5** | **6** |
+
+> **Revision (2026-10): the LOAD row moved 3/4/5 → 4/5/6**, matching the LOAD producer
+> latency correction `2 → 3` in `INT_single_operand_dependency_caselist_v1.md`. The August
+> value missed the CDB presentation register on the cache read path.
 
 For any mixed-source P3 case, issue the producers at different P1 cycles as needed so their P3 publications align in the same dependent source-resolution cycle. For example, a G1 MUL producer must be issued two cycles earlier than a G0 ALU producer if both results should appear at P3 in the same cycle.
 

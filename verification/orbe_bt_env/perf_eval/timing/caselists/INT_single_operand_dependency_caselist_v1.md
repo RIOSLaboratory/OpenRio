@@ -30,8 +30,14 @@ This v2 caselist reduces the previous full producer-dependent expansion to one r
 Total case count:
 
 ```text
-ALU  5 cases  + MUL 7 cases + DIV 12 cases + LOAD 6 cases + JALR 7 cases = 37 cases
+ALU  5 cases  + MUL 7 cases + DIV 12 cases + LOAD 7 cases + JALR 7 cases = 38 cases
 ```
+
+> **Revision (2026-10): LOAD producer latency corrected 2 → 3.**
+> The August value treated the cache load-data arbiter as a transparent path and missed the
+> **CDB presentation register**: `dc_cdb.sv` writes the arbiter result into the FIFO and drives
+> `done_valid_q` / `byp_valid_q` from the head register, so BE sees the load result at **E4**,
+> i.e. 3 cycles after the issue. Nothing else changed; the rule `P3 delta = latency + 1` is unchanged.
 
 ## Delta Meaning
 
@@ -42,7 +48,7 @@ Normal no-older-blocker path:
 | ALU | 1 | 2 | 3 | 4 | 0..4 |
 | MUL | 3 | 4 | 5 | 6 | 0..6 |
 | DIV | 8 | 9 | 10 | 11 | 0..11 |
-| LOAD | 2 | 3 | 4 | 5 | 0..5 |
+| LOAD | **3** | **4** | **5** | **6** | **0..6** |
 | JALR link | 3 | 4 | 5 | 6 | 0..6 |
 
 JAL/JALR note:
@@ -137,9 +143,10 @@ add x6, x5, x3
 | `LOAD_to_ALU_delta_0` | `ld x5, 0(x1) -> add x6, x5, x3` | `overlay`; producer LOAD targets G3 and dependent ALU can route to G0/G1. |
 | `LOAD_to_ALU_delta_1` | `lw x5, 8(x2) -> add x7, x5, x8` | `wait_for_p3` |
 | `LOAD_to_ALU_delta_2` | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
-| `LOAD_to_ALU_delta_3` | `ld x5, 0(x1) -> add x6, x5, x3` | `p3_capture` |
-| `LOAD_to_ALU_delta_4` | `ld x5, 0(x1) -> add x6, x5, x3` | `p4_capture` |
-| `LOAD_to_ALU_delta_5` | `ld x5, 0(x1) -> add x6, x5, x3` | `arf_read` |
+| `LOAD_to_ALU_delta_3` | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
+| `LOAD_to_ALU_delta_4` | `ld x5, 0(x1) -> add x6, x5, x3` | `p3_capture` |
+| `LOAD_to_ALU_delta_5` | `ld x5, 0(x1) -> add x6, x5, x3` | `p4_capture` |
+| `LOAD_to_ALU_delta_6` | `ld x5, 0(x1) -> add x6, x5, x3` | `arf_read` |
 
 ## JALR_to_ALU
 
