@@ -318,6 +318,9 @@ RE_LSUISSUE = re.compile(r"\[LSU_ISSUE\] cycle=(\d+) tag=0x([0-9a-fA-F]+)")
 RE_WB = re.compile(r"\[FU_WB\] cycle=(\d+) lane=(\d+) tag=0x([0-9a-fA-F]+)")
 RE_LSUBYP = re.compile(r"\[LSU_BYPASS\] cycle=(\d+) tag=0x([0-9a-fA-F]+)")
 RE_LSUDONE = re.compile(r"\[LSU_DONE\] cycle=(\d+) tag=0x([0-9a-fA-F]+)")
+# The redirect event is tied to the producer's ROB tag, so it cannot be confused
+# with another instruction's redirect.
+RE_RECOVERY = re.compile(r"\[BE\]\[RECOVERY_FLUSH\] cycle=(\d+) kind=\S+ origin=(\d+)")
 
 
 def analyze(cid, pc, family):
@@ -334,6 +337,8 @@ def analyze(cid, pc, family):
     wbs = [(int(m.group(1)), int(m.group(2)), int(m.group(3), 16)) for m in RE_WB.finditer(txt)]
     lbyp = [(int(m.group(1)), int(m.group(2), 16)) for m in RE_LSUBYP.finditer(txt)]
     ldone = [(int(m.group(1)), int(m.group(2), 16)) for m in RE_LSUDONE.finditer(txt)]
+    redir = [int(m.group(1)) for m in RE_RECOVERY.finditer(txt)
+             if int(m.group(2)) == rob]
     if rob is None:
         return dict(id=cid, status="NO_COMMIT", producer_pc=hex(pc) if pc else None)
 
@@ -354,8 +359,15 @@ def analyze(cid, pc, family):
                     n_fire=len(issue), n_wb=len(wb))
     ic = min(issue)
     wc, lane = min(wb)
-    return dict(id=cid, status="OK", producer_pc=hex(pc), rob=rob, issue=ic,
-                wb=wc, lane=lane, L=wc - ic)
+    res = dict(id=cid, status="OK", producer_pc=hex(pc), rob=rob, issue=ic,
+               wb=wc, lane=lane, L=wc - ic)
+    # JALR is a control instruction: besides the lane result (the link value, the
+    # generic L above) it also produces a redirect. Report that second reference
+    # frame explicitly instead of hiding it in the generic L.
+    if family == "JALR" and redir:
+        res["redirect"] = min(redir)
+        res["L_redirect"] = res["redirect"] - ic
+    return res
 
 
 def run_case(case):
@@ -409,10 +421,11 @@ def main():
     out = WORK / "results"
     out.mkdir(parents=True, exist_ok=True)
     with (out / "raw.tsv").open("w") as f:
-        f.write("case\tfamily\tproducer_pc\trob\tissue_cycle\twb_cycle\tlane\tL\tstatus\n")
+        f.write("case\tfamily\tproducer_pc\trob\tissue_cycle\twb_cycle\tlane\tL\tstatus\tredirect_cycle\tL_redirect\n")
         for r in rows:
             f.write("\t".join(str(r.get(k, "")) for k in
-                    ["id", "family", "producer_pc", "rob", "issue", "wb", "lane", "L", "status"]) + "\n")
+                    ["id", "family", "producer_pc", "rob", "issue", "wb", "lane", "L", "status",
+                     "redirect", "L_redirect"]) + "\n")
 
     # per-family summary
     fam = {}
@@ -430,15 +443,19 @@ def main():
     csvdir = ENV / "perf_eval/latency_bench"
     csvdir.mkdir(parents=True, exist_ok=True)
     with (csvdir / "latency_results.csv").open("w") as f:
-        f.write("case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status\n")
+        f.write("case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status,redirect_cycle,L_redirect\n")
         for r in rows:
             f.write(",".join(str(r.get(k, "")) for k in
-                    ["id", "family", "producer_pc", "rob", "issue", "wb", "lane", "L", "status"]) + "\n")
+                    ["id", "family", "producer_pc", "rob", "issue", "wb", "lane", "L", "status",
+                     "redirect", "L_redirect"]) + "\n")
     with (csvdir / "family_summary.csv").open("w") as f:
-        f.write("family,cases,L_min,L_max,L_values\n")
+        f.write("family,cases,L_min,L_max,L_values,L_redirect_values\n")
         for k in sorted(fam):
             v = sorted(fam[k])
-            f.write(f'{k},{len(v)},{v[0]},{v[-1]},"{";".join(str(x) for x in v)}"\n')
+            rd = sorted(r["L_redirect"] for r in rows
+                        if r["status"] == "OK" and r["family"] == k and "L_redirect" in r)
+            rds = ";".join(str(x) for x in rd)
+            f.write(f'{k},{len(v)},{v[0]},{v[-1]},"{";".join(str(x) for x in v)}","{rds}"\n')
     with (csvdir / "toolchain.csv").open("w") as f:
         f.write("item,value\n")
         for k, v in toolchain_rows():

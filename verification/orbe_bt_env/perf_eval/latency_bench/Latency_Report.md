@@ -18,7 +18,8 @@
 | DIV/REM | G0 `div_simple`，lane 0 | **4** |
 | LOAD（整数） | G3 `g3_lsu_iface` → LSU，lane 3 | **3** |
 | LOAD（FP：flw/fld） | G3 LSU，lane 3 | **3** |
-| JALR link（jalr/jal，link 值） | G0 `alu_simple`（BRU），lane 0 | **1** |
+| JALR（`jalr`：**redirect 地址就绪**，本次选定口径） | G0 `alu_simple`（BRU）→ BE 重定向，lane 0 | **2** |
+| ↳ 同一条 `jalr` 的 **link 值**口径（对照，见 §3.4） | 同上，lane 0 | **1** |
 | FP 算术（F/D） | G2 `fpu_simple`，lane 2 | **1** |
 | FP→INT（fcvt/fmv.x/fclass/fcmp） | G2 `fpu_simple`，lane 2 | **1** |
 | AMO（RMW：amoadd/swap/and/or/xor/min/max） | G3 LSU，lane 3 | **4** |
@@ -40,6 +41,13 @@
 5. **L 是整数**：仲裁争用只会让 completion 顺延**整整一拍**（见 §3.3 的 A/B 实测），
    不会出现 1.01 这类小数。
 6. **ALU 两个实例都直接测过**：G0（lane0）与 G1（lane1）各一条，均为 1。
+7. **JALR 有两个口径，本报告选 "redirect 地址就绪" = 2**；同时保留 **link 值 = 1**。
+   两者不是矛盾，而是量的东西不同：
+   - **L=2（redirect 就绪，选定）**：`[ISQ_FIRE]` → `[BE][REDIRECT]`（BE 已算出并发出
+     带 `redirect_pc` 的重定向）。这是"控制流被纠正"的时刻，能对标内网算子的 taken/redirect 口径。
+   - **L=1（link 值，对照）**：`[ISQ_FIRE]` → `[FU_WB] lane0` 上 `rd=PC+4` 可见。这是
+     "寄存器结果可被偷传"的时刻，是普通 producer 的 L 口径。
+   详见 §3.4。**两者不可互相代入** `P3=L+1` 那套公式（只有 L=1 那个才是寄存器生产者）。
 
 ---
 
@@ -70,7 +78,7 @@ producer 才需要 L。
 | 指令类 | 是否测 | 说明 |
 |---|---|---|
 | I（ALU/移位/slt/addi/lui/auipc） | ✅ | G0/G1 `alu_simple` |
-| I（jal/jalr link） | ✅ | G0 BRU，取 link 值写回 |
+| I（jal/jalr） | ✅ | G0 BRU：**两个口径**——link 值写回=1（普通 producer），redirect 就绪=2（控制流，本报告选定，见 §3.4） |
 | M（mul*） | ✅ | G1 `mul_simple` |
 | M（div/rem*） | ✅ | G0 `div_simple` |
 | 整数 LOAD | ✅ | G3 LSU，**只测直接命中** |
@@ -95,7 +103,8 @@ producer 才需要 L。
 | DIV（`div x5,x1,x2`） | **4** | 0 | `[ISQ_FIRE] cycle=20 group=0 tag=0x7` | `[FU_WB] cycle=24 lane=0 tag=0x7` |
 | LOAD（`ld x5,0(x2)`） | **3** | 3 | `[LSU_ISSUE] cycle=36 tag=0xb` | `[LSU_BYPASS] cycle=39 tag=0xb` |
 | LOAD-FP（`flw f5,0(x2)`） | **3** | 3 | `[LSU_ISSUE] cycle=44 tag=0xd` | `[LSU_BYPASS] cycle=47 tag=0xd` |
-| JALR link（`jalr x5,0(x10)`） | **1** | 0 | `[ISQ_FIRE] cycle=19 group=0 tag=0x5 pc=0x80000014 inst=0x000502e7` | `[FU_WB] cycle=20 lane=0 tag=0x5 result=0x80000018(=`PC+4`)` |
+| JALR（`jalr x5,0(x10)`，**redirect 就绪**口径） | **2** | 0 | `[ISQ_FIRE] cycle=19 group=0 tag=0x5 pc=0x80000014 inst=0x000502e7` | `[BE][REDIRECT] cycle=21 redirect_pc=0x80000018` |
+| ↳ 同一条 `jalr` 的 **link 值**口径（对照） | **1** | 0 | 同上，`cycle=19` | `[FU_WB] cycle=20 lane=0 tag=0x5 result=0x80000018(=`PC+4`)` |
 | FP 算术（`fdiv.d f3,f1,f2`） | **1** | 2 | `[ISQ_FIRE] cycle=30 group=2 tag=0xb` | `[FU_WB] cycle=31 lane=2 tag=0xb result=0x3fe0…(=1.0/2.0)` |
 | FP→INT（`fcvt.w.s x6,f1`） | **1** | 2 | `[ISQ_FIRE] cycle=29 group=2 tag=0x9` | `[FU_WB] cycle=30 lane=2 tag=0x9 result=0x1` |
 | AMO（`amoadd.w x5,x3,(x2)`） | **4** | 3 | `[LSU_ISSUE] cycle=40 tag=0xb` | `[LSU_BYPASS] cycle=44 tag=0xb` |
@@ -110,7 +119,7 @@ producer 才需要 L。
 | MUL | MUL_mul=3, MUL_mulh=3, MUL_mulhsu=3, MUL_mulhu=3, MUL_mulw=3 |
 | DIV | DIV_div=4, DIV_divu=4, DIV_rem=4, DIV_remu=4, DIV_divw=4, DIV_divuw=4, DIV_remw=4, DIV_remuw=4 |
 | LOAD | LOAD_ld=3, LOAD_lw=3, LOAD_lh=3, LOAD_lb=3, LOAD_lwu=3, LOAD_lhu=3, LOAD_lbu=3, LOAD_flw=3, LOAD_fld=3 |
-| JALR | JALR_link=1, JAL_link=1, JALR_taken=1(lane0 link 值；redirect 另计，见 §3.4) |
+| JALR | **L=2（redirect 就绪，选定）**；link 值口径=1（对照）。逐例：JALR_link=1/2, JALR_taken=1/2, JAL_link=1/—（`jal` 无 redirect）。`L`=link 口径，`L_redirect`=redirect 口径，见 §3.4 |
 | FP_ARITH | FP_fadd_s=1, FP_fsub_s=1, FP_fmul_s=1, FP_fdiv_s=1, FP_fmin_s=1, FP_fmax_s=1, FP_fsgnj_s=1, FP_fsgnjn_s=1, FP_fsgnjx_s=1, FP_fadd_d=1, FP_fsub_d=1, FP_fmul_d=1, FP_fdiv_d=1, FP_fmin_d=1, FP_fmax_d=1, FP_fsgnj_d=1, FP_fsqrt_s=1, FP_fsqrt_d=1, FP_fmadd_s=1, FP_fmadd_d=1, FP_fnmsub_s=1 |
 | FP_TO_INT | FPI_fcvt_w_s=1, FPI_fcvt_wu_s=1, FPI_fcvt_l_s=1, FPI_fcvt_lu_s=1, FPI_fcvt_w_d=1, FPI_fcvt_l_d=1, FPI_fcvt_s_w=1, FPI_fcvt_d_w=1, FPI_fcvt_s_d=1, FPI_fcvt_d_s=1, FPI_fmv_x_w=1, FPI_fmv_x_d=1, FPI_fclass_s=1, FPI_fclass_d=1, FPI_feq_s=1, FPI_flt_d=1, FPI_fle_s=1 |
 | AMO | AMO_amoadd_w=4, AMO_amoadd_d=4, AMO_amoswap_w=4, AMO_amoswap_d=4, AMO_amoand_w=4, AMO_amoand_d=4, AMO_amoor_w=4, AMO_amoor_d=4, AMO_amoxor_w=4, AMO_amoxor_d=4, AMO_amomin_w=4, AMO_amomin_d=4, AMO_amomax_w=4, AMO_amomax_d=4, AMO_amominu_w=4, AMO_amominu_d=4, AMO_amomaxu_w=4, AMO_amomaxu_d=4, AMO_lr_w=3, AMO_lr_d=3, AMO_sc_w=4, AMO_sc_d=4, AMO_amoadd_w_oldval=4(旧值 0x1234 校验通过) |
@@ -139,34 +148,52 @@ cycle=22  [FU_WB] lane=1 tag=0x4 result=0x0000000000000023    # MUL 顺延到 22
 即**争用命中同拍时 L 平移整整一拍**。正式 case 都把同组 op 移出写回窗口，报的是
 **无争用固有 L**。
 
-### 3.4 JALR：`link 值` 与 `redirect` 是两个口径（不要混用）
+### 3.4 JALR：本报告选 `redirect 地址就绪` = **2**；对照口径 `link 值` = **1**
 
-同一个 JALR，按"结果"取拍的方式不同会得到不同的数：
+JALR（间接跳转）**同时产生两样东西**，取哪样作"终点"就得到哪个 L：
 
-| 口径 | 起点 | 终点 | 实测 |
+| 口径 | 终点信号 | 物理含义 | 实测 |
 |---|---|---|---:|
-| **A：link 值（rd = PC+4）对 BE 可见** | `[ISQ_FIRE]` JALR 接受 | `[FU_WB]` lane0 上 rd=PC+4 | **1** |
-| B：taken / redirect 生效 | 同上 | `[BE][REDIRECT]` / `[RECOVERY_FLUSH]` | **2** |
-| B′：重定向目标真正被发射 | 同上 | 目标 pc 的下一次 `[DECODE]` | ~8（含 FE 重取，机器相关） |
+| **② redirect 地址就绪（本次选定）** | `[BE][REDIRECT]`（带 `redirect_pc`）/ `[RECOVERY_FLUSH]` | BE 已算出目标并纠正控制流 → 对标 taken/redirect | **2** |
+| ① link 值写回（对照） | `[FU_WB]` lane0 上 `rd = PC+4` | 寄存器结果可被偷传 → 普通 producer 口径 | **1** |
+| ③ 目标真正被发射（参考） | 目标 pc 的下一次 `[DECODE]` | 端到端取回 | ~8（含 FE 重取，机器相关） |
 
-证据（`JALR_taken`，JALR pc `0x80000024`，target `0x80000030`）：
+实测证据（`JALR_taken`，JALR pc `0x80000024`，target `0x80000030`）：
 
 ```text
-cycle=27  [ISQ_FIRE] group=0 tag=0x9 pc=0x80000024                 # JALR 发射被接受
-cycle=28  [FU_WB] lane=0 tag=0x9 result=0x80000028 mispredict=1     # link=PC+4 可见 -> L=1
-cycle=29  [BE][REDIRECT] kind=mispredict redirect_pc=0x80000030
+cycle=27  [ISQ_FIRE] group=0 tag=0x9 pc=0x80000024                  # 发射被接受（起点）
+cycle=28  [FU_WB] lane=0 tag=0x9 result=0x80000028 mispredict=1      # ① link=PC+4 可见 -> 1
+cycle=29  [BE][REDIRECT] kind=mispredict redirect_pc=0x80000030      # ② 重定向就绪 -> 2
 cycle=29  [BE][RECOVERY_FLUSH] kind=mispredict origin=9 squash=10
-cycle=35  [BE][DECODE] pc=0x80000030                                # 重定向目标重取
+cycle=35  [BE][DECODE] pc=0x80000030                                 # ③ 目标重取 -> ~8
 ```
 
-RTL 依据：JALR 与 ALU 共用 `alu_simple`，link 就是 `fallthrough_pc = pc + 4`
-（`alu_simple.sv:280`），整个 completion 一级寄存（`:470`）——所以 **A=1 是物理合理的**。
-内网算子的 `3` 与它差 2，极可能是**另一个口径**：性能报告里 "taken JAL/JALR ≈ 3 cycles"
-通常指 **taken/redirect 惩罚（B/B′）**，而不是 rd 的写回。
+**两个数各自回答什么**
 
-⚠️ 结构提醒：JALR 会 redirect，紧跟其后的指令会被 `RECOVERY_FLUSH` 清掉；
-caselist 若把 JALR 当普通 register producer 枚举 `delta_0..6`，消费者不可能真的紧贴其后
-（caselist 对 `delta_0` 也加了"确保在架构正确路径上"的备注）。**取 A 还是 B，必须先定。**
+| | 回答的问题 | 语义 | 对标 |
+|---|---|---|---|
+| **L=2（选定）** | "JALR 多久**纠正控制流**" | control | 内网性能报告的 taken JAL/JALR（它给 3，本版 BE 是 2） |
+| **L=1（对照）** | "JALR 的 rd(link) 多久**能被偷传/提交**" | data | 与 ALU 同级（PC+4 一个加法） |
+
+**为什么不能互相代入**
+
+- 只有 **①** 是"寄存器生产者延迟"；`P3 = L + 1`（bypass 1 拍后落 P3）那套公式**只适用于 ①**。
+- **②** 是控制流事件，它**没有"rd 值"**，套 `P3/P4/ARF` 的 delta 枚举没有意义；
+  它该对标的是 branch **mispredict / redirect penalty**。
+- caselist 现在把 JALR 当"link-result producer 家族"、L 却填 3（taken 口径）——**两者本非一回事**。
+  本报告按任务要求把该家族 L 定为 **2（redirect 口径）**，同时把 **1（link 口径）** 留档，
+  并在 CSV 里用两列分别记录（`L` = link 口径，`L_redirect` = redirect 口径）。
+
+**关于 `jal`（直接跳转）**：3 条 JALR 家族 case 里，`JAL_link`（`jal`）**没有** redirect 事件
+（预测命中），故其 `L_redirect` 为空；`JALR_link` / `JALR_taken`（间接，模型里必 mispredict）
+都是 `L=1`、`L_redirect=2`。
+
+RTL 依据：JALR 与 ALU 共用 `alu_simple`，link 就是 `fallthrough_pc = pc + 4`（`alu_simple.sv:280`），
+整个 completion 一级寄存（`:470`）——所以 **①=1 是物理合理的**；② 比它多 1 拍，是 BE 把
+mispredict 变成"发出 redirect"的那一级。
+
+⚠️ **结构提醒**：JALR 会 redirect，紧跟其后的指令会被 `RECOVERY_FLUSH` 清掉（上面 `squash=10`），
+所以"依赖者紧贴 JALR 之后"在架构上不成立（caselist 对 `delta_0` 也加了"确保在架构正确路径"的备注）。
 
 ---
 
@@ -230,8 +257,8 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
 
 | 文件 | 内容 |
 |---|---|
-| `latency_results.csv` | 102 例逐例：`case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status` |
-| `family_summary.csv` | 按家族：`family,cases,L_min,L_max,L_values` |
+| `latency_results.csv` | 102 例逐例：`case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status,redirect_cycle,L_redirect`（`L`=link 口径；`L_redirect` 仅 JALR 家族非空，= redirect 口径） |
+| `family_summary.csv` | 按家族：`family,cases,L_min,L_max,L_values,L_redirect_values` |
 | `toolchain.csv` | 工具链/配置/commit/复现命令（机器可读） |
 | `bench.py` | case 生成 + 编译 + 运行 + 解析 + CSV 导出的全部逻辑 |
 | `<WORK>/results/raw.tsv`、`by_family.tsv` | 同一批数据的 TSV（`WORK=…/model/perf_eval_work/latency`） |
@@ -259,8 +286,9 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
    而 `FU_WB` 经一级 obs 寄存器；G3 若与 `FU_WB` 混用会差一拍。
 7. **L 是"无争用固有值"**：若 producer 写回窗口内有同组指令抢 lane，会 +1 整拍（见 §3.3）。
    case 生成用的 L 取固有值。
-8. **JALR 只计 link 值写回**（lane0 `rd=PC+4`），**不含** redirect/取指重定向；若需要
-   "含 redirect 的可见拍"是另一个口径，需另行测量。
+8. **JALR 有两个口径，本报告选定 redirect 口径 = 2**：`L_redirect`（`[ISQ_FIRE]`→`[BE][REDIRECT]`）
+   为 2；同一条指令的 **link 值口径**（`[ISQ_FIRE]`→`[FU_WB]` 的 `rd=PC+4`）为 1，作为对照保留。
+   两个口径的差别与适用场合见 §3.4；**不要**把 L=1 那个数拿去当 taken/redirect 惩罚，反之亦然。
 
 ---
 
@@ -282,7 +310,7 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
 | **吞吐 / 发射间隔（II）** | ❌ | 单条 producer 不给"背靠背能否连发"。`FU_ready=!busy`，MUL/DIV 会 busy 若干拍，FPU `N=1` → 连续发射间隔 ≠ L |
 | **争用下的有效可见拍** | ⚠️ 仅 A/B | §3.3 证明会 +1 整拍，但没有系统统计"平均每条指令周期"（那才是会出现小数的量） |
 | cache 命中路径 | ⚠️ 仅直接命中 | miss / merge / store-to-load forwarding / uncached-MMIO 未覆盖（任务明确排除） |
-| JALR 的 taken/redirect 口径 | ⚠️ 分开量 | link 值 L=1 已测（A）；redirect 口径见 §3.4（B=2 / B′≈8），**不等于** L，需单列 |
+| JALR 的 taken/redirect 口径 | ✅ 已测（选定） | **L_redirect=2**（`[ISQ_FIRE]`→`[BE][REDIRECT]`）；同指令 **link 值=1** 保留作对照。见 §3.4 |
 | 数据相关延迟 | ❌（本 RTL 无） | 本 RTL 固定延迟，故未扫 div-by-zero/overflow、NaN/Inf/subnormal 等 |
 | 压缩指令（C） | ❌ | 用 `.option norvc`；C 展开为相同 op，不改变 L，但未专门验证 |
 | AMO/LR/SC 的 **reservation 失败**、多核竞争、miss 行上的 AMO | ❌ | **AMO/LR/SC 本身已测**（含旧值正确性）；没测的是失败路径 / 多核 / 缺行 |
@@ -293,5 +321,5 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
 1. **II/吞吐**：连续 N 条同 FU producer，测两次 `issue_fire` 的间隔；
 2. **争用统计**：刻意制造同 lane 冲突，报"平均可见拍"（会出现小数，适合整机评估）；
 3. **cache 路径**：用指定的 miss/forward/merge 序列；
-4. **redirect-inclusive JALR**：把 taken 跳转的可见拍一并测；
+4. ~~redirect-inclusive JALR~~：**已完成** —— 见 §3.4（`L_redirect=2`），`latency_results.csv` 已含 `redirect_cycle` / `L_redirect` 两列；
 5. **旁证**：用同事提供的 latency ELF（其内部循环很多次）做"平均值"视角的交叉验证。

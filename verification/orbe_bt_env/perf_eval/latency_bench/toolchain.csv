@@ -15,7 +15,7 @@ item,value
 "python_version","3.12.3"
 "openrio_branch","fu_latency_bench"
 "openrio_base_commit_perf_eval_danielle","a976f69"
-"openrio_head_commit","432b18d"
+"openrio_head_commit","2530b94"
 "known_issue_opt_riscv","/opt/riscv GCC 11.1.0 unusable: cc1 cannot load libisl.so.15"
 "repro_cmd_build","JOBS=8 tools/verilator_cosim.sh build --dut-kind rtl_full --tag fu_latency"
 "repro_cmd_run","python3 perf_eval/latency_bench/bench.py --jobs 8"
