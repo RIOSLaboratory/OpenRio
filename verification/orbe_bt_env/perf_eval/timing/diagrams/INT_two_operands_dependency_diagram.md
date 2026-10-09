@@ -19,12 +19,19 @@ The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md
 
 For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL` at T3, its internal stages across T3…T(2+`L`), `WB` at **T(3+`L`)**, `C` at T(4+`L`), and ARF-ready at T(5+`L`).
 
+## Rules used by these figures
+
+1. **Cycle normalisation.** P1 source resolution is pinned to **T6** (Cases 1–17, 25–27); P2 resident-entry source-ready is pinned to **T8** (Cases 18–24, 28–30). A producer of latency `L` is placed so that its P3 lands on the pinned cycle: `WB column = pinned`, and therefore `IB column = pinned − 2 − L`. A longer-latency producer starts earlier — the pinned cycle never moves.
+2. **The source-ready cycle is not the issue cycle.** A P1 capture writes a new ISQ payload in the pinned cycle; the dependent issues on the following cycle.
+3. **Same-group dispatch is impossible.** The ISQ holds one entry per group, so **two instructions of the same group cannot be dispatched in the same cycle**. Where a producer pinned to the source-ready cycle would otherwise have to share its group's dispatch cycle with the dependent, the dependent is routed to the other ALU group and is drawn as `Dependent-G1` / `SL (ALU1)`. This is the same routing choice the single-operand `delta_0` rows make.
+4. **Same-group P3 lanes.** Two different producers of the same group cannot both publish on that group's P3 bypass lane in one cycle; those K-map cells are the gray `don't exist` cells. Rules 3 and 4 are distinct: rule 3 is a dispatch-entry conflict in P1, rule 4 is a bypass-lane conflict in P3.
+
 ## Case 1: INT2_G1P3_G0P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** G1 P3 Bypass + G0 P3 Bypass
-**描述:** Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** G1 P3 Bypass + G0 P3 Bypass
+**Description:** Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `mul x6, x3, x4` · P3 source·G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |
 | `add x5, x1, x2` · P3 source·G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |  |  |
@@ -35,12 +42,12 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 2: INT2_G3P3_G0P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** G3 Load P3 Bypass + G0 P3 Bypass
-**描述:** Dependent captures rs1 from G3 load Bypass and rs2 from G0 Bypass.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** G3 Load P3 Bypass + G0 P3 Bypass
+**Description:** Dependent captures rs1 from G3 load Bypass and rs2 from G0 Bypass.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x7, 0(x8)` · P3 source·G3 |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |  |
+| `ld x7, 0(x8)` · P3 source·G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |
 | `add x5, x1, x2` · P3 source·G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |  |  |
 | `add x20, x7, x5` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
@@ -49,10 +56,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 3: INT2_P4_G0P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G0 P3 Bypass
-**描述:** P1 source resolution uses Commit CDB for rs1 and G0 Bypass for rs2.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G0 P3 Bypass
+**Description:** P1 source resolution uses Commit CDB for rs1 and G0 Bypass for rs2.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x6, x3, x4` · P4 source·G0 |  | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
 | `add x5, x1, x2` · P3 source·G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |  |  |
@@ -64,10 +71,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 4: INT2_ARF_G0P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G0 P3 Bypass
-**描述:** rs1 reads ARF; rs2 captures G0 Bypass.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G0 P3 Bypass
+**Description:** rs1 reads ARF; rs2 captures G0 Bypass.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x10, x1, x2` · ARF source·G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |
 | `add x5, x3, x4` · P3 source·G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |  |  |
@@ -79,10 +86,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 5: INT2_G0P3_IMM
 
-**维度:** INT two-operand ready-source composition · **Equiv:** G0 P3 Bypass + IMM
-**描述:** rs1 captures G0 Bypass; rs2 is immediate and has no dependency tag.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** G0 P3 Bypass + IMM
+**Description:** rs1 captures G0 Bypass; rs2 is immediate and has no dependency tag.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x5, x1, x2` · P3 source·G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |  |  |
 | `addi x20, x5, 16` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
@@ -93,12 +100,12 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 6: INT2_G3P3_G1P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** G3 Load P3 Bypass + G1 P3 Bypass
-**描述:** Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** G3 Load P3 Bypass + G1 P3 Bypass
+**Description:** Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x7, 0(x8)` · P3 source·G3 |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |  |
+| `ld x7, 0(x8)` · P3 source·G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |
 | `mul x6, x3, x4` · P3 source·G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |
 | `add x20, x7, x6` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
@@ -107,10 +114,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 7: INT2_P4_G1P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G1 P3 Bypass
-**描述:** P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G1 P3 Bypass
+**Description:** P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x7, x8, x9` · P4 source·G0 |  | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
 | `mul x6, x3, x4` · P3 source·G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |
@@ -122,10 +129,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 8: INT2_ARF_G1P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G1 P3 Bypass
-**描述:** rs1 reads ARF; rs2 captures G1 Bypass.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G1 P3 Bypass
+**Description:** rs1 reads ARF; rs2 captures G1 Bypass.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x10, x1, x2` · ARF source·G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |
 | `mul x6, x3, x4` · P3 source·G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |
@@ -137,10 +144,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 9: INT2_G1P3_IMM
 
-**维度:** INT two-operand ready-source composition · **Equiv:** G1 P3 Bypass + IMM
-**描述:** rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** G1 P3 Bypass + IMM
+**Description:** rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `mul x6, x3, x4` · P3 source·G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |
 | `addi x20, x6, 16` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
@@ -151,13 +158,13 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 10: INT2_P4_G3P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G3 Load P3 Bypass
-**描述:** P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G3 Load P3 Bypass
+**Description:** P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x7, x8, x9` · P4 source·G0 |  | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
-| `ld x6, 0(x10)` · P3 source·G3 |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |  |
+| `ld x6, 0(x10)` · P3 source·G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |
 | `add x20, x7, x6` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T6 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G3 Load P3 Bypass` in one source-resolution cycle.
@@ -166,13 +173,13 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 11: INT2_ARF_G3P3
 
-**维度:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G3 Load P3 Bypass
-**描述:** rs1 reads ARF; rs2 captures G3 load Bypass.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G3 Load P3 Bypass
+**Description:** rs1 reads ARF; rs2 captures G3 load Bypass.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x11, x1, x2` · ARF source·G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |
-| `ld x6, 0(x10)` · P3 source·G3 |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |  |
+| `ld x6, 0(x10)` · P3 source·G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |
 | `add x20, x11, x6` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T6 (Source composition)**: dependent P1 resolves rs1 as `Already in ARF` and rs2 as `G3 Load P3 Bypass` in one source-resolution cycle.
@@ -181,12 +188,12 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 12: INT2_G3P3_IMM
 
-**维度:** INT two-operand ready-source composition · **Equiv:** G3 Load P3 Bypass + IMM
-**描述:** rs1 captures G3 load Bypass; rs2 is immediate and has no dependency tag.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** G3 Load P3 Bypass + IMM
+**Description:** rs1 captures G3 load Bypass; rs2 is immediate and has no dependency tag.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x6, 0(x10)` · P3 source·G3 |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |  |
+| `ld x6, 0(x10)` · P3 source·G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |
 | `addi x20, x6, 16` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T6 (Source composition)**: dependent P1 resolves rs1 as `G3 Load P3 Bypass` and rs2 as `IMM` in one source-resolution cycle.
@@ -195,10 +202,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 13: INT2_P4_P4
 
-**维度:** INT two-operand ready-source composition · **Equiv:** P4 Commit + P4 Commit
-**描述:** P1 source resolution captures both operands from the two Commit CDB lanes.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + P4 Commit
+**Description:** P1 source resolution captures both operands from the two Commit CDB lanes.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x5, x1, x2` · P4 source·G0 |  | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
 | `add x6, x3, x4` · P4 source·G1 |  | IB | RS1 | SL (ALU1) | WB | C |  |  |  |
@@ -209,10 +216,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 14: INT2_ARF_P4
 
-**维度:** INT two-operand ready-source composition · **Equiv:** Already in ARF + P4 Commit
-**描述:** rs1 reads ARF; rs2 captures Commit CDB.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + P4 Commit
+**Description:** rs1 reads ARF; rs2 captures Commit CDB.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x10, x1, x2` · ARF source·G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |
 | `add x6, x3, x4` · P4 source·G0 |  | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
@@ -224,10 +231,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 15: INT2_P4_IMM
 
-**维度:** INT two-operand ready-source composition · **Equiv:** P4 Commit + IMM
-**描述:** rs1 captures Commit CDB; rs2 is immediate and has no dependency tag.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + IMM
+**Description:** rs1 captures Commit CDB; rs2 is immediate and has no dependency tag.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x5, x1, x2` · P4 source·G0 |  | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
 | `addi x20, x5, 16` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
@@ -238,10 +245,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 16: INT2_ARF_ARF
 
-**维度:** INT two-operand ready-source composition · **Equiv:** Already in ARF + Already in ARF
-**描述:** Both operands read ARF at P1; no bypass or commit overlay is needed.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + Already in ARF
+**Description:** Both operands read ARF at P1; no bypass or commit overlay is needed.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x10, x1, x2` · ARF source·G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |
 | `add x11, x3, x4` · ARF source·G1 | IB | RS1 | SL (ALU1) | WB | C |  |  |  |  |
@@ -252,10 +259,10 @@ For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL
 
 ## Case 17: INT2_ARF_IMM
 
-**维度:** INT two-operand ready-source composition · **Equiv:** Already in ARF + IMM
-**描述:** rs1 reads ARF; rs2 is immediate and has no dependency tag.
+**Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + IMM
+**Description:** rs1 reads ARF; rs2 is immediate and has no dependency tag.
 
-| 指令 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x10, x1, x2` · ARF source·G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |
 | `addi x20, x10, 16` · Dependent·G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
@@ -277,7 +284,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `mul x6, x3, x4` - G1 P3 Bypass |  |  | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |
 | `add x5, x1, x2` - G0 P3 Bypass |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |  |
-| `add x20, x6, x5` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
+| `add x20, x6, x5` - Dependent-G1 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU1) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
@@ -290,9 +297,9 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x7, 0(x8)` - G3 Load P3 Bypass |  |  |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |
+| `ld x7, 0(x8)` - G3 Load P3 Bypass |  |  | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
 | `add x5, x1, x2` - G0 P3 Bypass |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |  |
-| `add x20, x7, x5` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
+| `add x20, x7, x5` - Dependent-G1 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU1) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
@@ -307,7 +314,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x10, x1, x2` - Stored Ready in ISQ | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
 | `add x5, x3, x4` - G0 P3 Bypass |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |  |
-| `add x20, x10, x5` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
+| `add x20, x10, x5` - Dependent-G1 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU1) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
@@ -320,7 +327,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x7, 0(x8)` - G3 Load P3 Bypass |  |  |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |
+| `ld x7, 0(x8)` - G3 Load P3 Bypass |  |  | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
 | `mul x6, x3, x4` - G1 P3 Bypass |  |  | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |
 | `add x20, x7, x6` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
 
@@ -351,7 +358,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x11, x1, x2` - Stored Ready in ISQ | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
-| `ld x6, 0(x10)` - G3 Load P3 Bypass |  |  |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |
+| `ld x6, 0(x10)` - G3 Load P3 Bypass |  |  | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
 | `add x20, x11, x6` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
@@ -412,7 +419,7 @@ These cases cover the legal shape behind the gray same-P3-source diagonal cells.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |  |
+| `ld x5, 0(x1)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |
 | `add x20, x5, x5` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T6 (P1 same-tag match):** rs1 and rs2 both match the same producer tag on G3 load P3 Bypass.
@@ -427,7 +434,7 @@ These cases cover the legal shape behind the gray same-P3-source diagonal cells.
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `add x5, x1, x2` - Producer-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |  |
-| `add x20, x5, x5` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
+| `add x20, x5, x5` - Dependent-G1 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU1) | WB | C |
 
 - **T6 (Resident entry):** dependent is already in ISQ with rs1 and rs2 waiting on the same producer tag.
 - **T8 (P2 same-tag match):** one G0 Bypass payload satisfies both operand inputs.
@@ -454,7 +461,7 @@ These cases cover the legal shape behind the gray same-P3-source diagonal cells.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 |  |  |  | IB | RS3 | SL (AGU) | L1D | WB | C |  |
+| `ld x5, 0(x1)` - Producer-G3 |  |  | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
 | `add x20, x5, x5` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
 
 - **T6 (Resident entry):** dependent is already in ISQ with rs1 and rs2 waiting on the same producer tag.

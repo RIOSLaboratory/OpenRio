@@ -32,16 +32,33 @@ Current INT result timing boundaries:
 |---|---:|---:|---:|
 | ALU/BRU result | 2 | 3 | 4 |
 | MUL result | 4 | 5 | 6 |
-| DIV/REM result | 9 | 10 | 11 |
+| DIV/REM result | **5** | **6** | **7** |
 | LOAD hit result | **4** | **5** | **6** |
 
-> **Revision (2026-10): the LOAD row moved 3/4/5 → 4/5/6**, matching the LOAD producer
-> latency correction `2 → 3` in `INT_single_operand_dependency_caselist_v1.md`. The August
-> value missed the CDB presentation register on the cache read path.
+> **Revision (2026-10): producer latencies are now the measured values**
+> (`../../latency_bench/Latency_Report.md`, OpenRio `589ca8f`, `--dut-kind rtl_full`).
+>
+> | Producer | was | now | effect |
+> |---|---:|---:|---|
+> | ALU/BRU result (also the JALR link) | 2/3/4 | **2/3/4** | unchanged |
+> | MUL result | 4/5/6 | **4/5/6** | unchanged |
+> | DIV/REM result | 9/10/11 | **5/6/7** | `L` 8 → 4 |
+> | LOAD hit result | 3/4/5 → 4/5/6 | **4/5/6** | `L` 2 → 3 (previous revision) |
+>
+> LOAD wording follows Cache HAS `V1.0 rev.1`: E1 AGU, E2 L1 D cache, E3 load-data arbiter
+> together with the CDB FIFO, three cycles being the earliest case.
+
+Total case count:
+
+```text
+P1 MUX 17 cases + P2 MUX 7 cases + same-RD fanout 6 cases = 30 cases
+```
 
 For any mixed-source P3 case, issue the producers at different P1 cycles as needed so their P3 publications align in the same dependent source-resolution cycle. For example, a G1 MUL producer must be issued two cycles earlier than a G0 ALU producer if both results should appear at P3 in the same cycle.
 
 The three same-bypass diagonal cells are excluded because they are gray `don't exist` cells in the K-map. Two different same-group producers cannot both publish on the same group P3 bypass lane in one cycle. A separate instruction shape where one producer feeds both operands, such as `add x20, x5, x5`, is legal, but it is not a two-source composition POI.
+
+**Same-group dispatch.** Separately from the P3-lane rule above, the ISQ holds one entry per group, so **two instructions of the same group cannot be dispatched in the same cycle**. A dependent that would otherwise share its group's dispatch cycle with a pinned producer is routed to the other ALU group, and the figures show it as `Dependent-G1`. This is the same routing choice the single-operand `delta_0` rows make.
 
 ## Why IMM Is Kept in the P1 MUX Map
 
