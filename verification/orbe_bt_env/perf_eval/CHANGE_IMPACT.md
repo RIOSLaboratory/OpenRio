@@ -287,10 +287,11 @@ caselist 第 40 行现在把 latency 写死成**公司内部算子**的值（ALU
 | 1 | 用**观测面**测 G3 的 `isq_g3_issue_valid` → lane-3 写回事件的拍差，应得 **3**；同法测 ALU（应得 1）、MUL（应得 3）作方法自检 | ⏳ |
 | 2 | ⛔ **不要用 latency ELF 报的"latency"数字来定 `L`** —— 该数字**自带口径**，而 ALU / MUL 恰好"占用 = 拍差"，**根本标定不出它用的是哪一种** | 规矩 |
 | 3 | latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」 | ⏳ |
-| 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7 | ✅ **已做**（`62c4700`，作者复核后按他的口径重写） |
+| 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7 | ✅ **已做**（作者复核后定稿：`3 拍` 为**下界**，前提是条目成为 CDB head） |
 | 5 | ~~修正 cache agent 的 load done 时刻~~ → **作者确认不需要改**（agent 只保证行为正确性，不承担性能） | ✅ **已回退** |
 | 6 | 测量时**规避 G0 / G1 的 lane 仲裁** —— 否则 `L` 会被量成"真值 + 仲裁等待" | 规矩（见下） |
 | 7 | **静态推算 DIV 的 `L = 4`**（现 caselist 写 8）；**待实测确认，暂不改参数** | 待实测（见下） |
+| 8 | 测 LOAD 时**规避 CDB FIFO 的呈现排队** —— 否则 `L` 会被量成"3 + 排队等待" | 规矩（见下） |
 
 #### ⚠️ 静态推算：DIV 的 `L = 4`（**暂不改参数**）
 
@@ -345,7 +346,9 @@ latency，中途不必切 DUT。
 （`delta` = P1 派发 → P3 发布，而 P3 发布时刻正由 agent 决定）。
 这一点与 agent 改不改无关 —— 若要判定 LOAD 家族，就该用真实 cache（`rtl_cache` / `rtl_full`）。
 
-#### ⚠️ 测量陷阱：G0 / G1 的 lane 仲裁会污染量到的 `L`
+#### ⚠️ 测量陷阱（两条）
+
+**陷阱 1 —— G0 / G1 的 lane 仲裁会污染量到的 `L`**
 
 量 `isq_gX_issue_valid → exec_valid[X]` 时，**G0 / G1 会把仲裁等待算进去**：
 
@@ -366,6 +369,24 @@ latency，中途不必切 DUT。
    绕开 lane 仲裁。
 
 **否则 ALU / MUL / DIV 的 `L` 可能被量成"大于真值"** —— 而自检（ALU=1、MUL=3）正好能抓到这个错误。
+
+**陷阱 2 —— CDB FIFO 的呈现顺序会推迟 LOAD 的 `L`**
+
+Cache HAS `V1.0 rev.1` 把 load 延迟写成**下界**：
+
+> "visible to BE **at the earliest** three cycles … **provided the new entry is the CDB head**"；
+> "otherwise **FIFO ordering delays presentation**"（§3.1 / §6.7）
+
+即 `L(LOAD) = 3` 成立的前提是：**这条 load 的条目一进 CDB FIFO 就成为 head**。
+
+- CDB 是终端状态 FIFO（`dc_cdb.sv`，`CDB_N = 16`），每拍**只呈现 head 一条**；
+  条目在 E3 之后的时钟沿被捕获，head 读出是组合的。
+- 若同期还有别的完成排在前面（另一条 load 的 done、ISB store-commit done、E3 exception…），
+  这条 load 会被**推迟呈现** ⇒ 量到的 `issue → lane-3 写回` **> 3**。
+- 与陷阱 1 同类：**完成事件排在别人后面**。
+
+**规避**：用**"单条 load 在飞"**的 case（同期不要有其它完成事件）。
+**否则 LOAD 的 `L` 会被量成"大于 3"** —— 自检（LOAD=3）能抓到。
 
 > **教训**：这一处我和用户来回争了多轮，**根因是一直在拿 HAS 的散文推数字**。
 > 上述结论只有一条依据 —— **读 RTL**。已把这条写进 `METHOD.md` §9.7。

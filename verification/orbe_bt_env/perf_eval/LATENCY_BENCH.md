@@ -84,7 +84,9 @@ L = （结果 / bypass 对 BE 可见的那一拍） − （发射被接受的那
 - **量 LOAD 时必须排除**：cache miss、store-to-load forwarding、ISB / WB merge 路径
   —— 只测**直接命中、无 merge** 的那条路。
 
-## 5. ⛔ 测量陷阱：G0 / G1 的 lane 仲裁会污染 `L`
+## 5. ⛔ 测量陷阱（两条）
+
+### 5.1 G0 / G1 的 lane 仲裁会污染 `L`
 
 量 `isq_gX_issue_valid → exec_valid[X]` 时，**G0 / G1 会把仲裁等待算进去**：
 
@@ -101,6 +103,32 @@ L = （结果 / bypass 对 BE 可见的那一拍） − （发射被接受的那
 1. **用无竞争的 case** —— 同一组、同一时刻只有一条在飞
    （8 月 diagram 的标称值 ALU T4 / MUL T6 就是无竞争情形）；
 2. **终点量到 FU 自己的输出** —— G0 / G1 量 `request_valid`，G2 / G3 量 `writeback_valid`。
+
+**否则 ALU / MUL / DIV 的 `L` 可能被量成"大于真值"** —— 自检（ALU=1、MUL=3）能抓到。
+
+### 5.2 CDB FIFO 的呈现顺序会推迟 LOAD 的 `L`
+
+Cache HAS `V1.0 rev.1` 把 load 延迟写成**下界**：
+
+> "visible to BE **at the earliest** three cycles … **provided the new entry is the CDB head**"
+> "otherwise **FIFO ordering delays presentation**"（§3.1 / §6.7）
+
+即 `L(LOAD) = 3` 成立的前提是：**这条 load 的条目一进 CDB FIFO 就成为 head**
+（FIFO 里没有更早的未呈现条目）。
+
+- CDB 是**终端状态 FIFO**（`dc_cdb.sv`，`CDB_N = 16`），每拍**只呈现 head 一条**；
+  条目在 E3 之后的时钟沿被捕获，**head 读出是组合的**。
+- 若同期还有别的完成排在前面（另一条 load 的 done、ISB store-commit done、E3 exception…），
+  **这条 load 会被推迟呈现** ⇒ 量到的 `issue → lane-3 写回` **> 3**。
+- 与 §5.1 是同一类问题：**完成事件排在别人后面**。
+
+**规避办法**：
+
+1. **用"单条 load 在飞"的 case** —— 同期不要有其它完成事件（别的 load、store commit 等）；
+2. 或把终点量到 **CDB 条目形成那一拍**（E3 结束）—— 但这要求观测面能看到 CDB 内部，
+   **很可能看不到**，所以优先用办法 1。
+
+**否则 LOAD 的 `L` 会被量成"大于 3"** —— 自检（LOAD=3）能抓到。
 
 ## 6. 自检（必做，不可跳过）
 
