@@ -1,8 +1,12 @@
 # 8 月 timing 材料 → 9 月 golden：改动清单与改造计划
 
-**范围**：`perf_eval/timing/` 下粘贴进来的 8 月材料（2 份 caselist + 2 份 diagram + 3 份 K-map）
-**对照基准**：9 月 golden —— `docs/BE/or_be_has_V1.0.md` §5 + `docs/modules/` + `src/core/be_rtl_v1/`
-
+**范围**：`perf_eval/timing/` 下的 8 月材料（2 份 caselist + 2 份 diagram + 3 份 K-map）
+**当前架构（9 月）**：`docs/BE/or_be_has_V1.0.md` §5（阶段表）
+   　　　　　　　　　　　　+ `docs/modules/`（模块语义）
+   　　　　　　　　　　　　+ `src/core/be_rtl_v1/`（模块归属 / 命名 / 
+   参数；与前两者冲突时以此为准）
+**判定基准**：`timing/diagrams/*.md` —— 基于 9 月架构的**预测**（待审核）。
+⛔ **RTL 绝不出现在判定基准里**：我们评估的对象就是 RTL 的行为，它不能既当运动员又当裁判。
 ---
 
 ## 0. 结论摘要
@@ -112,30 +116,134 @@ K-map 内的阶段引用只有这几种：
 | 1 | `diagrams/INT_single_operand_*.md` | 在每例散文里显式写出 **ISQ 驻留 = P2** | 现在只写 "waits resident in ISQ"，没给阶段号；`wait_for_p3` 因此没有阶段归属 |
 | 2 | `diagrams/*.md` 头部 | 补一节「阶段对照表」：`IB/RSx/SL/WB/C` ↔ `P0..P4` | 读者不必再猜（我自己就猜错过） |
 | 3 | `caselists/*.md` 头部 | 在 `Normative timing sources` 处补上 golden 锚点（OpenRio commit SHA） | 现在写的是 `pending promotion to spec/or-be/`，无法追溯 |
-| 4 | `caselists/*.md` 数值 | 与 §4 的复算结果逐条对齐，不一致的出 v2 | 唯一真正的实质风险 |
+| 4 | `diagrams/*.md` + `caselists/*.md` 的**数值** | 以**仿真实测**比对 diagram 的逐拍时间线（主）与 caselist 阈值表（交叉校验）；不一致时由**材料所有者**判定是否修订，**不得由 RTL 反推** | 唯一真正的实质风险 |
 | 5 | K-maps ×3 | **不动** | §2.3 |
 
 ---
 
-## 4. 唯一未决的实质问题：cycle 数值是否随 9 月改动而变
+## 4. cycle 数值：预期从哪来、实测从哪来
 
-阶段**重编号**不改变 cycle；但如果 9 月的"新架构"同时改了 RTL，**数值就可能变**。这必须实证。
+**三个角色必须分开**：
 
-**已从现版代码验到的**：
+| 角色 | 来源 | 能否含 RTL |
+|---|---|---|
+| **预期** expected | `timing/diagrams/*.md`（**主**）+ `timing/caselists/*.md` 的 delta 阈值表（**交叉校验**） | ❌ 绝不能 |
+| **实测** observed | **仿真轨迹**：`verilator_cosim.sh` → `sim.log` 的逐拍事件 | 它本身就是被测对象 |
+| **归因** why | 读 RTL 源码 | ✅ 仅在出现差异时解释 |
 
-| Producer | caselist 声明 | 代码证据 | 结论 |
+### 4.1 预期为什么以 diagram 为主
+
+| 材料 | 提供什么 | 粒度 |
+|---|---|---|
+| **diagram** | 每例的 `T1..T8` 逐拍表（单元格 = `IB` / `RSx` / `ISQ Wait` / `SL` / `WB` / `C`）+ 边界散文（"P3 at T4, P4 at T5, ARF-ready at T6"） | **逐拍**，可直接对照 |
+| **caselist** | ① 第 40 行的 `Producer latency / P3 delta / P4 delta / ARF boundary delta` 表 ② 每例的 delta→机制标签 ③ 每例的指令（决定跑哪些测试） | 阈值 / 枚举 |
+| **K-map** | ready-source 组合的完备性 | 不涉拍数 |
+
+**拍数预测确实主要在 diagram 里** —— 它是唯一给出"每拍每条指令在哪"的材料。
+
+### 4.2 阈值表写成 **L 参数化**，不是幻数清单
+
+caselist 第 40 行现在把 latency 写死成**公司内部算子**的值（ALU 1 / MUL 3 / **DIV 8** / **LOAD 2** / JALR 3）。
+但**我们的 FU 是外网生成的，性能不必与公司内部算子相同** —— 所以这串数字对我们**没有约束力**。
+
+真正有约束力的是**结构**：整张 caselist 由**单个参数 `L`**（FU 的 `issue_valid → result_valid` 延迟）唯一生成：
+
+| 由 L 导出 | 公式 |
+|---|---|
+| P3 delta（bypass 发布） | **L + 1** |
+| P4 delta（commit） | **L + 2** |
+| ARF boundary delta | **L + 3** |
+| 枚举范围 | **0 .. L+3**（共 L+4 条 case） |
+| 机制阶梯 | `0`=overlay；`1..L`=wait_for_p3（L 条）；`L+1`=p3_capture；`L+2`=p4_capture；`L+3`=arf_read |
+
+**对现表逐行验证（全中）**：
+
+| 家族 | L | P3=L+1 | P4=L+2 | ARF=L+3 | 枚举 0..L+3 | 应有 case | 实际 case |
+|---|---:|---:|---:|---:|---|---:|---:|
+| ALU | 1 | 2 | 3 | 4 | 0..4 | 5 | **5** ✓ |
+| MUL | 3 | 4 | 5 | 6 | 0..6 | 7 | **7** ✓ |
+| DIV | 8 | 9 | 10 | 11 | 0..11 | 12 | **12** ✓ |
+| LOAD | 2 | 3 | 4 | 5 | 0..5 | 6 | **6** ✓ |
+| JALR | 3 | 4 | 5 | 6 | 0..6 | 7 | **7** ✓ |
+| | | | | | | **37** | **37** ✓ |
+
+**⇒ 材料里没有一个"幻数"是独立信息，全部由 L 唯一决定。**
+所以 caselist 的阈值表应与 diagram 并用，但形式必须是 `L → (L+1, L+2, L+3) → 0..L+3`，
+而不是那串公司算子的绝对值。
+
+**两条规矩**：
+
+1. **`L` 必须由 FU 边界实测**（`issue_valid → result_valid` / `request_valid`）。
+   ⛔ **不得从"dispatch → bypass 的距离"反推** —— 因为 `P3 delta = L+1` 里的 "+1"
+   正是 dispatch→issue 那一段；反推会让公式退化成**恒真式**，什么都测不出来。
+2. **`L` 一变，枚举范围跟着变、case 数量跟着变** —— 不只是改数字，要**增删 case**。
+
+> ⚠️ **待裁决：LOAD 的 L 是 2 还是 4** —— 见 §4.6。
+
+### 4.3 判定怎么做
+
+```text
+预期 = diagram 逐拍时间线（主）  ⊕  caselist 阈值表（交叉校验）
+实测 = sim.log 逐拍事件（P1 派发 / P3 发射 / P4 提交）
+判定 = 人（METHOD.md §7 Step 6）
+```
+
+每条 case 比对三项：
+
+1. `delta_measured` ↔ diagram 该例两行的 **T 槽位差**
+2. `behavior_observed` ↔ diagram 的**单元格状态序列**（并与 caselist 的机制标签对照）
+3. 生产者 P3 / P4 落点 ↔ diagram 散文给出的边界（如 "P3 at T4, P4 at T5"）
+
+### 4.4 ⛔ RTL 源码只能"预筛"和"归因"
+
+**不允许**用 RTL 复算出的数值生成预期，更不允许拿它**反推修改** diagram / caselist 的数值 ——
+那等于让运动员自己报成绩，评估就失去意义。
+
+预筛与预期不一致时，正确动作是：
+
+```text
+记录差异 → 跑仿真确认真实行为 → 由材料所有者判断是否修订规格
+                                    （不得由 RTL 反推）
+```
+
+### 4.5 已做的预筛（仅记录，**不作判据**）
+
+| 家族 | L（8 月写死的值，仅供参考） | RTL 源码 nominal | 状态 |
 |---|---|---|---|
-| ALU | latency 1 | `alu_simple.sv`：结果寄存一拍 | ✅ 一致 |
-| MUL | latency 3 | `mul_simple.sv` 注释：**"issue at T, request_valid at T+3"** | ✅ 一致 |
-| DIV | latency 8 | `div_simple.sv`：**"N ≥ 1 cycles after issue"**，N 可配置 | ⏳ 待查 `backend_top.sv` 实例化参数 |
-| LOAD | latency 2 | `g3_lsu_iface.sv` → 外部 LSU 握手（变长） | ⏳ 口径待定 |
-| JALR link | latency 3 | 走 `alu_simple`（ALU0/BRU） | ⏳ 待确认 |
+| ALU | 1 | `alu_simple.sv`：结果寄存一拍 | ✅ 一致 |
+| MUL | 3 | `mul_simple.sv`：`issue at T, request_valid at T+3` | ✅ 一致 |
+| DIV | 8 | `div_simple.sv`：`N ≥ 1 cycles`，N 可配置 | ⏳ 待查实例化参数 |
+| LOAD | 2 | `g3_lsu_iface.sv` → 外部 LSU 握手 | ⏳ **口径有争议，见 §4.6** |
+| JALR link | 3 | 走 `alu_simple`（ALU0/BRU） | ⏳ 待确认 |
 
-**复算计划**：用 `backend_top.sv` 的 FU 实例化参数 + `mul_simple.sv` / `div_simple.sv` /
-`alu_simple.sv` / `g3_lsu_iface.sv`，算出每个家族的 **P3 / P4 / ARF 边界 ladder**，
-与 caselist 现表（ALU 2/3/4、MUL 4/5/6、DIV 9/10/11、LOAD 3/4/5）逐行比对。
+⚠️ delta 是**动态量**（dispatch→dispatch，含 ISQ 占用、组冲突、bypass 命中），
+静态阅读只覆盖 no-blocker 路径，**不能替代仿真实测**。
 
-**产出**：一张「caselist 现表 vs 代码复算」对照表 → 明确哪些家族可原样保留、哪些必须出 v2。
+### 4.6 ⚠️ 待裁决：LOAD 的 L 是 2 还是 4
+
+| 来源 | 值 | 依据 |
+|---|---|---|
+| 8 月 caselist | **2** | 第 40 行 |
+| 9 月 Cache HAS（**冻结接口**） | **2** | `docs/Cache/or_cache_has_V1.0.md`：`LSU_LOAD_PIPE_STAGES = 2` —— "Direct load-hit latency in the frozen interface. A merged load takes 3 cycles."；§2 亦称 "A D-cache hit that needs no merge returns in two cycles" |
+| 用户观察 | **≥4** | 「从 BE-LSU issue fire 到 done valid，无 store-to-load forwarding，至少 4 拍」 |
+
+**前两者一致（都是 2），只有"≥4"是孤证**，且与冻结接口规格冲突。**裁决前先确认三件事**：
+
+1. **"done valid" 指哪个信号？** `lsu_be_writeback_valid` 还是 `lsu_be_bypass_valid`。
+   `g3_lsu_iface` 文档称 bypass 是 "LSU rides with the done" —— 若两者不同拍，`L` 的定义要跟着改。
+2. **"≥4" 的出处？** 是**实测 cache 模型**的值，还是把 E1–E4 四拍全算进去？
+   规格称直接命中走 Load Data Arbiter 只需 2 拍（E2–E4 不停顿，但不等于是 4 拍）。
+3. **issue 边界无争议**：`g3_lsu_iface` 的 issue 侧是**纯组合**的
+   （`FU_ready = bridge_has_room && lsu_be_issue_ready`，同拍 `be_lsu_issue_valid = issue_valid && ...`），
+   所以 BE-LSU 的 issue fire **与 ISQ 发射同拍**。
+
+**动作**：用同事的 latency ELF 实测后填 `L`。
+若实测 ≠ 2，那是一个**发现**（cache 实现与冻结接口规格不符），**要记录，而不是静默改数**。
+
+> **影响面**：若 LOAD 的 `L` 从 2 变 4，则 P3 / P4 / ARF delta 变成 **5 / 6 / 7**，
+> LOAD 家族从 **6 条 case 增到 8 条**（枚举 `0..7`）。
+
+**产出**：一张「**diagram 预期 vs 仿真实测**」对照表 → 明确哪些家族可原样保留、哪些需要由材料所有者修订。
 
 ---
 
