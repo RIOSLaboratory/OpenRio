@@ -159,19 +159,51 @@ ARF boundary delta = L + 3
 现状 **37 个 `## Case N`**（ALU 1-5 / MUL 6-12 / DIV 13-24 / LOAD 25-30 / JALR 31-37），
 目标 **32 个**（ALU 1-5 / MUL 6-12 / **DIV 13-20** / **LOAD 21-27** / **JALR 28-32**）。
 
+### 5.1 先说清"T 槽位"是什么，以及它为什么必然要改
+
+**"T 槽位" = 逐拍表里"哪条指令 × 第几个 T 列 × 写的是什么状态"那一格。**
+例：`Case 13` 的 `div` 行，`T3` 格 = `SL (DIV stg0)`、`T11` 格 = `WB`。
+
+**核对现有四张表可得到一条规律**：producer 的内部阶段占 `T3 … T(2+L)`，**`WB` 落在 `T(3+L)`**。
+
+| case | 现图 | 隐含 `L` | 本次 `L` | `WB` 从 | 挪到 |
+|---|---|---|---:|---:|---|---|
+| `Case 1` ALU | `SL (ALU0)`@T3、`WB`@T4 | 4−3 = **1** ✓ | 1（不变） | — | — |
+| `Case 13` DIV | `stg0…stg7` 占 T3–T10、`WB`@T11 | 11−3 = **8** ✓ | **4** | **T11** | **T7** |
+| `Case 25` LOAD | `SL (AGU)`@T3、`L1D`@T4、`WB`@T5 | 5−3 = **2** ✓ | **3** | **T5** | **T6** |
+| `Case 31` JALR | `stg0…stg2` 占 T3–T5、`WB`@T6 | 6−3 = **3** ✓ | **1** | **T6** | **T4** |
+
+**⇒ `L` 恰好编码在 T 列里。`L` 一改，被保留的 case 也必须整表重画**：
+producer 行左移（`L` 变小）或右移（`L` 变大）、**dependent 行每一格跟着走**、
+散文里的边界拍（`P3 at Tn / P4 at Tn+1 / ARF-ready at Tn+2`）随之改写。
+
+**所以本次不是"删几条 + 补个标注"，而是 5 族里 3 族（DIV / LOAD / JALR）全表重画。**
+
+### 5.2 约束怎么改（已获批准）
+
+`CHANGE_IMPACT.md` §3#1 原写"⛔ **只允许改标签**（可补阶段名标注，**不得改动任何 T 槽位、
+状态序列、边界拍数**）"。按字面执行，本次修订做不了 —— 因为它把 `L` 的更新也算作"改槽位"。
+
+**该约束的原始目的是"不许把槽位挪到仿真能通过的位置"（即改预测迎合 RTL），这个目的必须保住。**
+所以把"禁止"换成**两种槽位变更的区分**：
+
+| 变更种类 | 判定 | 允许？ |
+|---|---|---|
+| **① 参数驱动的机械重算** —— `L` 按实测更新后，按 `WB@T(3+L)` 规则重画全表 | **规格更新** | ✅ **允许** |
+| **② 为对齐某次仿真结果而单独平移某个 case 的槽位** | **改预测迎合 RTL** | ⛔ **仍然禁止** |
+
+**关键差别**：规则是**先由 `L` 算槽位、再看仿真**，不是反过来。核查判据见 §9⑤。
+
+### 5.3 逐族动作
+
 | 家族 | 动作 |
 |---|---|
-| ALU、MUL | **不动**（Case 1–12 原样） |
-| DIV | **删** delta_5..8 对应的 4 个 case；`delta_9/10/11` 三个 case 的**标题与图内 delta 标注**改为 `delta_5/6/7`（机制不变）；`delta_1..4` 的 `wait_for_p3` 段落不变；**全族 Case 序号**重排为 13–20 |
-| LOAD | **新增** 1 个 `wait_for_p3` case（`delta_3`）；原 `delta_3/4/5` 三个 case 改为 `delta_4/5/6`；重排为 21–27 |
-| JALR | **删** `delta_2` / `delta_3` 两个 case；原 `delta_4/5/6` 改为 `delta_2/3/4`；重排为 28–32 |
+| `ALU_to_ALU`、`MUL_to_ALU` | **不动**（`L` 未变，Case 1–12 原样） |
+| **`DIV_to_ALU`** | **全表重画**：内部阶段 `stg0..stg7` → `stg0..stg3`；`WB` T11→**T7**、`C` T12→T8；dependent 行整体左移；边界拍散文改为 `P3 at T7 / P4 at T8 / ARF at T9`。**删** 4 条（原 `delta_5..8`）；原 `delta_9/10/11` 改为 `delta_5/6/7`；Case 序号重排 **13–20** |
+| **`LOAD_to_ALU`** | **全表重画**：producer 行在 `L1D` 之后**补一格**（拍 3 = arbiter + CDB FIFO，措辞用 Cache HAS `V1.0 rev.1`）；`WB` T5→**T6**、`C` T6→T7；dependent 行随之右移；边界拍改为 `P3 at T6 / P4 at T7 / ARF at T8`。**新增** 1 条（`delta_3`，`wait_for_p3`）；原 `delta_3/4/5` 改为 `delta_4/5/6`；重排 **21–27** |
+| **`JALR_to_ALU`** | **全表重画**：内部阶段 `stg0..stg2` → `stg0`；`WB` T6→**T4**、`C` T7→T5；dependent 行整体左移；边界拍改为 `P3 at T4 / P4 at T5 / ARF at T6`。**删** `delta_2`/`delta_3`；原 `delta_4/5/6` 改为 `delta_2/3/4`；重排 **28–32** |
 
-**⚠️ 与既有约束冲突，需你放行**：`CHANGE_IMPACT.md` §3#1 原定"diagram **只允许改标签**
-（不得改 T 槽位、状态序列、边界拍）"。本次要**删 6 条、增 1 条、重排序号**，
-超出了"只改标签"。**建议**：把该约束重新表述为"**不得改任何保留 case 的 T 槽位 / 状态序列 /
-边界拍**；增删 case 与整族重排不算改动现有 case"。
-
-**每族 delta_0 的组归属**必须在图里也写出来（与 caselist 的 `G` 列一致）。
+**每族 `delta_0` 的组归属**必须在图里也写出来（与 caselist 的 `G` 列一致）。
 
 ---
 
@@ -203,7 +235,8 @@ ARF boundary delta = L + 3
 1. **两操作数材料是否同步**：`INT_two_operands_dependency_caselist.md` 里也嵌了一张 producer 表
    （现有 `MUL result 4/5/6`、`LOAD hit result 4/5/6`，LOAD 已随上次修好）。
    **若它将来补 DIV / JALR 行，须按本方案的 `L` 取值**；本轮是否要一并补？
-2. **diagram 的"只允许改标签"约束**要不要按 §5 的建议放宽（**这是本次唯一的流程性前置条件**）。
+2. ~~**diagram 的"只允许改标签"约束**要不要按 §5 的建议放宽~~ → **已批准（2026-10-09）**：
+   改用 §5.2 的"**① 机械重算 ✅ / ② 迎合仿真 ⛔**"两分法，并加 §9⑤ 的判据。
 3. **case ID 改名的影响**：`delta_n` 写在 case ID 里，改名会连带改日志目录名 /
    脚本里的过滤模式 —— 确认无外部依赖后再执行。
 4. **JALR 的 taken/redirect 口径（=2）是否另立材料**：本方案不含；若要，它是控制流指标，
@@ -229,4 +262,27 @@ rg -o '^## Case [0-9]+' diagrams/INT_single_operand_dependency_diagram.md | awk 
 # ④ caselist 与 diagram 的 case 必须一一对应（同一组 `家族 + delta` 集合）
 ```
 
-外加人工核对：**每条 `delta_0` 行的 `G (producer → consumer)` 两列必须不同组**（§3）。
+### ⑤ 槽位必须能由 `L` 机械推出（§5.2 的判据）
+
+**逐个 producer 行核对** `WB` 所在的 T 列号：
+
+```bash
+# 打出每个 case 的 producer 行，人工核对 `WB` 列号 = 3 + L
+rg -n '^\| `(add|sub|mul|div|ld|lw|jalr)' diagrams/INT_single_operand_dependency_diagram.md
+```
+
+| 家族 | 期望 `WB` 列 | 期望边界拍散文 |
+|---|---|---|
+| ALU（`L=1`） | **T4** | `P3 at T4 / P4 at T5 / ARF-ready at T6` |
+| MUL（`L=3`） | **T6** | `P3 at T6 / P4 at T7 / ARF-ready at T8` |
+| DIV（`L=4`） | **T7** | `P3 at T7 / P4 at T8 / ARF-ready at T9` |
+| LOAD（`L=3`） | **T6** | `P3 at T6 / P4 at T7 / ARF-ready at T8` |
+| JALR（`L=1`） | **T4** | `P3 at T4 / P4 at T5 / ARF-ready at T6` |
+
+**凡解释不通的槽位移动，一律视为 §5.2 的 ②，退回。**
+
+外加人工核对：
+
+- **每条 `delta_0` 行的 `G (producer → consumer)` 两列必须不同组**（§3）；
+- **每个 `delta_n` 的 dependent 行**：其 `SL` 拍应落在 `P3` 拍（`p3_capture`）/ `P4` 拍
+  （`p4_capture`）/ 更晚（`arf_read`），与 caselist 的机制标签一致。

@@ -113,7 +113,7 @@ K-map 内的阶段引用只有这几种：
 
 | # | 对象 | 改什么 | 理由 |
 |---|---|---|---|
-| 1 | `diagrams/INT_single_operand_*.md` | 在每例散文里显式写出 **ISQ 驻留 = P2**。⛔ **只允许改标签**：可补阶段名标注（`RS0` → `RS0 [P2]`）、可补散文说明；**不得改动任何 T 槽位、状态序列、边界拍数** | 现在只写 "waits resident in ISQ"，没给阶段号；`wait_for_p3` 因此没有阶段归属。**改槽位就变成"改预测去迎合 RTL"** |
+| 1 | `diagrams/INT_single_operand_*.md` | 在每例散文里显式写出 **ISQ 驻留 = P2**（补阶段名标注 `RS0` → `RS0 [P2]`）。⛔ **槽位变更分两类**（2026-10 修订，原"只允许改标签"已作废）：**① 参数驱动的机械重算 ✅ 允许** —— `L` 按实测更新后按 `WB@T(3+L)` 重画全表；**② 为对齐某次仿真结果而单独平移槽位 ⛔ 禁止**。判据见 `timing/REVISION_PLAN.md` §5.2 / §9⑤ | 现在只写 "waits resident in ISQ"，没给阶段号；`wait_for_p3` 因此没有阶段归属。**原"不得改 T 槽位"作废的原因**：`L` 恰好编码在 T 列里（`WB@T(3+L)`），按字面执行则任何 `L` 更新都做不了；而"改预测去迎合 RTL"这个目的由**②**继续挡住 |
 | 2 | `diagrams/*.md` 头部 | 补一节「阶段对照表」：`IB/RSx/SL/WB/C` ↔ `P0..P4` | 读者不必再猜（我自己就猜错过） |
 | 3 | `caselists/*.md` 头部 | 在 `Normative timing sources` 处补上 golden 锚点（OpenRio commit SHA） | 现在写的是 `pending promotion to spec/or-be/`，无法追溯 |
 | 4 | `diagrams/*.md` + `caselists/*.md` 的**数值** | 以**仿真实测**比对 diagram 的逐拍时间线（主）与 caselist 阈值表（交叉校验）；不一致时由**材料所有者**判定是否修订，**不得由 RTL 反推** | 唯一真正的实质风险 |
