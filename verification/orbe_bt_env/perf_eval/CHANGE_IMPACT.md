@@ -404,6 +404,21 @@ Cache HAS `V1.0 rev.1` 把 load 延迟写成**下界**：
 | 同一拍里**驻留**的条目可走 **P3→P2** 直接喂 FU | `p2p3/FU_input_mux.sv`：`bypass_data`/`bypass_valid`/`bypass_tag`（L42–47），`hit[b] = bypass_valid[b] && (rsX_wait_tag == bypass_tag[b])`（L71），`fu_rsX_data = bypass_data[b]`（L107）；注释写明是 "**this cycle's** p3 bypass lanes" | ✅ 同拍 |
 | **P2 MUX 从不吃 P4 commit CDB** | 同上，`FU_input_mux` **输入里没有 `commit_data`** | ✅ 证实 |
 | 4 条 bypass lane = 四个组的 P3 发布 | `top/backend_top.sv` L499–501 `lane_bypass_valid/tag/data [NUM_LANES]`，由 `arbG0_*`/`arbG1_*`（两个 P3 arbiter）+ `g2fu_*` + `lsuif_*` 汇聚；`commit_data` 由 `p4/Buffer` 驱动 | ✅ |
+| **P3 命中但当拍发射不了 → 数据 latch 成 `Stored Ready`**（这是"`P4→P2` 没连接也不出洞"的支点） | `p2p3/ISQ_Group0..3.sv`，**四组各一份**：`assign bypass_capture = isq_valid && !global_flush_late && !issue_fire && (fast_ready_rs1 \|\| fast_ready_rs2)`（L217–219）；其中 `fast_ready_rsX = !entry_rsX_ready && rsX_bypass_hit`、`rsX_bypass_hit = OR_b(bypass_valid[b] && bypass_tag[b] == entry_rsX_wait_tag)`（L153–166）；动作为 `entry_rsX_ready <= 1'b1` / `entry_rsX_data <= rsX_data`（L348–362，数据取自 `FU_input_mux` 的输出）。注释："A cycle that issues does not capture" | ✅ RTL 实现 |
+
+**推论：`P4 → P2` 未连接不是漏洞，是冗余路径的省略。** 按 dependent 的 P1 落在哪一拍穷举：
+
+| dependent 的 P1 落在 | 用的路径 | 到 P4 拍时还缺源吗 |
+|---|---|---|
+| P3 拍（`delta` = L+1） | `P3→P1` 捕获 | 不缺 |
+| 早于 P3 拍（`delta` ≤ L） | P3 拍走 `P3→P2`：能发则当拍发射；不能发则 **`bypass_capture` latch** | 不缺 |
+| P4 拍（`delta` = L+2） | `P4→P1` 捕获 | 不缺 |
+| 晚于 P4（`delta` = L+3） | ARF | 不缺 |
+
+P3 与 P4 **相邻** ⇒ 不存在"介于"的落拍 ⇒ 四种情况**穷尽** ⇒ **没有一种需要 commit CDB 去喂 P2**。
+
+**⚠️ 支点是 `bypass_capture`，不是 `P3→P1` 单独**：若没有那个 latch，"P3 拍匹配到但 FU 忙"就会顺延到
+P4 拍 —— 那时才形成"resident 且缺源、而源只在 commit CDB 上"，**正需要一条并不存在的 `P4→P2`，就会 stall**。
 
 **⚠️ 表述教训（同 §9.7）**：我最初把"P3→P1 同拍有效"当成已知事实说出来，**依据其实只是材料自己的措辞** ——
 而材料正是被审计的**预测**。**用预测去证明预测是循环论证。**
