@@ -113,11 +113,13 @@ K-map 内的阶段引用只有这几种：
 
 | # | 对象 | 改什么 | 理由 |
 |---|---|---|---|
-| 1 | `diagrams/INT_single_operand_*.md` | 在每例散文里显式写出 **ISQ 驻留 = P2** | 现在只写 "waits resident in ISQ"，没给阶段号；`wait_for_p3` 因此没有阶段归属 |
+| 1 | `diagrams/INT_single_operand_*.md` | 在每例散文里显式写出 **ISQ 驻留 = P2**。⛔ **只允许改标签**：可补阶段名标注（`RS0` → `RS0 [P2]`）、可补散文说明；**不得改动任何 T 槽位、状态序列、边界拍数** | 现在只写 "waits resident in ISQ"，没给阶段号；`wait_for_p3` 因此没有阶段归属。**改槽位就变成"改预测去迎合 RTL"** |
 | 2 | `diagrams/*.md` 头部 | 补一节「阶段对照表」：`IB/RSx/SL/WB/C` ↔ `P0..P4` | 读者不必再猜（我自己就猜错过） |
 | 3 | `caselists/*.md` 头部 | 在 `Normative timing sources` 处补上 golden 锚点（OpenRio commit SHA） | 现在写的是 `pending promotion to spec/or-be/`，无法追溯 |
 | 4 | `diagrams/*.md` + `caselists/*.md` 的**数值** | 以**仿真实测**比对 diagram 的逐拍时间线（主）与 caselist 阈值表（交叉校验）；不一致时由**材料所有者**判定是否修订，**不得由 RTL 反推** | 唯一真正的实质风险 |
-| 5 | K-maps ×3 | **不动** | §2.3 |
+| 5 | `caselists/*.md` 阈值表 + 各家族 case 数 | 改成 **L 参数化**（§4.2）：`P3=L+1` / `P4=L+2` / `ARF=L+3`，枚举 `0..L+3`。**`L` 变则 case 数变，需增删 case** | 8 月写死的是**公司内部算子**的值，对我们的外网 FU 无约束力 |
+| 6 | 各 FU 的 `L` | 用同事的 latency ELF **实测**（`issue_valid → result_valid`），逐个 FU 填；**LOAD 见 §4.6** | 取代 §4.2 的幻数；这是唯一能定的方式 |
+| 7 | K-maps ×3 | **不动** | §2.3 |
 
 ---
 
@@ -229,16 +231,59 @@ caselist 第 40 行现在把 latency 写死成**公司内部算子**的值（ALU
 
 **前两者一致（都是 2），只有"≥4"是孤证**，且与冻结接口规格冲突。**裁决前先确认三件事**：
 
-1. **"done valid" 指哪个信号？** `lsu_be_writeback_valid` 还是 `lsu_be_bypass_valid`。
-   `g3_lsu_iface` 文档称 bypass 是 "LSU rides with the done" —— 若两者不同拍，`L` 的定义要跟着改。
-2. **"≥4" 的出处？** 是**实测 cache 模型**的值，还是把 E1–E4 四拍全算进去？
-   规格称直接命中走 Load Data Arbiter 只需 2 拍（E2–E4 不停顿，但不等于是 4 拍）。
+1. **"done valid" 指哪个信号？** → **已查清：`lsu_be_bypass_valid` 与 done 同拍**，所以你量
+   `issue fire → done valid` 的边界是**对的**：
+   - `docs/modules/lsu/g3_lsu_iface.md:72`：`read_mark.fire = done_in ∧ read_side_result`
+   - 同文件 `:79` Constraint：「仅 `done_in` 且同时存在 read-side bypass 时成立」
+   - `src/core/be_rtl_v1/lsu/g3_lsu_iface.sv:342` 注释：bypass "is exactly what the LSU rides with the done"
+2. **"≥4" 的出处？** `docs/Cache/or_cache_has_V1.0.md:37` 称 "four pipeline stages, E1–E4"，
+   若从 E1 算到 E4 输出至少 3 拍 —— **这很可能就是 ≥4 的来源**。
 3. **issue 边界无争议**：`g3_lsu_iface` 的 issue 侧是**纯组合**的
    （`FU_ready = bridge_has_room && lsu_be_issue_ready`，同拍 `be_lsu_issue_valid = issue_valid && ...`），
    所以 BE-LSU 的 issue fire **与 ISQ 发射同拍**。
 
-**动作**：用同事的 latency ELF 实测后填 `L`。
-若实测 ≠ 2，那是一个**发现**（cache 实现与冻结接口规格不符），**要记录，而不是静默改数**。
+#### 支持 "LOAD ≠ 4"（＝2）的明确证据位置
+
+全部在 `docs/Cache/or_cache_has_V1.0.md`：
+
+**① 第 38 行 —— 最直接**
+
+> A D-cache hit that **needs no merge** returns in **two cycles** through the Load Data Arbiter.
+> A load that requires ISB / WB merging returns in **three cycles** through E4 Data Merge.
+
+你说的「**没有 store-to-load forwarding**」正对应 "**needs no merge**" → **2 拍**；
+即使需要 merge 也只有 **3 拍**。**两种情况都到不了 4。**
+
+**② 第 56 行 —— 参数表（接口承诺）**
+
+> `LSU_LOAD_PIPE_STAGES` = **2** —— "Direct load-hit latency in the **frozen interface**.
+> A merged load takes 3 cycles."
+
+"**frozen interface**" 明确这是 BE↔LSU 冻结接口的**承诺值**。
+
+**③ 第 36 行 —— 读侧无反压**
+
+> the read side never rejects a request. The only backpressure condition is a full store buffer.
+
+→ 读请求不会被反压，所以拍数不会因此变长。
+
+#### 反证：为什么你的 4 不离谱
+
+**④ 第 37 行 —— 同一份文件，与 ② 字面冲突**
+
+> The design has **four pipeline stages, E1–E4**. Stages E2–E4 never stall.
+
+四级流水，若从 E1 算到 E4 输出**至少 3 拍** —— 与 ② 的 "2" 对不上。
+（阶段划分见同文件 `:95–98`：E1 = Accept / AGU，E4 = Data merge。）
+
+**⇒ 结论：Cache HAS 内部对"几拍"没有单一口径**（L37 的 E1–E4 四级 **vs** L38/L56 的 2 拍）。
+**这个不一致必须报给 Cache 侧确认，不能由 perf_eval 单方面裁决。**
+
+#### 待办
+
+1. 用同事的 latency ELF **实测**各 FU 的 `L`（含 LOAD），填进 §4.2 的参数表。
+2. 就「E1–E4 四级 vs `LSU_LOAD_PIPE_STAGES = 2`」向 **Cache 侧求证**。
+3. 若实测 > 2，记录为**发现**（实现与冻结接口规格不符），**不静默改数**。
 
 > **影响面**：若 LOAD 的 `L` 从 2 变 4，则 P3 / P4 / ARF delta 变成 **5 / 6 / 7**，
 > LOAD 家族从 **6 条 case 增到 8 条**（枚举 `0..7`）。
