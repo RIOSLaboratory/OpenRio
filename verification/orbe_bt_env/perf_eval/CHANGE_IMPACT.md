@@ -288,6 +288,7 @@ E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
 | 3 | latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」 | ⏳ |
 | 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7（原第 38 / 56 / 212 / 217 行） | ✅ **已做**（`62c4700`，含修订表 `V1.0 rev.1`） |
 | 5 | 修正 cache agent 的 load done 时刻（原比真实 cache **早 1 拍**） | ✅ **已做**（`CDB_PRESENT_CYCLES`，见下） |
+| 6 | 测量时**规避 G0 / G1 的 lane 仲裁** —— 否则 `L` 会被量成"真值 + 仲裁等待" | 规矩（见下） |
 
 #### ⚠️ 由第 5 项引出的两件事
 
@@ -311,6 +312,28 @@ latency，中途不必切 DUT。
 - 若 LOAD 家族的 delta 判定也移到真实 cache（`rtl_cache` / `rtl_full`）→ agent 的参数**彻底无所谓**；
 - 若仍用 `rtl_v1` → 该判定反映的是 **agent**，不是真 cache。
   （`CDB_PRESENT_CYCLES` 的改动至少让它与真 cache 一致，所以那处改动虽然"无所谓"，但不白改。）
+
+#### ⚠️ 测量陷阱：G0 / G1 的 lane 仲裁会污染量到的 `L`
+
+量 `isq_gX_issue_valid → exec_valid[X]` 时，**G0 / G1 会把仲裁等待算进去**：
+
+- G0 的三个 FU（`alu_simple` ALU0/BRU、`csr_unit`、`div_simple`）共享 `p3_arbiter_G0`；
+  G1 的两个（`alu_simple` ALU1、`mul_simple`）共享 `p3_arbiter_G1`。
+- 仲裁每拍只让一个赢；**输家置 `loser_hold`**，而它的 `FU_ready = !loser_hold`
+  （见 `src/core/be_rtl_v1/fu/alu_simple.sv:29-31` 的注释），
+  所以输家接不了新指令、自己的完成请求要**保持到仲裁成功**。
+- ⇒ 量到的是 "FU 自身延迟" **加上** "仲裁等待"。
+- **G2（`fpu_simple`）/ G3（`g3_lsu_iface`）没有仲裁**（BE HAS 第 226 行：G2、G3 直接驱动各自的
+  lane），所以这两条不受影响。
+
+**规避办法（二选一或都做）**：
+
+1. **用无竞争的 case** —— 同一组、同一时刻只有一条在飞
+   （8 月 diagram 的标称值 ALU T4 / MUL T6 就是无竞争情形）；
+2. **终点量到 FU 自己的输出** —— G0 / G1 量 `request_valid`，G2 / G3 量 `writeback_valid`，
+   绕开 lane 仲裁。
+
+**否则 ALU / MUL / DIV 的 `L` 可能被量成"大于真值"** —— 而自检（ALU=1、MUL=3）正好能抓到这个错误。
 
 > **教训**：这一处我和用户来回争了多轮，**根因是一直在拿 HAS 的散文推数字**。
 > 上述结论只有一条依据 —— **读 RTL**。已把这条写进 `METHOD.md` §9.7。
