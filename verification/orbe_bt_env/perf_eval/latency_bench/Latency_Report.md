@@ -1,7 +1,7 @@
 # BE producer latency（L）实测报告
 
 **任务**：实测当前 BE 各 producer 算子的 latency（L），为 timing conformance 的 case 生成提供参数。
-**日期**：2026-10-09 ｜ **分支**：`fu_latency_bench`（含本报告时 HEAD=`f5c702f`）
+**日期**：2026-10-09 ｜ **分支**：`fu_latency_bench`（本数据对应提交=`589ca8f`；JALR 双口径那版）
 **DUT**：`--dut-kind rtl_full`（OR_FE RTL + BE RTL + OR_Cache RTL）
 **产物**：本目录 CSV + `perf_eval_work/latency/` 原始数据 + `sim/verilator_fu_latency/` 日志
 
