@@ -13,6 +13,9 @@ Normative timing source:
 pending promotion to spec/or-be/
 ```
 
+Golden RTL anchor for the producer latencies in this file: OpenRio **`589ca8f`**
+(`--dut-kind rtl_full`). Measurement report: `../../latency_bench/Latency_Report.md`.
+
 This caselist covers the source-ready composition of one dependent instruction with two operands. The P1 MUX cases cover operands captured while constructing a new ISQ payload. The P2 MUX cases cover an already-resident ISQ entry receiving current-cycle forwarding at FU-input time. It does not enumerate producer opcode latency variants inside the same POI; those are covered by `INT_single_operand_dependency_caselist.md`.
 
 ## Reading Rules

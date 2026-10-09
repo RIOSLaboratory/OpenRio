@@ -1,6 +1,7 @@
 # 材料修订方案：caselist 与 timing diagram（INT 单操作数依赖）
 
-**状态**：草案，待审
+**状态**：**已执行**（2026-10-09）。caselist 与 diagram 均已按本方案改完，提交 `fabff86`；
+阶段对照表（§3#2）与 golden 锚点（§3#3）已补。
 **依据**：`perf_eval/latency_bench/Latency_Report.md`（102 例实测，三个自检点全中）
 **决策**（2026-10-09 用户裁定）：
 
@@ -239,8 +240,9 @@ producer 行左移（`L` 变小）或右移（`L` 变大）、**dependent 行每
    改用 §5.2 的"**① 机械重算 ✅ / ② 迎合仿真 ⛔**"两分法，并加 §9⑤ 的判据。
 3. **case ID 改名的影响**：`delta_n` 写在 case ID 里，改名会连带改日志目录名 /
    脚本里的过滤模式 —— 确认无外部依赖后再执行。
-4. **JALR 的 taken/redirect 口径（=2）是否另立材料**：本方案不含；若要，它是控制流指标，
-   需要**另一套 case 结构**（不能套 delta 阶梯）。
+4. ~~**JALR 的 taken/redirect 口径（=2）是否另立材料**~~ → **已决定不做**（2026-10-09）：
+   它是控制流指标，需要另一套 case 结构，本项目不再讨论。实测值只作留档
+   （`latency_bench/Latency_Report.md`；CSV 的 `L_redirect` 列）。
 
 ---
 

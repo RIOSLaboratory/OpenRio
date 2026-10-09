@@ -8,6 +8,30 @@ This diagram set is the reduced INT single-operand v2 set: one representative IN
 
 Scope note: these figures show the nominal no-older-blocker path. Condition A extensions caused by delayed P4 commit are derived from the spec and are not repeated as separate nominal figures.
 
+## Stage mapping
+
+The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md` §5). Every cell in the figures below is one of these:
+
+| Cell | Stage | Meaning |
+|---|---|---|
+| `IB` | P0 → P1 | The instruction is present in the instruction buffer. Enqueue is P0; the head is read in P1 to form the dispatch bundle. The figures only show that the instruction is in IB. |
+| `RS0` … `RS3` | **P1** | Rename / dispatch into that group's ISQ. `delta` is the difference between two `RSx` cells. |
+| `ISQ Wait` | **P2** | Resident in the ISQ, waiting for a source. |
+| `SL (<FU> …)` | **P2** | The issue is accepted and the FU starts. All of the FU's internal stages sit in P2, so a multi-cycle FU occupies several consecutive cells. |
+| `WB` | **P3** | Result writeback / bypass broadcast. |
+| `C` | **P4** | Commit. |
+
+Landmarks used by every figure, for a producer of latency `L` whose dispatch is at T2:
+
+| Landmark | Column |
+|---|---|
+| Producer issue (`SL`) | T3 |
+| Producer internal stages | T3 … T(2+`L`) |
+| Producer P3 (`WB`) | **T(3+`L`)** |
+| Producer P4 (`C`) | T(4+`L`) |
+| Producer ARF-ready | T(5+`L`) |
+| Dependent dispatch (`RSx`) | T(2+`n`), where `n` is the case's `delta` |
+
 ## Case 1: ALU_to_ALU_delta_0 (overlay)
 
 **Dimension:** INT single-operand dependency | **Equiv:** ALU_to_ALU

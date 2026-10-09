@@ -4,6 +4,21 @@ Source caselist: `../caselists/INT_two_operands_dependency_caselist.md`
 
 Generated under L5 reader-facing rules. P1 cases above show new ISQ payload construction; P2 cases below show resident-entry FU-input MUX forwarding. P1 source-resolution is normalized to T6 in the legacy figures, while P2 resident-entry source-ready is normalized to T8 in the appended figures.
 
+## Stage mapping
+
+The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md` §5). Every cell in the figures below is one of these:
+
+| Cell | Stage | Meaning |
+|---|---|---|
+| `IB` | P0 → P1 | The instruction is present in the instruction buffer. Enqueue is P0; the head is read in P1 to form the dispatch bundle. The figures only show that the instruction is in IB. |
+| `RS0` … `RS3` | **P1** | Rename / dispatch into that group's ISQ. |
+| `ISQ Wait` | **P2** | Resident in the ISQ, waiting for a source. |
+| `SL (<FU> …)` | **P2** | The issue is accepted and the FU starts. All of the FU's internal stages sit in P2, so a multi-cycle FU occupies several consecutive cells. |
+| `WB` | **P3** | Result writeback / bypass broadcast. |
+| `C` | **P4** | Commit. |
+
+For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL` at T3, its internal stages across T3…T(2+`L`), `WB` at **T(3+`L`)**, `C` at T(4+`L`), and ARF-ready at T(5+`L`).
+
 ## Case 1: INT2_G1P3_G0P3
 
 **维度:** INT two-operand ready-source composition · **Equiv:** G1 P3 Bypass + G0 P3 Bypass

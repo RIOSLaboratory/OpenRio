@@ -12,6 +12,9 @@ Normative timing sources:
 pending promotion to spec/or-be/
 ```
 
+Golden RTL anchor for the producer latencies in this file: OpenRio **`589ca8f`**
+(`--dut-kind rtl_full`). Measurement report: `../../latency_bench/Latency_Report.md`.
+
 Naming rule:
 
 ```text
