@@ -291,17 +291,26 @@ E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
 
 #### ⚠️ 由第 5 项引出的两件事
 
-**① LOAD 不能用 cache agent 来"测"。**
-拿 agent 测，测到的只是 agent 自己的配置值（`LSU_LOAD_PIPE_STAGES + CDB_PRESENT_CYCLES + cfg`），
-**是循环论证**。要拿真实延迟，必须接**真实 Cache RTL**。
+**① LOAD 不能在 `rtl_v1` 上标定。**
+`rtl_v1` 后面接的是 `cache_agent`，它的返回时刻由 agent 的参数算出来
+（`LSU_LOAD_PIPE_STAGES + CDB_PRESENT_CYCLES + cfg…`）—— 拿它"测"LOAD 延迟是**循环论证**。
 
-**② 工具已经支持 `--dut-kind rtl_cache`** —— `BE RTL + OR_Cache RTL + FE agent`
-（`cfg/filelist/rtl_cache.f`；`--dut-kind <agent|rtl_v1|rtl_fe|rtl_cache|rtl_full>`）。
-这正是 LOAD latency 测试该用的组合：**真实 cache 提供延迟，FE 仍是 agent**（不受真实取指节奏干扰），
-**避开了 `METHOD.md` §10 反对用 `rtl_full` 的那条理由**。
+**② 裁定：latency 标定用 `rtl_full`（FE + BE + Cache 完全体），一次跑完、中途不换 DUT。**
+理由：一批 case 里 LOAD 与其它指令**混在一起测**，用完全体就能一次拿到**所有**相关指令的
+latency，中途不必切 DUT。
+（我先前建议的 `rtl_cache` 虽然也接真实 cache，但会让"latency 测试"与"delta 判定"分属两个 DUT，
+反而不如 `rtl_full` 干净。**以 `rtl_full` 为准。**）
 
-**⇒ 待决**：阶段 1 的 DUT 是否从 `rtl_v1` 改为 `rtl_cache`？
-若改，`rtl_v1` 可留作快速回归；但 **LOAD 家族的判定必须以 `rtl_cache` 为准**。
+**③ `cache_agent` 的定位：只负责"行为正确性"，不承担性能标定。**
+所以它的固定延迟参数**对 latency 标定没有意义**，改不改都行；
+唯一要保证的是 **能正确返回 load 的 data**（功能正确）。
+
+**④ 一处例外必须说清**：agent 的 load 返回时刻**确实影响"跑在 `rtl_v1` 上的 LOAD delta 判定"**
+（`delta` = P1 派发 → P3 发布，而 `rtl_v1` 的 P3 发布时刻由 agent 决定）。所以：
+
+- 若 LOAD 家族的 delta 判定也移到真实 cache（`rtl_cache` / `rtl_full`）→ agent 的参数**彻底无所谓**；
+- 若仍用 `rtl_v1` → 该判定反映的是 **agent**，不是真 cache。
+  （`CDB_PRESENT_CYCLES` 的改动至少让它与真 cache 一致，所以那处改动虽然"无所谓"，但不白改。）
 
 > **教训**：这一处我和用户来回争了多轮，**根因是一直在拿 HAS 的散文推数字**。
 > 上述结论只有一条依据 —— **读 RTL**。已把这条写进 `METHOD.md` §9.7。

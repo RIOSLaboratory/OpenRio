@@ -119,7 +119,29 @@ FE 和 Cache 不进入这些定义。用 `rtl_v1` 的好处：
    `overlay`）这类 case 在 `rtl_v1` 上能稳定复现。
 3. **快且确定**：无 cache 行为差异，可复现。
 
-`rtl_full`（FE+BE+Cache）只用于阶段 2 的端到端评估，见 §10。
+`rtl_full`（FE+BE+Cache）用于阶段 2 的端到端评估（见 §10），**以及 latency 标定**（见 §5.1）。
+
+### 5.1 例外：**latency 标定必须用 `rtl_full`**
+
+上面第 1 条"可隔离噪声"对 **delta 判定**成立，但对 **latency 标定不成立**：
+
+- 片内 FU（ALU / MUL / DIV / FPU / JALR）的延迟在 BE 内部，与 FE / Cache 无关；
+- **LOAD 的延迟由 Cache 决定**，而 `rtl_v1` 后面接的是 `cache_agent` ——
+  拿它测 LOAD 延迟，测到的只是 agent 自己的参数，**是循环论证**。
+
+所以 **latency 标定用 `rtl_full`（FE+BE+Cache 完全体）**：一批 case 里 LOAD 与其它指令
+混在一起测，用完全体一次跑完就能拿到**所有**相关指令的 latency，**中途不换 DUT**。
+
+**这不违反 §10 的禁令** —— §10 禁的是"用 `rtl_full` 做 **delta 判定**"，两件事目的不同：
+
+| 活动 | DUT | 原因 |
+|---|---|---|
+| delta / 机制**符合性判定** | `rtl_v1` | 需要**受控**的派发 cycle（§9.3） |
+| latency **标定** | `rtl_full` | 需要**真实**的 FU 与 Cache |
+
+> `cache_agent` 是**行为模型**：只保证 load data 正确返回（功能正确），**不是性能依据**。
+> 所以它的固定延迟参数对 latency 标定没有意义；但它**确实影响"跑在 `rtl_v1` 上的
+> LOAD delta 判定"** —— 因为那个 delta 的 P3 发布时刻正由它决定。
 
 ## 6. 流程总览
 
@@ -395,8 +417,12 @@ case 若没有 `tohost` 写入 + `wfi`，ISA model 不会请求退出 → 仿真
 同一批 ELF 直接换 `--dut-kind rtl_full` 即可（FE 通过 `fe_mem_vif` 向
 `cache_agent` 的 I 侧取 L2/PTW，无需额外适配）。
 
-**不要用 `rtl_full` 做阶段 1 的判定**：micro-case 依赖受控的派发 cycle，
+**不要用 `rtl_full` 做阶段 1 的 delta 判定**：micro-case 依赖受控的派发 cycle，
 而真实 FE 的取指节奏会把它搅乱（§9.3）。
+
+> ⚠️ **这条只管 delta 判定。latency 标定反而必须用 `rtl_full`**（见 §5.1）：
+> `rtl_v1` 后面接的是 `cache_agent`，LOAD 的返回时刻由 agent 自己的参数决定，
+> 拿它标定 LOAD 延迟是循环论证。
 
 ## 11. 当前状态
 
