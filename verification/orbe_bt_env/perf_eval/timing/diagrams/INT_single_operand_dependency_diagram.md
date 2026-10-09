@@ -75,7 +75,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **TT4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 2: ALU_to_ALU_delta_1 (wait_for_p3)
 
@@ -89,7 +89,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 3: ALU_to_ALU_delta_2 (p3_capture)
 
@@ -102,7 +102,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |  |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **TT4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
+- **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
 - **T5 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 4: ALU_to_ALU_delta_3 (p4_capture)
@@ -116,7 +116,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **TT5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
+- **T5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
 - **T6 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 5: ALU_to_ALU_delta_4 (arf_read)
@@ -130,7 +130,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **TT6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
+- **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
 - **T7 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 6: MUL_to_ALU_delta_0 (overlay)
@@ -145,7 +145,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 7: MUL_to_ALU_delta_1 (wait_for_p3)
 
@@ -159,7 +159,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 8: MUL_to_ALU_delta_2 (wait_for_p3)
 
@@ -173,7 +173,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T4 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 9: MUL_to_ALU_delta_3 (wait_for_p3)
 
@@ -187,7 +187,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T5 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 10: MUL_to_ALU_delta_4 (p3_capture)
 
@@ -200,7 +200,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **TT6 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
+- **T6 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
 - **T7 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 11: MUL_to_ALU_delta_5 (p4_capture)
@@ -214,7 +214,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **TT7 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
+- **T7 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
 - **T8 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 12: MUL_to_ALU_delta_6 (arf_read)
@@ -228,7 +228,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **TT8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
+- **T8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
 - **T9 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 13: DIV_to_ALU_delta_0 (overlay)
@@ -243,7 +243,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **TT7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 14: DIV_to_ALU_delta_1 (wait_for_p3)
 
@@ -257,7 +257,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 15: DIV_to_ALU_delta_2 (wait_for_p3)
 
@@ -271,7 +271,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T4 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 16: DIV_to_ALU_delta_3 (wait_for_p3)
 
@@ -285,7 +285,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T5 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 17: DIV_to_ALU_delta_4 (wait_for_p3)
 
@@ -299,7 +299,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T6 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 18: DIV_to_ALU_delta_5 (p3_capture)
 
@@ -312,7 +312,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
-- **TT7 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
+- **T7 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
 - **T8 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 19: DIV_to_ALU_delta_6 (p4_capture)
@@ -326,7 +326,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
-- **TT8 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
+- **T8 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
 - **T9 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 20: DIV_to_ALU_delta_7 (arf_read)
@@ -340,7 +340,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
-- **TT9 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
+- **T9 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
 - **T10 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 21: LOAD_to_ALU_delta_0 (overlay)
@@ -355,7 +355,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 22: LOAD_to_ALU_delta_1 (wait_for_p3)
 
@@ -369,7 +369,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 23: LOAD_to_ALU_delta_2 (wait_for_p3)
 
@@ -383,7 +383,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T4 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 24: LOAD_to_ALU_delta_3 (wait_for_p3)
 
@@ -397,7 +397,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T5 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 25: LOAD_to_ALU_delta_4 (p3_capture)
 
@@ -410,7 +410,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **TT6 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
+- **T6 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
 - **T7 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 26: LOAD_to_ALU_delta_5 (p4_capture)
@@ -424,7 +424,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **TT7 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
+- **T7 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
 - **T8 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 27: LOAD_to_ALU_delta_6 (arf_read)
@@ -438,7 +438,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **TT8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
+- **T8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
 - **T9 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 28: JALR_to_ALU_delta_0 (overlay)
@@ -453,7 +453,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **TT4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 29: JALR_to_ALU_delta_1 (wait_for_p3)
 
@@ -467,7 +467,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **TT4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 30: JALR_to_ALU_delta_2 (p3_capture)
 
@@ -480,7 +480,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **TT4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
+- **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
 - **T5 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 31: JALR_to_ALU_delta_3 (p4_capture)
@@ -494,7 +494,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **TT5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
+- **T5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
 - **T6 (Issue):** the dependent issues one cycle after ready payload construction.
 
 ## Case 32: JALR_to_ALU_delta_4 (arf_read)
@@ -508,6 +508,6 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **TT6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
+- **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
 - **T7 (Issue):** the dependent issues one cycle after ready payload construction.
 
