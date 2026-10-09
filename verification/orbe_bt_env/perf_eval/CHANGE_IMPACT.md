@@ -289,6 +289,39 @@ E4               ←BE 看到 done_valid / byp_valid（dc_cdb.sv:35/37）
 | 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7（原第 38 / 56 / 212 / 217 行） | ✅ **已做**（`62c4700`，含修订表 `V1.0 rev.1`） |
 | 5 | 修正 cache agent 的 load done 时刻（原比真实 cache **早 1 拍**） | ✅ **已做**（`CDB_PRESENT_CYCLES`，见下） |
 | 6 | 测量时**规避 G0 / G1 的 lane 仲裁** —— 否则 `L` 会被量成"真值 + 仲裁等待" | 规矩（见下） |
+| 7 | **静态推算 DIV 的 `L = 4`**（现 caselist 写 8）；**待实测确认，暂不改参数** | 待实测（见下） |
+
+#### ⚠️ 静态推算：DIV 的 `L = 4`（**暂不改参数**）
+
+**当前 caselist 写 `DIV L = 8`（12 条 case）。RTL 的静态推算给出 `L = 4` —— 但先不改。**
+
+**RTL 事实**：
+
+- `fu/div_simple.sv` **没有任何 module parameter**；第 113 行注释写着
+  "Deliberately not a module parameter"。倒数是**硬编码**的：`cnt <= 2'd2`（第 299 行），
+  `logic [1:0] cnt`（2 bit，第 138 行）。
+- `top/backend_top.sv:1312` 的 `div_simple u_div_simple (…)` **没有任何 parameter 覆盖**
+  （也没得覆盖）。
+
+**逐拍推算（用 MUL 校准）**：
+
+| | 计数器 | accept 时置 | `cnt==0` 分支执行于 | `request_valid` 可见于 | 与注释一致？ |
+|---|---|---|---|---|---|
+| MUL | `logic cnt`（1 bit） | `cnt <= 1` | T+2 | **T+3** | ✅ header："issue at T, `request_valid` at **T+3**" |
+| **DIV** | `logic [1:0] cnt` | `cnt <= 2` | **T+3**（代码自称 "Cycle 3"） | **T+4** | ✅ 自身注释："`wb_q` is a register, so `request_valid` rises **the cycle after** `cnt` reaches 0" |
+
+**⇒ 规则：`cnt==0` 分支执行后一拍出 `request_valid`。⇒ DIV 的 `L = 4`。**
+
+**若成立会牵动**：P3 / P4 / ARF = **5 / 6 / 7**，枚举 `0..7`，DIV **8 条 case**（现 12），
+总数 **34**（现 38）。
+
+**⛔ 暂不改的理由**：`div_simple` 看起来是**行为占位模型** —— 组合算出 `div_result`、
+倒数只有 2 bit、自身注释用 "**N ≥ 1** cycles" 而不给具体值。
+若它将来被**外网生成的真实除法器**替换，`L = 4` 就作废。
+（`mul_simple` 的 3、`fpu_simple` 的 1 有同样的性质。）
+
+**待**：latency 实测确认；**且先用 ALU(1) / MUL(3) / LOAD(3) 三个已知点标定测试的口径**，
+再用它读 DIV —— 否则会重蹈 LOAD 的覆辙（见上方规矩 2）。
 
 #### ⚠️ 由第 5 项引出的两件事
 
