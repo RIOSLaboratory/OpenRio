@@ -186,6 +186,20 @@ typedef struct packed {
   assign rtl_isq_g2_issue_pld = rtl_isq2_issue_pld;
   assign rtl_isq_g3_issue_valid = u_backend.isq3_issue_valid;
   assign rtl_isq_g3_issue_pld = rtl_isq3_issue_pld;
+  // [fu_latency_bench] accept = request && the selected FU's FU_ready.
+  // Same combinational stage as rtl_isq_g*_issue_valid, so it is registered by
+  // the same obs_ flop below and stays拍-aligned with it.
+  logic [3:0] rtl_isq_issue_fire;
+  logic [3:0] obs_isq_issue_fire;
+  assign rtl_isq_issue_fire[0] = u_backend.isq0_issue_valid &&
+      ((u_backend.isq0_FU_Group == or_be_types_pkg::G0_FU_ALU) ? u_backend.alu0_FU_ready :
+       (u_backend.isq0_FU_Group == or_be_types_pkg::G0_FU_CSR) ? u_backend.csrfu_FU_ready :
+       (u_backend.isq0_FU_Group == or_be_types_pkg::G0_FU_DIV) ? u_backend.div_FU_ready : 1'b0);
+  assign rtl_isq_issue_fire[1] = u_backend.isq1_issue_valid &&
+      ((u_backend.isq1_FU_Group == or_be_types_pkg::G1_FU_ALU) ? u_backend.alu1_FU_ready :
+       (u_backend.isq1_FU_Group == or_be_types_pkg::G1_FU_MUL) ? u_backend.mul_FU_ready : 1'b0);
+  assign rtl_isq_issue_fire[2] = u_backend.isq2_issue_valid && u_backend.g2fu_FU_ready;
+  assign rtl_isq_issue_fire[3] = u_backend.isq3_issue_valid && u_backend.lsuif_FU_ready;
   assign rtl_csr_in_valid = u_backend.u_csr_unit.accept;
   assign rtl_csr_in_tag = u_backend.isq0_self_tag;
   assign rtl_csr_in_addr = u_backend.csrfu_csr_addr;
@@ -483,6 +497,7 @@ typedef struct packed {
   assign ob_cosim_vif.isq_g2_issue_pld = obs_isq_g2_issue_pld;
   assign ob_cosim_vif.isq_g3_issue_valid = obs_isq_g3_issue_valid;
   assign ob_cosim_vif.isq_g3_issue_pld = obs_isq_g3_issue_pld;
+  assign ob_cosim_vif.isq_issue_fire = obs_isq_issue_fire;
   assign ob_cosim_vif.csr_in_valid = obs_csr_in_valid;
   assign ob_cosim_vif.csr_in_tag = obs_csr_in_tag;
   assign ob_cosim_vif.csr_in_addr = obs_csr_in_addr;
@@ -571,6 +586,7 @@ typedef struct packed {
       obs_isq_g2_issue_pld <= '0;
       obs_isq_g3_issue_valid <= 1'b0;
       obs_isq_g3_issue_pld <= '0;
+      obs_isq_issue_fire <= '0;
       obs_csr_in_valid <= 1'b0;
       obs_csr_in_tag <= '0;
       obs_csr_in_addr <= '0;
@@ -695,6 +711,7 @@ typedef struct packed {
       obs_isq_g2_issue_pld <= rtl_isq_g2_issue_pld;
       obs_isq_g3_issue_valid <= rtl_isq_g3_issue_valid;
       obs_isq_g3_issue_pld <= rtl_isq_g3_issue_pld;
+      obs_isq_issue_fire <= rtl_isq_issue_fire;
       for (int lane = 0; lane < NUM_LANES; lane++) begin
         obs_fu_result[lane] <= rtl_fu_result[lane];
         obs_fu_mispredict[lane] <= rtl_fu_mispredict[lane];

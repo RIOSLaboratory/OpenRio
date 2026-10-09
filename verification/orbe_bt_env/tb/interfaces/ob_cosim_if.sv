@@ -124,6 +124,12 @@ interface ob_cosim_if #(
   logic isq_g3_issue_valid;
   cosim_isq_g3_issue_pld_t isq_g3_issue_pld;
 
+  // [fu_latency_bench] ISQ issue ACCEPT, one bit per group G0..G3.
+  // The isq_g*_issue_valid above are REQUEST lines and stay asserted until the
+  // FU handshake succeeds; the accept (RTL `issue_fire`) is
+  // `issue_valid && FU_ready[FU_Group]`. Latency is measured from the accept.
+  logic [3:0] isq_issue_fire;
+
   // Level-2 CSR unit boundary observation channels.
   logic csr_in_valid;
   logic [ROB_ADDR_W-1:0] csr_in_tag;

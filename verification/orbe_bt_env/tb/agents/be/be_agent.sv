@@ -684,6 +684,8 @@ class be_agent;
     if (!allocated_by_rob.exists(rob_idx)) return;
     lsu_issued_by_rob[rob_idx] = 1'b1;
     lsu_issued_cycle_by_rob[rob_idx] = cycle_count;
+    // [fu_latency_bench] G3 accept into the LSU -- the LOAD/AMO issue拍.
+    cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [LSU_ISSUE] cycle=%0d tag=0x%0h", cycle_count, rob_idx));
   endtask
 
   task automatic capture_l2_ref(input longint unsigned rob_idx);
@@ -765,6 +767,11 @@ class be_agent;
         cfg.print_be(3, $sformatf("[BE] ignore stale execute rob=%0d", rob_idx));
         continue;
       end
+      // [fu_latency_bench] P3 writeback / bypass presentation on this lane.
+      // Printed for every lane including memory (G3), so LOAD/AMO results are covered.
+      cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [FU_WB] cycle=%0d lane=%0d tag=0x%0h result=0x%016h mispredict=%0b exception=%0b",
+                    cycle_count, source, rob_idx, ob_cosim_vif.fu_after_result[source],
+                    ob_cosim_vif.fu_after_mispredict[source], ob_cosim_vif.fu_after_exception[source]));
       if (lsu_by_rob[rob_idx])
         continue;
       if (execute_started_by_rob.exists(rob_idx))
@@ -966,6 +973,24 @@ class be_agent;
 
   task automatic observe_isq_issue();
     longint unsigned rob_idx;
+    // [fu_latency_bench] the ISQ issue ACCEPT拍 (request && FU_ready). Emitted at
+    // verbosity>=2 regardless of cosim_level, so the latency bench can use it.
+    if (ob_cosim_vif.isq_issue_fire[0])
+      cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [ISQ_FIRE] cycle=%0d group=0 tag=0x%0h pc=0x%016h inst=0x%08h",
+                    cycle_count, ob_cosim_vif.isq_g0_issue_pld.self_tag,
+                    ob_cosim_vif.isq_g0_issue_pld.pc, ob_cosim_vif.isq_g0_issue_pld.inst_bits));
+    if (ob_cosim_vif.isq_issue_fire[1])
+      cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [ISQ_FIRE] cycle=%0d group=1 tag=0x%0h exe_subop=0x%06h",
+                    cycle_count, ob_cosim_vif.isq_g1_issue_pld.self_tag,
+                    ob_cosim_vif.isq_g1_issue_pld.exe_subop));
+    if (ob_cosim_vif.isq_issue_fire[2])
+      cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [ISQ_FIRE] cycle=%0d group=2 tag=0x%0h exe_subop=0x%06h",
+                    cycle_count, ob_cosim_vif.isq_g2_issue_pld.self_tag,
+                    ob_cosim_vif.isq_g2_issue_pld.exe_subop));
+    if (ob_cosim_vif.isq_issue_fire[3])
+      cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [ISQ_FIRE] cycle=%0d group=3 tag=0x%0h mem_funct3=%0d",
+                    cycle_count, ob_cosim_vif.isq_g3_issue_pld.self_tag,
+                    ob_cosim_vif.isq_g3_issue_pld.mem_funct3));
     if (!level2_enabled())
       return;
     if (ob_cosim_vif.isq_g0_issue_valid === 1'b1) begin
@@ -1232,6 +1257,13 @@ class be_agent;
 
   task automatic observe_lsu_responses();
     longint unsigned rob_idx;
+    // [fu_latency_bench] LSU response拍 -- evidence for the lane-3 presentation.
+    if (ob_cosim_vif.lsu_be_done_valid === 1'b1)
+      cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [LSU_DONE] cycle=%0d tag=0x%0h data=0x%016h",
+                    cycle_count, ob_cosim_vif.lsu_be_done_pld.tag, ob_cosim_vif.lsu_be_done_pld.data));
+    if (ob_cosim_vif.lsu_be_bypass_valid === 1'b1)
+      cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [LSU_BYPASS] cycle=%0d tag=0x%0h data=0x%016h",
+                    cycle_count, ob_cosim_vif.lsu_be_bypass_pld.tag, ob_cosim_vif.lsu_be_bypass_pld.data));
     if (!level2_enabled())
       return;
     if (ob_cosim_vif.lsu_be_done_valid === 1'b1) begin
