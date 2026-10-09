@@ -160,6 +160,17 @@ CASES.append(C("AMO_sc.w", "AMO", "rv64imafdc",
 CASES.append(C("AMO_sc.d", "AMO", "rv64imafdc",
                SET_MEM + "\n    lr.d x6, (x2)\n    add  x7, x6, x0",
                "    sc.d x5, x3, (x2)"))
+# Value check: prove the AMO really runs through the cache AMO path (dc_amo_op):
+# store old=0x1234 first, then amoadd 3; the returned (old) value must be 0x1234.
+CASES.append(C("AMO_amoadd_w_oldval", "AMO", "rv64imafdc",
+               """    addi x3, zero, 3
+    la   x2, wdata
+    li   x7, 0x1234
+    sd   x7, 0(x2)
+    ld   x8, 0(x2)
+    add  x9, x8, x0""",
+               "    amoadd.w x5, x3, (x2)",
+               note="old=0x1234 -> returned value must be 0x1234"))
 
 # ---- arbitration demo (A/B): same producer, only the exit layout differs -----
 # Arbitration is a whole-cycle event: a loser re-drives on the NEXT cycle, so L

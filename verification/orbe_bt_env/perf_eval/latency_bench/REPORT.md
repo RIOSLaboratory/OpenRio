@@ -34,6 +34,9 @@
 3. **`fpu_simple` 全家族单周期（`N = 1`）**，连 `fdiv.d`/`fsqrt.d` 也是 1。
    若将来开 FP K-map，其 producer L 一律为 1。
 4. **AMO 的 RMW 比普通 LOAD 多一拍**（4 vs 3）；LR 与 LOAD 相同（3）。
+   AMO **确实走 cache 的 AMO 路径**（`src/core/cache_rtl_v1/dc_amo_op.sv`）：
+   `AMO_amoadd_w_oldval` 先存 `0x1234` 再 `amoadd.w`，`LSU_BYPASS … data=0x1234`，
+   返回的旧值正确 → 不是空操作。
 5. **L 是整数**：仲裁争用只会让 completion 顺延**整整一拍**（见 §3.3 的 A/B 实测），
    不会出现 1.01 这类小数。
 6. **ALU 两个实例都直接测过**：G0（lane0）与 G1（lane1）各一条，均为 1。
@@ -99,7 +102,7 @@ producer 才需要 L。
 | LR（`lr.w x5,(x2)`） | **3** | 3 | `[LSU_ISSUE] cycle=40 tag=0xb` | `[LSU_BYPASS] cycle=43 tag=0xb` |
 | SC（`sc.w x5,x3,(x2)`） | **4** | 3 | `[LSU_ISSUE] cycle=50 tag=0xd` | `[LSU_BYPASS] cycle=54 tag=0xd` |
 
-### 3.2 逐例 L 清单（100 例；完整字段见 `latency_results.csv`）
+### 3.2 逐例 L 清单（101 例；完整字段见 `latency_results.csv`）
 
 | 家族 | 逐例（case=L） |
 |---|---|
@@ -110,7 +113,7 @@ producer 才需要 L。
 | JALR | JALR_link=1, JAL_link=1 |
 | FP_ARITH | FP_fadd_s=1, FP_fsub_s=1, FP_fmul_s=1, FP_fdiv_s=1, FP_fmin_s=1, FP_fmax_s=1, FP_fsgnj_s=1, FP_fsgnjn_s=1, FP_fsgnjx_s=1, FP_fadd_d=1, FP_fsub_d=1, FP_fmul_d=1, FP_fdiv_d=1, FP_fmin_d=1, FP_fmax_d=1, FP_fsgnj_d=1, FP_fsqrt_s=1, FP_fsqrt_d=1, FP_fmadd_s=1, FP_fmadd_d=1, FP_fnmsub_s=1 |
 | FP_TO_INT | FPI_fcvt_w_s=1, FPI_fcvt_wu_s=1, FPI_fcvt_l_s=1, FPI_fcvt_lu_s=1, FPI_fcvt_w_d=1, FPI_fcvt_l_d=1, FPI_fcvt_s_w=1, FPI_fcvt_d_w=1, FPI_fcvt_s_d=1, FPI_fcvt_d_s=1, FPI_fmv_x_w=1, FPI_fmv_x_d=1, FPI_fclass_s=1, FPI_fclass_d=1, FPI_feq_s=1, FPI_flt_d=1, FPI_fle_s=1 |
-| AMO | AMO_amoadd_w=4, AMO_amoadd_d=4, AMO_amoswap_w=4, AMO_amoswap_d=4, AMO_amoand_w=4, AMO_amoand_d=4, AMO_amoor_w=4, AMO_amoor_d=4, AMO_amoxor_w=4, AMO_amoxor_d=4, AMO_amomin_w=4, AMO_amomin_d=4, AMO_amomax_w=4, AMO_amomax_d=4, AMO_amominu_w=4, AMO_amominu_d=4, AMO_amomaxu_w=4, AMO_amomaxu_d=4, AMO_lr_w=3, AMO_lr_d=3, AMO_sc_w=4, AMO_sc_d=4 |
+| AMO | AMO_amoadd_w=4, AMO_amoadd_d=4, AMO_amoswap_w=4, AMO_amoswap_d=4, AMO_amoand_w=4, AMO_amoand_d=4, AMO_amoor_w=4, AMO_amoor_d=4, AMO_amoxor_w=4, AMO_amoxor_d=4, AMO_amomin_w=4, AMO_amomin_d=4, AMO_amomax_w=4, AMO_amomax_d=4, AMO_amominu_w=4, AMO_amominu_d=4, AMO_amomaxu_w=4, AMO_amomaxu_d=4, AMO_lr_w=3, AMO_lr_d=3, AMO_sc_w=4, AMO_sc_d=4, AMO_amoadd_w_oldval=4(旧值 0x1234 校验通过) |
 
 ### 3.3 为什么 L 是整数：仲裁只会 +1 整拍（A/B 实测）
 
@@ -169,7 +172,7 @@ export ISA_CFG=/work/home/danielle/workspace/act-cosim/cfg/act_suncheek_0x800000
 # (1) 编译 rtl_full（含本任务的 TB 观测改动）
 JOBS=8 tools/verilator_cosim.sh build --dut-kind rtl_full --tag fu_latency
 
-# (2) 生成 .S → 编 ELF → 跑仿真 → 抽 issue/wb → 落 CSV（100 例）
+# (2) 生成 .S → 编 ELF → 跑仿真 → 抽 issue/wb → 落 CSV（101 例）
 python3 perf_eval/latency_bench/bench.py --jobs 8
 
 #    只跑某几个家族（示例）
@@ -198,7 +201,7 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
 
 | 文件 | 内容 |
 |---|---|
-| `latency_results.csv` | 100 例逐例：`case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status` |
+| `latency_results.csv` | 101 例逐例：`case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status` |
 | `family_summary.csv` | 按家族：`family,cases,L_min,L_max,L_values` |
 | `toolchain.csv` | 工具链/配置/commit/复现命令（机器可读） |
 | `bench.py` | case 生成 + 编译 + 运行 + 解析 + CSV 导出的全部逻辑 |
@@ -253,7 +256,7 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
 | JALR taken/redirect | ❌ | 只测 link 值写回；含 redirect 的可见拍另算 |
 | 数据相关延迟 | ❌（本 RTL 无） | 本 RTL 固定延迟，故未扫 div-by-zero/overflow、NaN/Inf/subnormal 等 |
 | 压缩指令（C） | ❌ | 用 `.option norvc`；C 展开为相同 op，不改变 L，但未专门验证 |
-| AMO/LR/SC 的 reservation 失败、多核竞争 | ❌ | 只测单核、成功路径 |
+| AMO/LR/SC 的 **reservation 失败**、多核竞争、miss 行上的 AMO | ❌ | **AMO/LR/SC 本身已测**（含旧值正确性）；没测的是失败路径 / 多核 / 缺行 |
 | STORE / FENCE / CSR | ❌（设计如此） | 无 rd 或串行化，不属于 register-result producer |
 
 **如要让覆盖更全面，可增补**（本目录已有可复用的 `bench.py`，加 case 即可）：
