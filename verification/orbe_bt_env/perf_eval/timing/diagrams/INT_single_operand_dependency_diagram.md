@@ -21,16 +21,31 @@ The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md
 | `WB` | **P3** | Result writeback / bypass broadcast. |
 | `C` | **P4** | Commit. |
 
-Landmarks used by every figure, for a producer of latency `L` whose dispatch is at T2:
+Landmarks used by every figure. `L` is the producer family's latency and `delta` is the case's delta — the `<n>` in the case name (`<Producer>_to_ALU_delta_<n>`). `L` is a parameter, `delta` is the independent variable.
 
 | Landmark | Column |
 |---|---|
+| Producer dispatch (`RSx`) | T2 |
 | Producer issue (`SL`) | T3 |
 | Producer internal stages | T3 … T(2+`L`) |
 | Producer P3 (`WB`) | **T(3+`L`)** |
 | Producer P4 (`C`) | T(4+`L`) |
 | Producer ARF-ready | T(5+`L`) |
-| Dependent dispatch (`RSx`) | T(2+`n`), where `n` is the case's `delta` |
+| **Dependent dispatch** (= its P1 attempt) | **T(2+`delta`)** |
+| **Dependent issue** | **`max(T(3+`L`), T(3+`delta`))`** — the producer's P3, or one cycle after the dependent's own dispatch, whichever is later |
+| Dependent `WB` / `C` | issue + 1 / issue + 2 |
+
+The mechanism label is a function of `delta` and `L`, and it is what makes the two dependent columns line up:
+
+| Condition | Label |
+|---|---|
+| `delta` = 0 | `overlay` |
+| 1 ≤ `delta` ≤ `L` | `wait_for_p3` |
+| `delta` = `L`+1 | `p3_capture` |
+| `delta` = `L`+2 | `p4_capture` |
+| `delta` = `L`+3 | `arf_read` |
+
+The enumerated range is `0 … L+3`, i.e. `L+4` cases per family.
 
 ## Case 1: ALU_to_ALU_delta_0 (overlay)
 
