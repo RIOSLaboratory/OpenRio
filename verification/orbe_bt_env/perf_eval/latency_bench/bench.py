@@ -86,6 +86,13 @@ for op in ["add", "sub", "and", "or", "xor", "sll", "srl", "sra", "slt", "sltu"]
 CASES.append(C("ALU_addi", "ALU", "rv64imafdc", SET_INT, "    addi x5, x1, 3"))
 CASES.append(C("ALU_auipc", "ALU", "rv64imafdc", SET_INT, "    auipc x5, 0", "AUIPC is G0-only"))
 CASES.append(C("ALU_lui", "ALU", "rv64imafdc", SET_INT, "    lui x5, 1"))
+# Force the ALU op into G1 (u_alu1) instead of G0: put a G0-only AUIPC immediately
+# before it, so slot0 takes G0 and the producer is dispatched to G1 (lane 1).
+CASES.append(C("ALU_add_G1", "ALU", "rv64imafdc",
+               SET_INT + "\n    la   x29, tohost\n    addi x28, zero, 1\n    addi x7, zero, 0\n    auipc x6, 0",
+               "    add x5, x1, x2",
+               note="G1-forced ALU op (lane 1): AUIPC shares an 8B-aligned bundle with the add",
+               post="    sd   x28, 0(x29)\n1:  j    1b", raw=True))
 
 for op in ["mul", "mulh", "mulhsu", "mulhu", "mulw"]:
     CASES.append(C(f"MUL_{op}", "MUL", "rv64imafdc", SET_INT, f"    {op} x5, x1, x2"))

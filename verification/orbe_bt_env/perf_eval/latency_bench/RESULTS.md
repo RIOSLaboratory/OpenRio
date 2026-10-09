@@ -68,7 +68,7 @@ L =（结果/bypass 对 BE 可见的那一拍）−（发射被接受的那一�
 
 | 家族 | 覆盖指令 | 例数 | L |
 |---|---|---:|---:|
-| ALU | add/sub/and/or/xor/sll/srl/sra/slt/sltu/addi/auipc/lui | 13 | 1 |
+| ALU | add/sub/and/or/xor/sll/srl/sra/slt/sltu/addi/auipc/lui/add(G1 强制) | 14 | 1 |
 | MUL | mul/mulh/mulhsu/mulhu/mulw | 5 | 3 |
 | DIV | div/divu/rem/remu/divw/divuw/remw/remuw | 8 | 4 |
 | LOAD | ld/lw/lh/lb/lwu/lhu/lbu | 7 | 3 |

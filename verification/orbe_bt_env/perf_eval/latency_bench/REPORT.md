@@ -36,6 +36,7 @@
 4. **AMO 的 RMW 比普通 LOAD 多一拍**（4 vs 3）；LR 与 LOAD 相同（3）。
 5. **L 是整数**：仲裁争用只会让 completion 顺延**整整一拍**（见 §3.3 的 A/B 实测），
    不会出现 1.01 这类小数。
+6. **ALU 两个实例都直接测过**：G0（lane0）与 G1（lane1）各一条，均为 1。
 
 ---
 
@@ -98,11 +99,11 @@ producer 才需要 L。
 | LR（`lr.w x5,(x2)`） | **3** | 3 | `[LSU_ISSUE] cycle=40 tag=0xb` | `[LSU_BYPASS] cycle=43 tag=0xb` |
 | SC（`sc.w x5,x3,(x2)`） | **4** | 3 | `[LSU_ISSUE] cycle=50 tag=0xd` | `[LSU_BYPASS] cycle=54 tag=0xd` |
 
-### 3.2 逐例 L 清单（99 例；完整字段见 `latency_results.csv`）
+### 3.2 逐例 L 清单（100 例；完整字段见 `latency_results.csv`）
 
 | 家族 | 逐例（case=L） |
 |---|---|
-| ALU | ALU_add=1, ALU_sub=1, ALU_and=1, ALU_or=1, ALU_xor=1, ALU_sll=1, ALU_srl=1, ALU_sra=1, ALU_slt=1, ALU_sltu=1, ALU_addi=1, ALU_auipc=1, ALU_lui=1 |
+| ALU | ALU_add=1, ALU_sub=1, ALU_and=1, ALU_or=1, ALU_xor=1, ALU_sll=1, ALU_srl=1, ALU_sra=1, ALU_slt=1, ALU_sltu=1, ALU_addi=1, ALU_auipc=1, ALU_lui=1, ALU_add_G1=1 |
 | MUL | MUL_mul=3, MUL_mulh=3, MUL_mulhsu=3, MUL_mulhu=3, MUL_mulw=3 |
 | DIV | DIV_div=4, DIV_divu=4, DIV_rem=4, DIV_remu=4, DIV_divw=4, DIV_divuw=4, DIV_remw=4, DIV_remuw=4 |
 | LOAD | LOAD_ld=3, LOAD_lw=3, LOAD_lh=3, LOAD_lb=3, LOAD_lwu=3, LOAD_lhu=3, LOAD_lbu=3, LOAD_flw=3, LOAD_fld=3 |
@@ -168,7 +169,7 @@ export ISA_CFG=/work/home/danielle/workspace/act-cosim/cfg/act_suncheek_0x800000
 # (1) 编译 rtl_full（含本任务的 TB 观测改动）
 JOBS=8 tools/verilator_cosim.sh build --dut-kind rtl_full --tag fu_latency
 
-# (2) 生成 .S → 编 ELF → 跑仿真 → 抽 issue/wb → 落 CSV（99 例）
+# (2) 生成 .S → 编 ELF → 跑仿真 → 抽 issue/wb → 落 CSV（100 例）
 python3 perf_eval/latency_bench/bench.py --jobs 8
 
 #    只跑某几个家族（示例）
@@ -197,7 +198,7 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
 
 | 文件 | 内容 |
 |---|---|
-| `latency_results.csv` | 99 例逐例：`case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status` |
+| `latency_results.csv` | 100 例逐例：`case,family,producer_pc,rob,issue_cycle,wb_cycle,lane,L,status` |
 | `family_summary.csv` | 按家族：`family,cases,L_min,L_max,L_values` |
 | `toolchain.csv` | 工具链/配置/commit/复现命令（机器可读） |
 | `bench.py` | case 生成 + 编译 + 运行 + 解析 + CSV 导出的全部逻辑 |
@@ -228,3 +229,37 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
    case 生成用的 L 取固有值。
 8. **JALR 只计 link 值写回**（lane0 `rd=PC+4`），**不含** redirect/取指重定向；若需要
    "含 redirect 的可见拍"是另一个口径，需另行测量。
+
+---
+
+## 8. 覆盖范围与不覆盖范围
+
+每个 case 只有 **setup + 恰好 1 条被测 producer + exit**（约 10–15 条）。这是**为测 L 刻意**
+设计的最小形态：L 是"一条指令从发射接受到结果可见"的拍差，指令多了只会引入
+争用/换序/cache 状态等噪声，不会改变被测算子的 L。
+而且本版 RTL 的 FU 都是**固定延迟**模型（`alu_simple` 一级寄存、`mul_simple` 固定倒数、
+`div_simple` 硬编码 `cnt`、`fpu_simple` 组合 + 一级寄存），L 与数据无关，
+所以每类算子取代表指令即可。
+
+对"提供 case 生成参数"这个目的，L 是**完整**的；但作为**整机性能评估**它显然**不完整**。
+明确列出**不覆盖**的部分（如需可另测）：
+
+| 维度 | 本报告 | 说明 / 缺口 |
+|---|---|---|
+| 单条 producer 的固有 L | ✅ 覆盖 | 每类算子 + 宽度/格式变体；ALU 的 G0/G1 两个实例都测过 |
+| **吞吐 / 发射间隔（II）** | ❌ | 单条 producer 不给"背靠背能否连发"。`FU_ready=!busy`，MUL/DIV 会 busy 若干拍，FPU `N=1` → 连续发射间隔 ≠ L |
+| **争用下的有效可见拍** | ⚠️ 仅 A/B | §3.3 证明会 +1 整拍，但没有系统统计"平均每条指令周期"（那才是会出现小数的量） |
+| cache 命中路径 | ⚠️ 仅直接命中 | miss / merge / store-to-load forwarding / uncached-MMIO 未覆盖（任务明确排除） |
+| JALR taken/redirect | ❌ | 只测 link 值写回；含 redirect 的可见拍另算 |
+| 数据相关延迟 | ❌（本 RTL 无） | 本 RTL 固定延迟，故未扫 div-by-zero/overflow、NaN/Inf/subnormal 等 |
+| 压缩指令（C） | ❌ | 用 `.option norvc`；C 展开为相同 op，不改变 L，但未专门验证 |
+| AMO/LR/SC 的 reservation 失败、多核竞争 | ❌ | 只测单核、成功路径 |
+| STORE / FENCE / CSR | ❌（设计如此） | 无 rd 或串行化，不属于 register-result producer |
+
+**如要让覆盖更全面，可增补**（本目录已有可复用的 `bench.py`，加 case 即可）：
+
+1. **II/吞吐**：连续 N 条同 FU producer，测两次 `issue_fire` 的间隔；
+2. **争用统计**：刻意制造同 lane 冲突，报"平均可见拍"（会出现小数，适合整机评估）；
+3. **cache 路径**：用指定的 miss/forward/merge 序列；
+4. **redirect-inclusive JALR**：把 taken 跳转的可见拍一并测；
+5. **旁证**：用同事提供的 latency ELF（其内部循环很多次）做"平均值"视角的交叉验证。
