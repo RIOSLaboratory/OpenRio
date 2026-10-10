@@ -61,7 +61,7 @@ Each bus carries **only** the value published in that cycle; nothing is held. A 
 
 That one-cycle window is what the delta ladder enumerates: `delta` places the dependent's P1 relative to the producer's P3 / P4, and the case label follows from which window it lands in.
 
-If a resident entry matches a P3 source in P2 but the selected FU cannot issue in that cycle, the matched data is latched at the clock edge and becomes `Stored Ready in ISQ` for a later cycle — it is not lost.
+If a resident entry matches a P3 source in P2 but the selected FU cannot issue in that cycle, the matched data is latched at the clock edge, so from the next cycle the entry is `Stored Ready` and needs no further forwarding — it is not lost.
 
 ## Case 1: ALU_to_ALU_delta_0 (overlay)
 

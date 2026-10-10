@@ -33,7 +33,7 @@ Each bus carries **only** the value published in that cycle; nothing is held. A 
 
 That one-cycle window is what the sources in these cases enumerate: the P1 MUX cases place a source in the dependent's P1 cycle, and the P2 MUX cases keep the dependent resident so its P2 falls in that window.
 
-If a resident entry matches a P3 source in P2 but the selected FU cannot issue in that cycle, the matched data is latched at the clock edge and becomes `Stored Ready in ISQ` for a later cycle — it is not lost.
+If a resident entry matches a P3 source in P2 but the selected FU cannot issue in that cycle, the matched data is latched at the clock edge and becomes `Stored Ready in RS(n)` for a later cycle — it is not lost.
 
 ## Rules used by these figures
 
@@ -289,7 +289,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 ## P2 MUX Resident-Entry Cases
 
-These cases complement the P1 MUX figures above. The dependent instruction is already resident in ISQ; T8 is the observed P2 FU-input MUX cycle where current P3 forwarding and/or stored `entry.rs_data` make the operands usable. `P4 Commit CDB` is not a P2 MUX source. Immediate operands are already carried in the resident payload and are covered by `Stored Ready in ISQ`.
+These cases complement the P1 MUX figures above. The dependent instruction is already resident in ISQ; T8 is the observed P2 FU-input MUX cycle where current P3 forwarding and/or stored `entry.rs_data` make the operands usable. `P4 Commit CDB` is not a P2 MUX source. Immediate operands are already carried in the resident payload and are covered by `Stored Ready in RS(n)`.
 
 ## Case 18: INT2_P2_G1P3_G0P3
 
@@ -304,7 +304,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
-- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in ISQ` for retry.
+- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in RS(n)` for retry.
 
 ## Case 19: INT2_P2_G3P3_G0P3
 
@@ -319,22 +319,22 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
-- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in ISQ` for retry.
+- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in RS(n)` for retry.
 
 ## Case 20: INT2_P2_STORED_G0P3
 
-**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in ISQ + G0 P3 Bypass
+**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in RS(n) + G0 P3 Bypass
 **Description:** P2 mux uses stored `entry.rs1_data` and current G0 Bypass data.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x10, x1, x2` - Stored Ready in ISQ | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
+| `add x10, x1, x2` - Stored Ready in RS(n) | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
 | `add x5, x3, x4` - G0 P3 Bypass |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |  |
 | `add x20, x10, x5` - Dependent-G1 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU1) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
-- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in ISQ` for retry.
+- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in RS(n)` for retry.
 
 ## Case 21: INT2_P2_G3P3_G1P3
 
@@ -349,52 +349,52 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
-- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in ISQ` for retry.
+- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in RS(n)` for retry.
 
 ## Case 22: INT2_P2_STORED_G1P3
 
-**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in ISQ + G1 P3 Bypass
+**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in RS(n) + G1 P3 Bypass
 **Description:** P2 mux uses stored `entry.rs1_data` and current G1 Bypass data.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x10, x1, x2` - Stored Ready in ISQ | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
+| `add x10, x1, x2` - Stored Ready in RS(n) | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
 | `mul x6, x3, x4` - G1 P3 Bypass |  |  | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |
 | `add x20, x10, x6` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
-- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in ISQ` for retry.
+- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in RS(n)` for retry.
 
 ## Case 23: INT2_P2_STORED_G3P3
 
-**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in ISQ + G3 Load P3 Bypass
+**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in RS(n) + G3 Load P3 Bypass
 **Description:** P2 mux uses stored `entry.rs1_data` and current G3 load Bypass data.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x11, x1, x2` - Stored Ready in ISQ | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
+| `add x11, x1, x2` - Stored Ready in RS(n) | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
 | `ld x6, 0(x10)` - G3 Load P3 Bypass |  |  | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
 | `add x20, x11, x6` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
-- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in ISQ` for retry.
+- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in RS(n)` for retry.
 
 ## Case 24: INT2_P2_STORED_STORED
 
-**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in ISQ + Stored Ready in ISQ
+**Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready in RS(n) + Stored Ready in RS(n)
 **Description:** P2 mux selects both operands from stored `entry.rs_data`; no current-cycle forwarding is needed.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x10, x1, x2` - Stored Ready in ISQ | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
-| `add x11, x3, x4` - Stored Ready in ISQ | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
+| `add x10, x1, x2` - Stored Ready in RS(n) | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
+| `add x11, x3, x4` - Stored Ready in RS(n) | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |  |
 | `add x20, x10, x11` - Dependent-G0 |  |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
 
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** both operands come from already valid `entry.rs_data`; no current-cycle forwarding source is required.
-- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in ISQ` for retry.
+- **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready in RS(n)` for retry.
 
 ## Supplemental Same-RD Fanout Cases
 
