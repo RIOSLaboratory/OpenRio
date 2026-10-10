@@ -12,7 +12,7 @@ _start:
     mul  x6, x3, x4
     addi x21, x0, 1
     ld   x8, 0(x10)
-    addi x22, x0, 1
+    addi x22, x21, 1
     addi x23, x22, 1
     addi x24, x23, 1
     addi x25, x24, 1
