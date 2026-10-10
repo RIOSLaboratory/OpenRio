@@ -35,12 +35,10 @@ That one-cycle window is what the sources in these cases enumerate: the P1 MUX c
 
 If a resident entry matches a P3 source in P2 but the selected FU cannot issue in that cycle, the matched data is latched at the clock edge and becomes `Stored Ready in RS(n)` for a later cycle — it is not lost.
 
-## Rules used by these figures
+## Two constraints these figures obey
 
-1. **Cycle normalisation.** P1 source resolution is pinned to **T6** (Cases 1–17, 25–27); P2 resident-entry source-ready is pinned to **T8** (Cases 18–24, 28–30). A producer of latency `L` is placed so that its P3 lands on the pinned cycle: `WB column = pinned`, and therefore `IB column = pinned − 2 − L`. A longer-latency producer starts earlier — the pinned cycle never moves.
-2. **The source-ready cycle is not the issue cycle.** A P1 capture writes a new ISQ payload in the pinned cycle; the dependent issues on the following cycle.
-3. **Same-group dispatch is impossible.** The ISQ holds one entry per group, so **two instructions of the same group cannot be dispatched in the same cycle**. Where a producer pinned to the source-ready cycle would otherwise have to share its group's dispatch cycle with the dependent, the dependent is routed to the other ALU group and is drawn as `Dependent-G1` / `SL (ALU1)`. This is the same routing choice the single-operand `delta_0` rows make.
-4. **Same-group P3 lanes.** Two different producers of the same group cannot both publish on that group's P3 bypass lane in one cycle; those K-map cells are the gray `don't exist` cells. Rules 3 and 4 are distinct: rule 3 is a dispatch-entry conflict in P1, rule 4 is a bypass-lane conflict in P3.
+1. **Same-group dispatch is impossible.** The ISQ holds one entry per group, so two instructions of the same group cannot be dispatched in the same cycle. Where a producer would otherwise have to share its group's dispatch cycle with the dependent, the dependent is routed to the other ALU group and is drawn as `Dependent-G1` / `SL (ALU1)`. This is the same routing choice the single-operand `delta_0` rows make.
+2. **Same-group P3 lanes.** Two different producers of the same group cannot both publish on that group's P3 bypass lane in one cycle; those K-map cells are the gray `don't exist` cells. Constraints 1 and 2 are distinct: the first is about the dispatch entry in P1, the second about the bypass lane in P3.
 
 ## Case 1: INT2_G1P3_G0P3
 

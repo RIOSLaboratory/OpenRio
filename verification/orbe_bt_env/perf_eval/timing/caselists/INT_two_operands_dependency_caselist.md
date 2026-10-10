@@ -58,7 +58,7 @@ For any mixed-source P3 case, issue the producers at different P1 cycles as need
 
 The three same-bypass diagonal cells are excluded because they are gray `don't exist` cells in the K-map. Two different same-group producers cannot both publish on the same group P3 bypass lane in one cycle. A separate instruction shape where one producer feeds both operands, such as `add x20, x5, x5`, is legal, but it is not a two-source composition POI.
 
-**Same-group dispatch.** Separately from the P3-lane rule above, the ISQ holds one entry per group, so **two instructions of the same group cannot be dispatched in the same cycle**. A dependent that would otherwise share its group's dispatch cycle with a pinned producer is routed to the other ALU group, and the figures show it as `Dependent-G1`. This is the same routing choice the single-operand `delta_0` rows make.
+**Same-group dispatch.** Separately from the P3-lane rule above, the ISQ holds one entry per group, so **two instructions of the same group cannot be dispatched in the same cycle**. A dependent that would otherwise share its group's dispatch cycle with the producer that supplies the source is routed to the other ALU group, and the figures show it as `Dependent-G1`. This is the same routing choice the single-operand `delta_0` rows make.
 
 ## Why IMM Is Kept in the P1 MUX Map
 
