@@ -429,6 +429,24 @@ dependent 的 P1 落在哪一拍，决定了它用哪条窗口：P3 拍 → `p3_
 
 ---
 
+### 4.8 填充物与派发组绑定：预期**有 RTL 依据**（不写进 caselist）
+
+caselist 新增的 `## Filler and Program Construction` 一节声明了"填充物不会挤走 case"。
+按 §4 的分工，**声明留在 caselist（预期侧），依据记在这里（归因侧）**：
+
+| 声明 | RTL 依据（`src/core/be_rtl_v1/p1/dispatch_logic.sv`） | 结论 |
+|---|---|---|
+| 整数 ALU 填充可被放到 `G0` 或 `G1`，冲突时**让位** | 灵活槽：`slot_ISQGroup[0] = <flex> ? (isq_free_for_dispatch[GRP_G0] ? GRP_G0 : GRP_G1) : fixed_group[0]`（L384）；slot1 追加 `&& !slot0_takes_G0`（L402–406） | ✅ |
+| case 指令拿到**它自己该拿的组** | 固定路由表（L338–343）：`ROUTE_MUL → G1`、`ROUTE_FPU → G2`、`ROUTE_LSU / ATOMIC / FENCE → G3`、`default → G0` | ✅ |
+| 组忙 ⇒ **该槽本拍不被接收**（所以挤不走 case） | `accept[0]` 含 `isq_free_for_dispatch[slot_ISQGroup[0]]`（L391）；`accept[1]` 含同一项 **且** `groups_distinct`（L409–414） | ✅ |
+| 同拍两条**不能同组** | `groups_distinct = (slot_ISQGroup[1] != slot_ISQGroup[0])`（L409） | ✅ |
+| **case 指令必须落在 slot 0** | slot1 的灵活选择**显式依赖 `slot0_takes_G0`**（L402–406）⇒ 若灵活槽先占了 slot0 的 `G0`，slot1 的 `G0` 固定指令 `groups_distinct = 0` ⇒ 本拍不收 ⇒ **顺延一拍** | ✅ 这就是 caselist 那条 bullet 的由来 |
+| **每拍稳定派发 2 条** | —— | ⚠️ **无 RTL 依据，只能实测**（已写为该节的 assumption） |
+
+**⇒ 前五行有 RTL 依据；最后一行是假设。** 两者都不写进 caselist（§4：预期侧不含 RTL）。
+
+---
+
 ## 5. 顺带发现（需要你决策）
 
 ### 5.1 `lsu_bridge` → `g3_lsu_iface`（✅ 已执行）
