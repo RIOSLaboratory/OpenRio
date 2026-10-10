@@ -70,8 +70,11 @@ instructions per cycle, in program order, so if one case instruction must dispat
 groups, which is what the figures already require.
 
 - **Filler instruction**: `addi xN, x0, 1`, with the destination taken from
-  `x12`-`x19` and `x21`-`x31`. Those registers appear in no case, every filler writes
-  a different one, and no filler reads anything a case writes, so the fillers are
+  `x13`-`x19`, `x21`-`x27` and `x30` (15 registers, enough for the largest program).
+  Those registers appear in no case and lie outside every set the template reserves:
+  `x1`-`x4` are the inputs, `x5`-`x12` are producer temporaries, and `x28`, `x29` and
+  `x31` carry the exit code, so a filler must never touch them. Every filler writes a
+  different one and no filler reads anything a case writes, so the fillers are
   independent of the case and of each other. No filler touches memory.
 - **Why an integer ALU operation**: the dispatcher can send it to either `G0` or `G1`,
   so a filler sharing a cycle with a case instruction that is pinned to one group can

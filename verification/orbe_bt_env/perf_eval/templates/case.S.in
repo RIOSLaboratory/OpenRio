@@ -2,8 +2,8 @@
 # perf_eval case 模板 —— 这不是生成出来的 case，而是 gen_cases.py 的渲染输入。
 #
 # 占位符：
-#   {CASE_ID}     case 标识，如 ALU_to_ALU_delta_2（仅用于注释）
-#   {CASE_BODY}   被测的指令序列（producer + 若干 filler + consumer）
+#   CASE_ID     case 标识，如 ALU_to_ALU_delta_2（仅用于注释）
+#   CASE_BODY   被测的指令序列（producer + 若干 filler + consumer）
 #
 # 约定：
 #   * .option norvc —— 每条指令都是 4 字节，PC 与指令序号 1:1 对应，
