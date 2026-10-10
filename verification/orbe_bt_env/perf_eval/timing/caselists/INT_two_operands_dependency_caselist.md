@@ -60,6 +60,34 @@ The three same-bypass diagonal cells are excluded because they are gray `don't e
 
 **Same-group dispatch.** Separately from the P3-lane rule above, the ISQ holds one entry per group, so **two instructions of the same group cannot be dispatched in the same cycle**. A dependent that would otherwise share its group's dispatch cycle with the producer that supplies the source is routed to the other ALU group, and the figures show it as `Dependent-G1`. This is the same routing choice the single-operand `delta_0` rows make.
 
+## Filler and Program Construction
+
+A case is a program snippet, not a cycle diagram: the dispatch gaps the figures show
+have to be filled with real instructions. The pipeline dispatches up to two
+instructions per cycle, in program order, so if one case instruction must dispatch
+`g` cycles after another, `2g - 1` instructions sit between them. A `Fillers` value of
+`0` means the two dispatch in the same cycle and must therefore go to different
+groups, which is what the figures already require.
+
+- **Filler instruction**: `addi xN, x0, 1`, with the destination taken from
+  `x12`-`x19` and `x21`-`x31`. Those registers appear in no case, every filler writes
+  a different one, and no filler reads anything a case writes, so the fillers are
+  independent of the case and of each other. No filler touches memory.
+- **Why an integer ALU operation**: the dispatcher can send it to either `G0` or `G1`,
+  so a filler sharing a cycle with a case instruction that is pinned to one group can
+  always be placed in the other, and never displaces the case.
+- **Count**: `Fillers` lists, in program order, how many fillers follow each case
+  instruction, so the last entry always follows the last producer.
+
+Worked example: `INT2_G1P3_G0P3` has `Fillers` = `3 / 3`, so the program is `mul`,
+3 fillers, `add x5`, 3 fillers, `add x20`. The two producers then dispatch at cycles 0
+and 2 and the dependent at cycle 4, which is the arrangement the figure shows.
+
+**Assumption to confirm by simulation**: a straight-line program of this shape
+sustains two dispatches per cycle. Where a filler and a case instruction would land in
+one cycle, the case instruction is earlier in program order and the dispatcher places
+the filler in the other group.
+
 ## Why IMM Is Kept in the P1 MUX Map
 
 `IMM` is necessary because many real INT/MEM dependent instructions are not two-register consumers. `addi`, `andi`, shift-immediate operations, load address generation, store address generation, and `jalr` all combine one register source with an immediate operand.
@@ -70,52 +98,52 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 
 ## P1 MUX Case List
 
-| Case | Source 1 Ready | Source 2 Ready | Instructions | Timing Setup | Expected Behavior |
-|---|---|---|---|---|---|
-| `INT2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together. | Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle. |
-| `INT2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | Issue load one cycle before G0 ALU producer so both P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G0 Bypass. |
-| `INT2_P4_G0P3` | P4 Commit | G0 P3 Bypass | `add x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | Arrange older `x6` producer to commit in the same cycle that `x5` producer publishes at G0 P3. | P1 source resolution uses Commit CDB for rs1 and G0 Bypass for rs2. |
-| `INT2_ARF_G0P3` | Already in ARF | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G0 producer for `x5` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G0 Bypass. |
-| `INT2_G0P3_IMM` | G0 P3 Bypass | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | G0 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G0 Bypass; rs2 is immediate and has no dependency tag. |
-| `INT2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | Issue `mul` one cycle before load so G1 and G3 P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass. |
-| `INT2_P4_G1P3` | P4 Commit | G1 P3 Bypass | `mul x6, x3, x4; add x7, x8, x9 -> add x20, x7, x6` | Arrange the older `mul` producer to publish at G1 P3 in the same cycle that `x7` commits. | P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2. |
-| `INT2_ARF_G1P3` | Already in ARF | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G1 producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G1 Bypass. |
-| `INT2_G1P3_IMM` | G1 P3 Bypass | IMM | `mul x6, x3, x4 -> addi x20, x6, 16` | G1 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag. |
-| `INT2_P4_G3P3` | P4 Commit | G3 Load P3 Bypass | `ld x6, 0(x10); add x7, x8, x9 -> add x20, x7, x6` | Arrange the older `ld` producer to publish at G3 P3 in the same cycle that `x7` commits. | P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2. |
-| `INT2_ARF_G3P3` | Already in ARF | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | Producer for `x11` is issued early enough to commit before the dependent reaches P1; load producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G3 load Bypass. |
-| `INT2_G3P3_IMM` | G3 Load P3 Bypass | IMM | `ld x6, 0(x10) -> addi x20, x6, 16` | Load producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G3 load Bypass; rs2 is immediate and has no dependency tag. |
-| `INT2_P4_P4` | P4 Commit | P4 Commit | `add x5, x1, x2; add x6, x3, x4 -> add x20, x5, x6` | Arrange the two older producers as P4 head0/head1 commits in the dependent source-resolution cycle. | P1 source resolution captures both operands from the two Commit CDB lanes. |
-| `INT2_ARF_P4` | Already in ARF | P4 Commit | `add x10, x1, x2; add x6, x3, x4 -> add x20, x10, x6` | Producer for `x10` is issued early enough to commit before the dependent reaches P1; the `x6` producer commits in the dependent source-resolution cycle. | rs1 reads ARF; rs2 captures Commit CDB. |
-| `INT2_P4_IMM` | P4 Commit | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | Older `x5` producer commits in the dependent immediate-form instruction's source-resolution cycle. | rs1 captures Commit CDB; rs2 is immediate and has no dependency tag. |
-| `INT2_ARF_ARF` | Already in ARF | Already in ARF | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | Both producers are issued early enough to commit before the dependent reaches P1, so neither source has a live DST_REG mapping. | Both operands read ARF at P1; no bypass or commit overlay is needed. |
-| `INT2_ARF_IMM` | Already in ARF | IMM | `add x10, x1, x2 -> addi x20, x10, 16` | Producer for `x10` is issued early enough to commit before the dependent reaches P1; the second operand is immediate. | rs1 reads ARF; rs2 is immediate and has no dependency tag. |
+| Case | Source 1 Ready | Source 2 Ready | Instructions | Fillers | Timing Setup | Expected Behavior |
+|:---|:---|:---|:---|:---|:---|:---|
+| `INT2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 3 / 3 | Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together. | Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle. |
+| `INT2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | 3 / 3 | Issue load one cycle before G0 ALU producer so both P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G0 Bypass. |
+| `INT2_P4_G0P3` | P4 Commit | G0 P3 Bypass | `add x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 1 / 3 | Arrange older `x6` producer to commit in the same cycle that `x5` producer publishes at G0 P3. | P1 source resolution uses Commit CDB for rs1 and G0 Bypass for rs2. |
+| `INT2_ARF_G0P3` | Already in ARF | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | 3 / 3 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G0 producer for `x5` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G0 Bypass. |
+| `INT2_G0P3_IMM` | G0 P3 Bypass | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | 3 | G0 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G0 Bypass; rs2 is immediate and has no dependency tag. |
+| `INT2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | 0 / 7 | Issue `mul` one cycle before load so G1 and G3 P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass. |
+| `INT2_P4_G1P3` | P4 Commit | G1 P3 Bypass | `mul x6, x3, x4; add x7, x8, x9 -> add x20, x7, x6` | 1 / 5 | Arrange the older `mul` producer to publish at G1 P3 in the same cycle that `x7` commits. | P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2. |
+| `INT2_ARF_G1P3` | Already in ARF | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | 0 / 7 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G1 producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G1 Bypass. |
+| `INT2_G1P3_IMM` | G1 P3 Bypass | IMM | `mul x6, x3, x4 -> addi x20, x6, 16` | 7 | G1 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag. |
+| `INT2_P4_G3P3` | P4 Commit | G3 Load P3 Bypass | `ld x6, 0(x10); add x7, x8, x9 -> add x20, x7, x6` | 1 / 5 | Arrange the older `ld` producer to publish at G3 P3 in the same cycle that `x7` commits. | P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2. |
+| `INT2_ARF_G3P3` | Already in ARF | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | 0 / 7 | Producer for `x11` is issued early enough to commit before the dependent reaches P1; load producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G3 load Bypass. |
+| `INT2_G3P3_IMM` | G3 Load P3 Bypass | IMM | `ld x6, 0(x10) -> addi x20, x6, 16` | 7 | Load producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G3 load Bypass; rs2 is immediate and has no dependency tag. |
+| `INT2_P4_P4` | P4 Commit | P4 Commit | `add x5, x1, x2; add x6, x3, x4 -> add x20, x5, x6` | 0 / 5 | Arrange the two older producers as P4 head0/head1 commits in the dependent source-resolution cycle. | P1 source resolution captures both operands from the two Commit CDB lanes. |
+| `INT2_ARF_P4` | Already in ARF | P4 Commit | `add x10, x1, x2; add x6, x3, x4 -> add x20, x10, x6` | 1 / 5 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; the `x6` producer commits in the dependent source-resolution cycle. | rs1 reads ARF; rs2 captures Commit CDB. |
+| `INT2_P4_IMM` | P4 Commit | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | 5 | Older `x5` producer commits in the dependent immediate-form instruction's source-resolution cycle. | rs1 captures Commit CDB; rs2 is immediate and has no dependency tag. |
+| `INT2_ARF_ARF` | Already in ARF | Already in ARF | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | 0 / 7 | Both producers are issued early enough to commit before the dependent reaches P1, so neither source has a live DST_REG mapping. | Both operands read ARF at P1; no bypass or commit overlay is needed. |
+| `INT2_ARF_IMM` | Already in ARF | IMM | `add x10, x1, x2 -> addi x20, x10, 16` | 7 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; the second operand is immediate. | rs1 reads ARF; rs2 is immediate and has no dependency tag. |
 
 ## P2 MUX Case List
 
 In every P2 case below, the dependent instruction is already resident in its group-local ISQ before the source-ready cycle. At least one not-yet-ready register source observes a same-cycle P3 tag match at P2, unless the case is the pure `Stored Ready at dispatch` resident-data case. `P4 Commit CDB` is intentionally absent because it terminates at P1 MUX and never drives resident-entry P2 MUX forwarding.
 
-| Case | Source 1 at P2 MUX | Source 2 at P2 MUX | Instructions | Timing Setup | Expected Behavior |
-|---|---|---|---|---|---|
-| `INT2_P2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | Dispatch dependent early with wait tags for both operands. Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together while the dependent is resident. | P2 FU-input mux selects rs1 from G1 Bypass and rs2 from G0 Bypass; the resident entry can issue in that cycle if the selected FU is free. |
-| `INT2_P2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | Dispatch dependent early with wait tags; issue the load one cycle before the G0 ALU producer so both P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G0 Bypass. |
-| `INT2_P2_ISQ_STORED_G0P3` | Stored Ready at dispatch | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | Resolve and store `x10` in the dependent ISQ entry earlier; keep rs2 waiting until `x5` reaches G0 P3. | P2 mux uses stored `entry.rs1_data` and current G0 Bypass data. |
-| `INT2_P2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | Dispatch dependent early; issue `mul` one cycle before load so G1 and G3 P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G1 Bypass. |
-| `INT2_P2_ISQ_STORED_G1P3` | Stored Ready at dispatch | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | Resolve and store `x10` in the dependent entry earlier; keep rs2 waiting for the G1 producer. | P2 mux uses stored `entry.rs1_data` and current G1 Bypass data. |
-| `INT2_P2_ISQ_STORED_G3P3` | Stored Ready at dispatch | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | Resolve and store `x11` in the dependent entry earlier; keep rs2 waiting for the load producer. | P2 mux uses stored `entry.rs1_data` and current G3 load Bypass data. |
-| `INT2_P2_ISQ_STORED_ISQ_STORED` | Stored Ready at dispatch | Stored Ready at dispatch | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | Resolve both sources before the observed P2 issue cycle; the dependent entry is resident with both `rs_ready` bits set. | P2 mux selects both operands from stored `entry.rs_data`; no current-cycle forwarding is needed. |
+| Case | Source 1 at P2 MUX | Source 2 at P2 MUX | Instructions | Fillers | Timing Setup | Expected Behavior |
+|:---|:---|:---|:---|:---|:---|:---|
+| `INT2_P2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 3 / 0 | Dispatch dependent early with wait tags for both operands. Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together while the dependent is resident. | P2 FU-input mux selects rs1 from G1 Bypass and rs2 from G0 Bypass; the resident entry can issue in that cycle if the selected FU is free. |
+| `INT2_P2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | 3 / 0 | Dispatch dependent early with wait tags; issue the load one cycle before the G0 ALU producer so both P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G0 Bypass. |
+| `INT2_P2_ISQ_STORED_G0P3` | Stored Ready at dispatch | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | 7 / 0 | Resolve and store `x10` in the dependent ISQ entry earlier; keep rs2 waiting until `x5` reaches G0 P3. | P2 mux uses stored `entry.rs1_data` and current G0 Bypass data. |
+| `INT2_P2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | 0 / 3 | Dispatch dependent early; issue `mul` one cycle before load so G1 and G3 P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G1 Bypass. |
+| `INT2_P2_ISQ_STORED_G1P3` | Stored Ready at dispatch | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | 3 / 3 | Resolve and store `x10` in the dependent entry earlier; keep rs2 waiting for the G1 producer. | P2 mux uses stored `entry.rs1_data` and current G1 Bypass data. |
+| `INT2_P2_ISQ_STORED_G3P3` | Stored Ready at dispatch | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | 3 / 3 | Resolve and store `x11` in the dependent entry earlier; keep rs2 waiting for the load producer. | P2 mux uses stored `entry.rs1_data` and current G3 load Bypass data. |
+| `INT2_P2_ISQ_STORED_ISQ_STORED` | Stored Ready at dispatch | Stored Ready at dispatch | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | 0 / 7 | Resolve both sources before the observed P2 issue cycle; the dependent entry is resident with both `rs_ready` bits set. | P2 mux selects both operands from stored `entry.rs_data`; no current-cycle forwarding is needed. |
 
 ## Supplemental Same-RD Fanout Case List
 
 These cases cover the legal shape hidden behind the gray same-P3-source diagonal cells. The gray cells mean two different producers cannot publish on the same group P3 bypass lane in the same cycle. They do not forbid one producer payload from feeding both rs1 and rs2 of the same dependent instruction.
 
-| Case | MUX Point | Source Ready | Instructions | Timing Setup | Expected Behavior |
-|---|---|---|---|---|---|
-| `INT2_SAME_RD_P1_G0P3_dispatch_dispatch` | P1 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | Producer reaches G0 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G0 Bypass payload into both operands. |
-| `INT2_SAME_RD_P1_G1P3_dispatch_dispatch` | P1 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | MUL producer reaches G1 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G1 Bypass payload into both operands. |
-| `INT2_SAME_RD_P1_G3P3_dispatch_dispatch` | P1 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | Load producer reaches G3 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G3 load Bypass payload into both operands. |
-| `INT2_SAME_RD_P2_G0P3_dispatch_dispatch` | P2 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G0 producer. | P2 resident-entry matching fans out one G0 Bypass payload to both operand inputs in the FU-input MUX cycle. |
-| `INT2_SAME_RD_P2_G1P3_dispatch_dispatch` | P2 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G1 producer. | P2 resident-entry matching fans out one G1 Bypass payload to both operand inputs in the FU-input MUX cycle. |
-| `INT2_SAME_RD_P2_G3P3_dispatch_dispatch` | P2 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G3 load producer. | P2 resident-entry matching fans out one G3 load Bypass payload to both operand inputs in the FU-input MUX cycle. |
+| Case | MUX Point | Source Ready | Instructions | Fillers | Timing Setup | Expected Behavior |
+|:---|:---|:---|:---|:---|:---|:---|
+| `INT2_SAME_RD_P1_G0P3_dispatch_dispatch` | P1 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | 3 | Producer reaches G0 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G0 Bypass payload into both operands. |
+| `INT2_SAME_RD_P1_G1P3_dispatch_dispatch` | P1 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | 7 | MUL producer reaches G1 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G1 Bypass payload into both operands. |
+| `INT2_SAME_RD_P1_G3P3_dispatch_dispatch` | P1 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | 7 | Load producer reaches G3 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G3 load Bypass payload into both operands. |
+| `INT2_SAME_RD_P2_G0P3_dispatch_dispatch` | P2 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | 0 | Dependent is already resident with both rs wait tags matching the same G0 producer. | P2 resident-entry matching fans out one G0 Bypass payload to both operand inputs in the FU-input MUX cycle. |
+| `INT2_SAME_RD_P2_G1P3_dispatch_dispatch` | P2 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | 3 | Dependent is already resident with both rs wait tags matching the same G1 producer. | P2 resident-entry matching fans out one G1 Bypass payload to both operand inputs in the FU-input MUX cycle. |
+| `INT2_SAME_RD_P2_G3P3_dispatch_dispatch` | P2 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | 3 | Dependent is already resident with both rs wait tags matching the same G3 load producer. | P2 resident-entry matching fans out one G3 load Bypass payload to both operand inputs in the FU-input MUX cycle. |
 
 ## Notes
 

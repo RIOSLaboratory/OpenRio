@@ -106,6 +106,34 @@ the group other than the producer's. Rows with `delta >= 1` may be same-group.
 
 Every case table below carries a `G` column: **`producer group → consumer group`**.
 
+## Filler and Program Construction
+
+A case is a program snippet, not a cycle diagram: the dispatch gaps the figures show
+have to be filled with real instructions. The pipeline dispatches up to two
+instructions per cycle, in program order, so if one case instruction must dispatch
+`g` cycles after another, `2g - 1` instructions sit between them. A `Fillers` value of
+`0` means the two dispatch in the same cycle and must therefore go to different
+groups, which is what the figures already require.
+
+- **Filler instruction**: `addi xN, x0, 1`, with the destination taken from
+  `x12`-`x19` and `x21`-`x31`. Those registers appear in no case, every filler writes
+  a different one, and no filler reads anything a case writes, so the fillers are
+  independent of the case and of each other. No filler touches memory.
+- **Why an integer ALU operation**: the dispatcher can send it to either `G0` or `G1`,
+  so a filler sharing a cycle with a case instruction that is pinned to one group can
+  always be placed in the other, and never displaces the case.
+- **Count**: `Fillers` lists, in program order, how many fillers follow each case
+  instruction, so the last entry always follows the last producer.
+
+Worked example: `ALU_to_ALU_delta_3` has `Fillers` = `5`, so the program is
+`add x5, x1, x2`, 5 fillers, `add x6, x5, x3`. The producer dispatches at cycle 0 and
+the dependent at cycle 3, which is the `delta` its name states.
+
+**Assumption to confirm by simulation**: a straight-line program of this shape
+sustains two dispatches per cycle. Where a filler and a case instruction would land in
+one cycle, the case instruction is earlier in program order and the dispatcher places
+the filler in the other group.
+
 ## ALU_to_ALU
 
 Representative:
@@ -115,13 +143,13 @@ add x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | G | Instructions | Behavior |
-|---|---|---|---|
-| `ALU_to_ALU_delta_0` | G0 → G1 | `add x5, x1, x2 -> add x6, x5, x3` | `overlay`; slot0 producer ALU claims G0 first and slot1 dependent ALU routes to G1 in the post-slot0 view. |
-| `ALU_to_ALU_delta_1` | G0 → G0 | `sub x5, x3, x4 -> add x6, x5, x7` | `wait_for_p3` |
-| `ALU_to_ALU_delta_2` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
-| `ALU_to_ALU_delta_3` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
-| `ALU_to_ALU_delta_4` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Fillers | Behavior |
+|:---|:---|:---|:---|:---|
+| `ALU_to_ALU_delta_0` | G0 → G1 | `add x5, x1, x2 -> add x6, x5, x3` | 0 | `overlay`; slot0 producer ALU claims G0 first and slot1 dependent ALU routes to G1 in the post-slot0 view. |
+| `ALU_to_ALU_delta_1` | G0 → G0 | `sub x5, x3, x4 -> add x6, x5, x7` | 1 | `wait_for_p3` |
+| `ALU_to_ALU_delta_2` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 3 | `p3_capture` |
+| `ALU_to_ALU_delta_3` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 5 | `p4_capture` |
+| `ALU_to_ALU_delta_4` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 7 | `arf_read` |
 
 ## MUL_to_ALU
 
@@ -132,15 +160,15 @@ mul x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | G | Instructions | Behavior |
-|---|---|---|---|
-| `MUL_to_ALU_delta_0` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `overlay`; producer MUL targets G1 and dependent ALU can route to G0. |
-| `MUL_to_ALU_delta_1` | G1 → G0 | `mul x5, x3, x4 -> add x7, x5, x8` | `wait_for_p3` |
-| `MUL_to_ALU_delta_2` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `MUL_to_ALU_delta_3` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `MUL_to_ALU_delta_4` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
-| `MUL_to_ALU_delta_5` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
-| `MUL_to_ALU_delta_6` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Fillers | Behavior |
+|:---|:---|:---|:---|:---|
+| `MUL_to_ALU_delta_0` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | 0 | `overlay`; producer MUL targets G1 and dependent ALU can route to G0. |
+| `MUL_to_ALU_delta_1` | G1 → G0 | `mul x5, x3, x4 -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `MUL_to_ALU_delta_2` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | 3 | `wait_for_p3` |
+| `MUL_to_ALU_delta_3` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | 5 | `wait_for_p3` |
+| `MUL_to_ALU_delta_4` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | 7 | `p3_capture` |
+| `MUL_to_ALU_delta_5` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | 9 | `p4_capture` |
+| `MUL_to_ALU_delta_6` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | 11 | `arf_read` |
 
 ## DIV_to_ALU
 
@@ -151,16 +179,16 @@ div x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | G | Instructions | Behavior |
-|---|---|---|---|
-| `DIV_to_ALU_delta_0` | G0 → G1 | `div x5, x1, x2 -> add x6, x5, x3` | `overlay`; producer DIV targets G0 and dependent ALU can route to G1. |
-| `DIV_to_ALU_delta_1` | G0 → G0 | `div x5, x3, x4 -> add x7, x5, x8` | `wait_for_p3` |
-| `DIV_to_ALU_delta_2` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_3` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_4` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `wait_for_p3` |
-| `DIV_to_ALU_delta_5` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `p3_capture` |
-| `DIV_to_ALU_delta_6` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `p4_capture` |
-| `DIV_to_ALU_delta_7` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Fillers | Behavior |
+|:---|:---|:---|:---|:---|
+| `DIV_to_ALU_delta_0` | G0 → G1 | `div x5, x1, x2 -> add x6, x5, x3` | 0 | `overlay`; producer DIV targets G0 and dependent ALU can route to G1. |
+| `DIV_to_ALU_delta_1` | G0 → G0 | `div x5, x3, x4 -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `DIV_to_ALU_delta_2` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 3 | `wait_for_p3` |
+| `DIV_to_ALU_delta_3` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 5 | `wait_for_p3` |
+| `DIV_to_ALU_delta_4` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 7 | `wait_for_p3` |
+| `DIV_to_ALU_delta_5` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 9 | `p3_capture` |
+| `DIV_to_ALU_delta_6` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 11 | `p4_capture` |
+| `DIV_to_ALU_delta_7` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 13 | `arf_read` |
 
 ## LOAD_to_ALU
 
@@ -173,15 +201,15 @@ add x6, x5, x3
 
 Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates).
 
-| Case | G | Instructions | Behavior |
-|---|---|---|---|
-| `LOAD_to_ALU_delta_0` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `overlay`; producer LOAD targets G3 and dependent ALU can route to G0/G1. |
-| `LOAD_to_ALU_delta_1` | G3 → G0 | `lw x5, 8(x2) -> add x7, x5, x8` | `wait_for_p3` |
-| `LOAD_to_ALU_delta_2` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
-| `LOAD_to_ALU_delta_3` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `wait_for_p3` |
-| `LOAD_to_ALU_delta_4` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `p3_capture` |
-| `LOAD_to_ALU_delta_5` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `p4_capture` |
-| `LOAD_to_ALU_delta_6` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Fillers | Behavior |
+|:---|:---|:---|:---|:---|
+| `LOAD_to_ALU_delta_0` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 0 | `overlay`; producer LOAD targets G3 and dependent ALU can route to G0/G1. |
+| `LOAD_to_ALU_delta_1` | G3 → G0 | `lw x5, 8(x2) -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `LOAD_to_ALU_delta_2` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 3 | `wait_for_p3` |
+| `LOAD_to_ALU_delta_3` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 5 | `wait_for_p3` |
+| `LOAD_to_ALU_delta_4` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 7 | `p3_capture` |
+| `LOAD_to_ALU_delta_5` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 9 | `p4_capture` |
+| `LOAD_to_ALU_delta_6` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 11 | `arf_read` |
 
 ## JALR_to_ALU
 
@@ -196,13 +224,13 @@ add  x6, x5, x3
 
 `L = 1` here is the **link-value** latency. JALR also has a redirect-ready latency (measured 2), which is a control-flow metric and is not enumerated in this caselist.
 
-| Case | G | Instructions | Behavior |
-|---|---|---|---|
-| `JALR_to_ALU_delta_0` | G0 → G1 | `jalr x5, 0(x10) -> add x6, x5, x3` | `overlay`; producer JALR targets G0 and dependent ALU can route to G1. |
-| `JALR_to_ALU_delta_1` | G0 → G0 | `jalr x5, 0(x10) -> add x7, x5, x8` | `wait_for_p3` |
-| `JALR_to_ALU_delta_2` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | `p3_capture` |
-| `JALR_to_ALU_delta_3` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | `p4_capture` |
-| `JALR_to_ALU_delta_4` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | `arf_read` |
+| Case | G | Instructions | Fillers | Behavior |
+|:---|:---|:---|:---|:---|
+| `JALR_to_ALU_delta_0` | G0 → G1 | `jalr x5, 0(x10) -> add x6, x5, x3` | 0 | `overlay`; producer JALR targets G0 and dependent ALU can route to G1. |
+| `JALR_to_ALU_delta_1` | G0 → G0 | `jalr x5, 0(x10) -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `JALR_to_ALU_delta_2` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | 3 | `p3_capture` |
+| `JALR_to_ALU_delta_3` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | 5 | `p4_capture` |
+| `JALR_to_ALU_delta_4` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | 7 | `arf_read` |
 
 ## Notes
 
