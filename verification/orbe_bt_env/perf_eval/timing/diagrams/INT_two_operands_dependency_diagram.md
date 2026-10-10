@@ -319,7 +319,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 - **T6 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
 - **T6 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready` for retry.
 
-## Case 20: INT2_P2_STORED_G0P3
+## Case 20: INT2_P2_ISQ_STORED_G0P3
 
 **Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready at dispatch + G0 P3 Bypass
 **Description:** P2 mux uses stored `entry.rs1_data` and current G0 Bypass data.
@@ -349,7 +349,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 - **T6 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
 - **T6 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready` for retry.
 
-## Case 22: INT2_P2_STORED_G1P3
+## Case 22: INT2_P2_ISQ_STORED_G1P3
 
 **Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready at dispatch + G1 P3 Bypass
 **Description:** P2 mux uses stored `entry.rs1_data` and current G1 Bypass data.
@@ -364,7 +364,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
 - **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready` for retry.
 
-## Case 23: INT2_P2_STORED_G3P3
+## Case 23: INT2_P2_ISQ_STORED_G3P3
 
 **Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready at dispatch + G3 Load P3 Bypass
 **Description:** P2 mux uses stored `entry.rs1_data` and current G3 load Bypass data.
@@ -379,7 +379,7 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 - **T8 (P2 MUX source-ready):** current P3 forwarding sources use exact-tag resident-entry matching; stored sources come from already valid `entry.rs_data`.
 - **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready` for retry.
 
-## Case 24: INT2_P2_STORED_STORED
+## Case 24: INT2_P2_ISQ_STORED_ISQ_STORED
 
 **Dimension:** INT two-operand ready-source composition | **Equiv:** P2 MUX: Stored Ready at dispatch + Stored Ready at dispatch
 **Description:** P2 mux selects both operands from stored `entry.rs_data`; no current-cycle forwarding is needed.
