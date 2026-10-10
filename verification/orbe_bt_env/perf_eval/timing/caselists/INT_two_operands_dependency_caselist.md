@@ -24,7 +24,7 @@ This caselist covers the source-ready composition of one dependent instruction w
 
 For P1 MUX cases, `Already in ARF` means the source producer committed before the dependent reaches P1 and the source is read from the integer ARF while the ISQ payload is built.
 
-For P2 MUX cases, `Stored Ready in RS(n)` replaces both `Already in ARF` and immediate-ready source shapes. The name is a **cycle position**, not a structure: it means that by the dependent's own `RS(n)` cycle (its P1) the source is already `rs_ready=1` with valid operand payload data, so the P2 MUX needs no current-cycle forwarding for it. That value may have come from P1 ARF/P3/P4 capture, from an earlier resident-entry P3 forwarding latch, or from immediate decode payload construction. Current-cycle P2 forwarding sources are only `G0 P3 Bypass`, `G1 P3 Bypass`, and `G3 Load P3 Bypass`. P2 MUX never consumes `P4 Commit CDB`. If a P3 forwarding match occurs but the selected FU cannot issue that cycle, the matched data is latched at the clock edge, so from the next cycle the entry is `Stored Ready` for a later issue — a P2 event, not an `RS(n)` one.
+For P2 MUX cases, `Stored Ready at dispatch` replaces both `Already in ARF` and immediate-ready source shapes. The name is a **cycle position**, not a structure: it means that by the dependent's own `dispatch` cycle (its P1) the source is already `rs_ready=1` with valid operand payload data, so the P2 MUX needs no current-cycle forwarding for it. That value may have come from P1 ARF/P3/P4 capture, from an earlier resident-entry P3 forwarding latch, or from immediate decode payload construction. Current-cycle P2 forwarding sources are only `G0 P3 Bypass`, `G1 P3 Bypass`, and `G3 Load P3 Bypass`. P2 MUX never consumes `P4 Commit CDB`. If a P3 forwarding match occurs but the selected FU cannot issue that cycle, the matched data is latched at the clock edge, so from the next cycle the entry is `Stored Ready` for a later issue — a P2 event, not a `dispatch` one.
 
 Current INT result timing boundaries:
 
@@ -66,7 +66,7 @@ The three same-bypass diagonal cells are excluded because they are gray `don't e
 
 Without the `IMM` column, the K-map would only cover R-type two-register consumers and would miss the important timing shape where one source waits for bypass/commit/ARF while the other operand is ready by construction and has no DST_REG tag. Keeping `IMM` prevents us from faking an unnecessary second register dependency just to fit a two-register table.
 
-`IMM` is modeled only as data source 2 in the P1 MUX map. The `IMM` row is not used. In the P2 MUX map, immediate operands are already resident payload data and are covered by `Stored Ready in RS(n)`.
+`IMM` is modeled only as data source 2 in the P1 MUX map. The `IMM` row is not used. In the P2 MUX map, immediate operands are already resident payload data and are covered by `Stored Ready at dispatch`.
 
 ## P1 MUX Case List
 
@@ -92,17 +92,17 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 
 ## P2 MUX Case List
 
-In every P2 case below, the dependent instruction is already resident in its group-local ISQ before the source-ready cycle. At least one not-yet-ready register source observes a same-cycle P3 tag match at P2, unless the case is the pure `Stored Ready in RS(n)` resident-data case. `P4 Commit CDB` is intentionally absent because it terminates at P1 MUX and never drives resident-entry P2 MUX forwarding.
+In every P2 case below, the dependent instruction is already resident in its group-local ISQ before the source-ready cycle. At least one not-yet-ready register source observes a same-cycle P3 tag match at P2, unless the case is the pure `Stored Ready at dispatch` resident-data case. `P4 Commit CDB` is intentionally absent because it terminates at P1 MUX and never drives resident-entry P2 MUX forwarding.
 
 | Case | Source 1 at P2 MUX | Source 2 at P2 MUX | Instructions | Timing Setup | Expected Behavior |
 |---|---|---|---|---|---|
 | `INT2_P2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | Dispatch dependent early with wait tags for both operands. Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together while the dependent is resident. | P2 FU-input mux selects rs1 from G1 Bypass and rs2 from G0 Bypass; the resident entry can issue in that cycle if the selected FU is free. |
 | `INT2_P2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | Dispatch dependent early with wait tags; issue the load one cycle before the G0 ALU producer so both P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G0 Bypass. |
-| `INT2_P2_STORED_G0P3` | Stored Ready in RS(n) | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | Resolve and store `x10` in the dependent ISQ entry earlier; keep rs2 waiting until `x5` reaches G0 P3. | P2 mux uses stored `entry.rs1_data` and current G0 Bypass data. |
+| `INT2_P2_STORED_G0P3` | Stored Ready at dispatch | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | Resolve and store `x10` in the dependent ISQ entry earlier; keep rs2 waiting until `x5` reaches G0 P3. | P2 mux uses stored `entry.rs1_data` and current G0 Bypass data. |
 | `INT2_P2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | Dispatch dependent early; issue `mul` one cycle before load so G1 and G3 P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G1 Bypass. |
-| `INT2_P2_STORED_G1P3` | Stored Ready in RS(n) | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | Resolve and store `x10` in the dependent entry earlier; keep rs2 waiting for the G1 producer. | P2 mux uses stored `entry.rs1_data` and current G1 Bypass data. |
-| `INT2_P2_STORED_G3P3` | Stored Ready in RS(n) | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | Resolve and store `x11` in the dependent entry earlier; keep rs2 waiting for the load producer. | P2 mux uses stored `entry.rs1_data` and current G3 load Bypass data. |
-| `INT2_P2_STORED_STORED` | Stored Ready in RS(n) | Stored Ready in RS(n) | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | Resolve both sources before the observed P2 issue cycle; the dependent entry is resident with both `rs_ready` bits set. | P2 mux selects both operands from stored `entry.rs_data`; no current-cycle forwarding is needed. |
+| `INT2_P2_STORED_G1P3` | Stored Ready at dispatch | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | Resolve and store `x10` in the dependent entry earlier; keep rs2 waiting for the G1 producer. | P2 mux uses stored `entry.rs1_data` and current G1 Bypass data. |
+| `INT2_P2_STORED_G3P3` | Stored Ready at dispatch | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | Resolve and store `x11` in the dependent entry earlier; keep rs2 waiting for the load producer. | P2 mux uses stored `entry.rs1_data` and current G3 load Bypass data. |
+| `INT2_P2_STORED_STORED` | Stored Ready at dispatch | Stored Ready at dispatch | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | Resolve both sources before the observed P2 issue cycle; the dependent entry is resident with both `rs_ready` bits set. | P2 mux selects both operands from stored `entry.rs_data`; no current-cycle forwarding is needed. |
 
 ## Supplemental Same-RD Fanout Case List
 
@@ -110,12 +110,12 @@ These cases cover the legal shape hidden behind the gray same-P3-source diagonal
 
 | Case | MUX Point | Source Ready | Instructions | Timing Setup | Expected Behavior |
 |---|---|---|---|---|---|
-| `INT2_SAME_RD_P1_G0P3_RS1_RS2` | P1 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | Producer reaches G0 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G0 Bypass payload into both operands. |
-| `INT2_SAME_RD_P1_G1P3_RS1_RS2` | P1 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | MUL producer reaches G1 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G1 Bypass payload into both operands. |
-| `INT2_SAME_RD_P1_G3P3_RS1_RS2` | P1 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | Load producer reaches G3 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G3 load Bypass payload into both operands. |
-| `INT2_SAME_RD_P2_G0P3_RS1_RS2` | P2 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G0 producer. | P2 resident-entry matching fans out one G0 Bypass payload to both operand inputs in the FU-input MUX cycle. |
-| `INT2_SAME_RD_P2_G1P3_RS1_RS2` | P2 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G1 producer. | P2 resident-entry matching fans out one G1 Bypass payload to both operand inputs in the FU-input MUX cycle. |
-| `INT2_SAME_RD_P2_G3P3_RS1_RS2` | P2 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G3 load producer. | P2 resident-entry matching fans out one G3 load Bypass payload to both operand inputs in the FU-input MUX cycle. |
+| `INT2_SAME_RD_P1_G0P3_dispatch_dispatch` | P1 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | Producer reaches G0 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G0 Bypass payload into both operands. |
+| `INT2_SAME_RD_P1_G1P3_dispatch_dispatch` | P1 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | MUL producer reaches G1 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G1 Bypass payload into both operands. |
+| `INT2_SAME_RD_P1_G3P3_dispatch_dispatch` | P1 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | Load producer reaches G3 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G3 load Bypass payload into both operands. |
+| `INT2_SAME_RD_P2_G0P3_dispatch_dispatch` | P2 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G0 producer. | P2 resident-entry matching fans out one G0 Bypass payload to both operand inputs in the FU-input MUX cycle. |
+| `INT2_SAME_RD_P2_G1P3_dispatch_dispatch` | P2 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G1 producer. | P2 resident-entry matching fans out one G1 Bypass payload to both operand inputs in the FU-input MUX cycle. |
+| `INT2_SAME_RD_P2_G3P3_dispatch_dispatch` | P2 MUX | G3 Load P3 Bypass fanout | `ld x5, 0(x1) -> add x20, x5, x5` | Dependent is already resident with both rs wait tags matching the same G3 load producer. | P2 resident-entry matching fans out one G3 load Bypass payload to both operand inputs in the FU-input MUX cycle. |
 
 ## Notes
 
@@ -123,4 +123,4 @@ These cases cover the legal shape hidden behind the gray same-P3-source diagonal
 - If a case needs a longer-latency producer to align with a shorter-latency producer, adjust producer dispatch deltas. That scheduling detail does not create a new POI.
 - White mirrored cells in the K-map are covered by rs1/rs2 symmetry. The chosen source order above follows the filled-triangle orientation where possible.
 - The same-producer shape `add x20, x5, x5` is legal and covered by the supplemental same-RD fanout cases above. It is still not counted as a normal two-source composition POI.
-- P2 cases do not imply that P2 reads ARF. A source shown as `Stored Ready in RS(n)` is already present in the resident entry's `entry.rs_data`.
+- P2 cases do not imply that P2 reads ARF. A source shown as `Stored Ready at dispatch` is already present in the resident entry's `entry.rs_data`.

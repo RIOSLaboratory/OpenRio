@@ -15,9 +15,9 @@ The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md
 | Cell | Stage | Meaning |
 |---|---|---|
 | `IB` | **P0** | The instruction is enqueued into the instruction buffer. This cell marks the enqueue cycle only. |
-| `RS0` … `RS3` | **P1** | Rename / dispatch into that group's ISQ. The IB head read that forms the dispatch bundle is also a P1 activity. `delta` is the difference between two `RSx` cells. |
+| `dispatch` | **P1** | The group's ISQ entry is written here. The group is chosen inside `dispatch_logic`, so the cell does not name one — the row label carries the group. The IB head read that forms the dispatch bundle is also a P1 activity. `delta` is the difference between two `dispatch` cells. |
 | `ISQ Wait` | **P2** | Resident in the ISQ, waiting for a source. |
-| `SL (<FU> …)` | **P2** | The issue is accepted and the FU starts. All of the FU's internal stages sit in P2, so a multi-cycle FU occupies several consecutive cells. |
+| FU name (`ALU0`, `ALU1`, `MUL`, `DIV`, `BRU`, `AGU`, `L1D`, `LDA+CDB`) | **P2** | The FU is executing. The first such cell is the cycle the issue is accepted; a multi-cycle FU repeats its name (`MUL MUL MUL`, `DIV DIV DIV`). LOAD is `AGU` → `L1D` → `LDA+CDB`. |
 | `WB` | **P3** | Result writeback / bypass broadcast. |
 | `C` | **P4** | Commit. |
 
@@ -25,8 +25,8 @@ Landmarks used by every figure. `L` is the producer family's latency and `delta`
 
 | Landmark | Column |
 |---|---|
-| Producer dispatch (`RSx`) | T2 |
-| Producer issue (`SL`) | T3 |
+| Producer dispatch | T2 |
+| Producer issue | T3 |
 | Producer internal stages | T3 … T(2+`L`) |
 | Producer P3 (`WB`) | **T(3+`L`)** |
 | Producer P4 (`C`) | T(4+`L`) |
@@ -70,8 +70,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x5, x1, x2` - Producer-G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G1 | IB | RS1 | ISQ Wait | SL (ALU1) | WB | C |  |  |
+| `add x5, x1, x2` - Producer-G0 | IB | dispatch | ALU0 | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G1 | IB | dispatch | ISQ Wait | ALU1 | WB | C |  |  |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
@@ -84,11 +84,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `sub x5, x3, x4` - Producer-G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
-| `add x6, x5, x7` - Dependent-G0 |  | IB | RS0 | SL (ALU0) | WB | C |  |  |
+| `sub x5, x3, x4` - Producer-G0 | IB | dispatch | ALU0 | WB | C |  |  |  |
+| `add x6, x5, x7` - Dependent-G0 |  | IB | dispatch | ALU0 | WB | C |  |  |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 3: ALU_to_ALU_delta_2 (p3_capture)
@@ -98,8 +98,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x5, x1, x2` - Producer-G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |  |
+| `add x5, x1, x2` - Producer-G0 | IB | dispatch | ALU0 | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  | IB | dispatch | ALU0 | WB | C |  |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
@@ -112,8 +112,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x5, x1, x2` - Producer-G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `add x5, x1, x2` - Producer-G0 | IB | dispatch | ALU0 | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
@@ -126,8 +126,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x5, x1, x2` - Producer-G0 | IB | RS0 | SL (ALU0) | WB | C |  |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `add x5, x1, x2` - Producer-G0 | IB | dispatch | ALU0 | WB | C |  |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
@@ -140,8 +140,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x5, x1, x2` - Producer-G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 | IB | RS0 | ISQ Wait | ISQ Wait | ISQ Wait | SL (ALU0) | WB | C |
+| `mul x5, x1, x2` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 | IB | dispatch | ISQ Wait | ISQ Wait | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
@@ -154,11 +154,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x5, x3, x4` - Producer-G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |
-| `add x7, x5, x8` - Dependent-G0 |  | IB | RS0 | ISQ Wait | ISQ Wait | SL (ALU0) | WB | C |
+| `mul x5, x3, x4` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |
+| `add x7, x5, x8` - Dependent-G0 |  | IB | dispatch | ISQ Wait | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 8: MUL_to_ALU_delta_2 (wait_for_p3)
@@ -168,11 +168,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x5, x1, x2` - Producer-G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
+| `mul x5, x1, x2` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  | IB | dispatch | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T4 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T4 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 9: MUL_to_ALU_delta_3 (wait_for_p3)
@@ -182,11 +182,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x5, x1, x2` - Producer-G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `mul x5, x1, x2` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T5 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T5 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 10: MUL_to_ALU_delta_4 (p3_capture)
@@ -196,8 +196,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x5, x1, x2` - Producer-G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `mul x5, x1, x2` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T6 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
@@ -210,8 +210,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x5, x1, x2` - Producer-G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `mul x5, x1, x2` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T7 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
@@ -224,8 +224,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x5, x1, x2` - Producer-G1 | IB | RS1 | SL (MUL stg0) | MUL stg1 | MUL stg2 | WB | C |  |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `mul x5, x1, x2` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
@@ -238,8 +238,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x1, x2` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |
-| `add x6, x5, x3` - Dependent-G1 | IB | RS1 | ISQ Wait | ISQ Wait | ISQ Wait | ISQ Wait | SL (ALU1) | WB | C |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
+| `add x6, x5, x3` - Dependent-G1 | IB | dispatch | ISQ Wait | ISQ Wait | ISQ Wait | ISQ Wait | ALU1 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
@@ -252,11 +252,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x3, x4` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |
-| `add x7, x5, x8` - Dependent-G0 |  | IB | RS0 | ISQ Wait | ISQ Wait | ISQ Wait | SL (ALU0) | WB | C |
+| `div x5, x3, x4` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
+| `add x7, x5, x8` - Dependent-G0 |  | IB | dispatch | ISQ Wait | ISQ Wait | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
-- **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 15: DIV_to_ALU_delta_2 (wait_for_p3)
@@ -266,11 +266,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x1, x2` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  | IB | RS0 | ISQ Wait | ISQ Wait | SL (ALU0) | WB | C |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  | IB | dispatch | ISQ Wait | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
-- **T4 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T4 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 16: DIV_to_ALU_delta_3 (wait_for_p3)
@@ -280,11 +280,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x1, x2` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | dispatch | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
-- **T5 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T5 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 17: DIV_to_ALU_delta_4 (wait_for_p3)
@@ -294,11 +294,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x1, x2` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
-- **T6 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T6 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T7 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 18: DIV_to_ALU_delta_5 (p3_capture)
@@ -308,8 +308,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x1, x2` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T7 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
@@ -322,8 +322,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x1, x2` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T8 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
@@ -336,8 +336,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 | T12 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x5, x1, x2` - Producer-G0 | IB | RS0 | SL (DIV stg0) | DIV stg1 | DIV stg2 | DIV stg3 | WB | C |  |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T7, P4 at T8, and ARF-ready at T9.
 - **T9 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
@@ -350,8 +350,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 | IB | RS0 | ISQ Wait | ISQ Wait | ISQ Wait | SL (ALU0) | WB | C |
+| `ld x5, 0(x1)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 | IB | dispatch | ISQ Wait | ISQ Wait | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
@@ -364,11 +364,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `lw x5, 8(x2)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
-| `add x7, x5, x8` - Dependent-G0 |  | IB | RS0 | ISQ Wait | ISQ Wait | SL (ALU0) | WB | C |
+| `lw x5, 8(x2)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |
+| `add x7, x5, x8` - Dependent-G0 |  | IB | dispatch | ISQ Wait | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 23: LOAD_to_ALU_delta_2 (wait_for_p3)
@@ -378,11 +378,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  | IB | RS0 | ISQ Wait | SL (ALU0) | WB | C |
+| `ld x5, 0(x1)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  | IB | dispatch | ISQ Wait | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T4 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T4 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 24: LOAD_to_ALU_delta_3 (wait_for_p3)
@@ -392,11 +392,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `ld x5, 0(x1)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T5 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T5 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 25: LOAD_to_ALU_delta_4 (p3_capture)
@@ -406,8 +406,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `ld x5, 0(x1)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T6 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
@@ -420,8 +420,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `ld x5, 0(x1)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T7 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
@@ -434,8 +434,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x5, 0(x1)` - Producer-G3 | IB | RS3 | SL (AGU) | L1D | LDA+CDB | WB | C |  |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `ld x5, 0(x1)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
@@ -448,8 +448,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `jalr x5, 0(x10)` - Producer-G0 | IB | RS0 | SL (BRU stg0) | WB | C |  |
-| `add x6, x5, x3` - Dependent-G1 | IB | RS1 | ISQ Wait | SL (ALU1) | WB | C |
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |
+| `add x6, x5, x3` - Dependent-G1 | IB | dispatch | ISQ Wait | ALU1 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
@@ -462,11 +462,11 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `jalr x5, 0(x10)` - Producer-G0 | IB | RS0 | SL (BRU stg0) | WB | C |  |
-| `add x7, x5, x8` - Dependent-G0 |  | IB | RS0 | SL (ALU0) | WB | C |
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |
+| `add x7, x5, x8` - Dependent-G0 |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T3 (Wait-tag dispatch):** dependent enters RS0 before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
 - **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
 
 ## Case 30: JALR_to_ALU_delta_2 (p3_capture)
@@ -476,8 +476,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `jalr x5, 0(x10)` - Producer-G0 | IB | RS0 | SL (BRU stg0) | WB | C |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
@@ -490,8 +490,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `jalr x5, 0(x10)` - Producer-G0 | IB | RS0 | SL (BRU stg0) | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
@@ -504,8 +504,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `jalr x5, 0(x10)` - Producer-G0 | IB | RS0 | SL (BRU stg0) | WB | C |  |  |  |  |
-| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | RS0 | SL (ALU0) | WB | C |
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
