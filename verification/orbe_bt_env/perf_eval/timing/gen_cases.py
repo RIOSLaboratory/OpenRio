@@ -6,7 +6,7 @@ the filler counts are all read from the markdown tables. Nothing is duplicated h
 so a caselist edit is the only edit needed.
 
 Generated .S and .elf go OUTSIDE the repo (WORK), matching METHOD section 3 and the
-same convention latency_bench/bench.py uses.
+layout perf_eval_work/README.md documents.
 
 Usage:
     python3 gen_cases.py            # write WORK/cases/<id>.S
@@ -20,7 +20,10 @@ import sys
 from pathlib import Path
 
 ENV = Path("/work/home/danielle/workspace/suncheek/model/OpenRio/verification/orbe_bt_env")
-WORK = Path("/work/home/danielle/workspace/suncheek/model/perf_eval_work/timing")
+# Flat build tree, as perf_eval_work/README.md documents: cases/ elf/ results/ at the
+# top level. The name "timing" belongs to the materials (k-maps, diagrams, caselists)
+# and must not appear here.
+WORK = Path("/work/home/danielle/workspace/suncheek/model/perf_eval_work")
 TEMPLATE = ENV / "perf_eval/templates/case.S.in"
 LINK = ENV / "perf_eval/templates/link.ld"
 CASELISTS = [ENV / "perf_eval/timing/caselists/INT_single_operand_dependency_caselist_v1.md",
