@@ -78,15 +78,23 @@ groups, which is what the figures already require.
   always be placed in the other, and never displaces the case.
 - **Count**: `Fillers` lists, in program order, how many fillers follow each case
   instruction, so the last entry always follows the last producer.
+- **Slot order within a cycle**: a case instruction must be the **first** of the two
+  slots in any cycle it shares with a filler. The dispatcher places slot 0 first, and
+  slot 1 picks its group so as to avoid whatever slot 0 took; a filler going first
+  could take `G0` and leave a case instruction that is pinned to `G0` with no distinct
+  group, which drops it out of that cycle and shifts the case by one cycle. The counts
+  in the tables make this automatic: fillers follow a case instruction and every gap is
+  `2g - 1`, so each case instruction lands at an even index, which is slot 0, as long as
+  the first one does. The `0` entries are the deliberate exception: those two case
+  instructions occupy slots 0 and 1 of one cycle and must go to different groups, which
+  the figures already require.
 
 Worked example: `INT2_G1P3_G0P3` has `Fillers` = `3 / 3`, so the program is `mul`,
 3 fillers, `add x5`, 3 fillers, `add x20`. The two producers then dispatch at cycles 0
 and 2 and the dependent at cycle 4, which is the arrangement the figure shows.
 
 **Assumption to confirm by simulation**: a straight-line program of this shape
-sustains two dispatches per cycle. Where a filler and a case instruction would land in
-one cycle, the case instruction is earlier in program order and the dispatcher places
-the filler in the other group.
+sustains two dispatches per cycle.
 
 ## Why IMM Is Kept in the P1 MUX Map
 
