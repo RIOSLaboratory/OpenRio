@@ -143,7 +143,7 @@ def audit(tag, dut, case_filter, selftest):
             continue
         log = logdir / ("%s_1" % cid) / "sim.log"
         if not log.exists():
-            rows.append((cid, "NO_LOG", "", "", "", "")); bad += 1; continue
+            rows.append((cid, "NOT_RUN", "", "", "", "")); continue
         body = elf_body(elf)
         if len(body) < 2:
             rows.append((cid, "NO_BODY", "", "", "", "")); bad += 1; continue
@@ -160,24 +160,36 @@ def audit(tag, dut, case_filter, selftest):
                 want_delta += 1                      # negative control
             got_delta = dep["P1"] - prod["P1"]
             want_mech = mech_of(meta["delta"], L)
-            got_mech = mech_of(got_delta, L) if got_delta != want_delta else want_mech
+            # Read the mechanism off the log. If no pattern matches, say so: silently
+            # falling back to the prediction would make the audit vacuous.
+            got_mech = "UNKNOWN"
             # mechanism read off the log, not off the delta
-            if "P3" in prod:
-                if dep.get("P1") == prod["P3"]:
-                    got_mech = "p3_capture"
-                elif dep.get("P2") == prod["P3"]:
-                    got_mech = "wait_for_p3"
-                elif dep.get("P1") == prod.get("P4", -1):
-                    got_mech = "p4_capture"
-                elif dep.get("P1") > prod.get("P4", 10 ** 9):
-                    got_mech = "arf_read"
-                elif got_delta == 0:
-                    got_mech = "overlay"
-            ok = (got_delta == want_delta) and (got_mech == want_mech)
-            if not ok:
+            # Order matters: most specific first. In a same-bundle case (delta 0) the
+            # dependent's P2 also equals the producer's P3, so testing overlay last
+            # would mislabel every delta_0 row.
+            if dep.get("P1") == prod.get("P1"):
+                got_mech = "overlay"
+            elif "P3" in prod and dep.get("P1") == prod["P3"]:
+                got_mech = "p3_capture"
+            elif "P3" in prod and dep.get("P2") == prod["P3"]:
+                got_mech = "wait_for_p3"
+            elif dep.get("P1") == prod.get("P4", -1):
+                got_mech = "p4_capture"
+            elif "P4" in prod and dep.get("P1") > prod["P4"]:
+                got_mech = "arf_read"
+            # A dependent that is dispatched but then sits in the ISQ until the source
+            # arrives is wait_for_p3 with a stall; report the stall explicitly.
+            if got_mech == "UNKNOWN" and "P3" in prod and dep.get("P2") is not None                and dep["P2"] >= prod["P3"] and dep.get("P1") is not None                and dep["P1"] < prod["P3"]:
+                got_mech = "stalled(%d)" % (dep["P2"] - prod["P3"])
+            if got_mech == "UNKNOWN":
+                verdict = "UNVERIFIED"          # never a pass
                 bad += 1
-            rows.append((cid, "OK" if ok else "MISMATCH", want_delta, got_delta,
-                         want_mech, got_mech))
+            elif got_delta == want_delta and got_mech == want_mech:
+                verdict = "OK"
+            else:
+                verdict = "MISMATCH"
+                bad += 1
+            rows.append((cid, verdict, want_delta, got_delta, want_mech, got_mech))
         else:
             rows.append((cid, "REPORTED", "", dep["P1"] - prod["P1"], "", ""))
     return rows, bad
@@ -193,7 +205,7 @@ def main():
     a = ap.parse_args()
 
     rows, bad = audit(a.tag, a.dut, a.case, a.selftest)
-    judged = [r for r in rows if r[1] in ("OK", "MISMATCH")]
+    judged = [r for r in rows if r[1] in ("OK", "MISMATCH", "UNVERIFIED")]
     print("%-46s %-9s %-6s %-6s %-12s %s" % ("case", "verdict", "want", "got", "want-mech", "got-mech"))
     for r in rows:
         print("%-46s %-9s %-6s %-6s %-12s %s" % r)

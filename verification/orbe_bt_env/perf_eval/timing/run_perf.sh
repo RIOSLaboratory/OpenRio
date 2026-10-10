@@ -25,6 +25,7 @@ COSIM="$ENV/tools/verilator_cosim.sh"
 GEN="$ENV/perf_eval/timing/gen_cases.py"
 
 TAG=${TAG:-timing_delta}
+SKIP_DONE=0
 DUT=${DUT:-rtl_v1}
 VERBOSITY=${VERBOSITY:-2}
 TIMEOUT=${TIMEOUT:-2000000}
@@ -47,6 +48,7 @@ while [ $# -gt 0 ]; do
         --timeout)   TIMEOUT="$2"; shift 2 ;;
         --seed)      SEED="$2"; shift 2 ;;
         --no-regen)  REGEN=0; shift ;;
+        --skip-done) SKIP_DONE=1; shift ;;
         --no-build)  BUILD=0; shift ;;
         -h|--help)   usage 0 ;;
         *)           echo "unknown argument: $1" >&2; usage 1 ;;
@@ -67,12 +69,24 @@ if [ "$BUILD" = 1 ]; then
     JOBS="$JOBS" "$COSIM" build --dut-kind "$DUT" --tag "$TAG" || exit 1
 fi
 
-printf 'case\tstatus\tis_good\tretire\tcycle\terr\tfatal\tequiv_mismatch\tlog\n' > "$SUMMARY"
+# The header is written once; a rerun appends instead of clobbering earlier rows.
+if [ ! -f "$SUMMARY" ]; then
+    printf 'case\tstatus\tis_good\tretire\tcycle\terr\tfatal\tequiv_mismatch\tlog\n' > "$SUMMARY"
+fi
+
+# --skip-done: cases that already have an OK row are not run again, so a batch that
+# was interrupted can be resumed without redoing the expensive prefix.
+DONE=""
+if [ "$SKIP_DONE" = 1 ] && [ -f "$SUMMARY" ]; then
+    DONE=$(awk -F'\t' '$2=="OK"{print $1}' "$SUMMARY" | tr '\n' ' ')
+    echo "== skipping cases already marked OK ($(echo $DONE | wc -w))"
+fi
 
 total=0 ok=0 bad=0
 for elf in "$WORK"/elf/*.elf; do
     cid=$(basename "$elf" .elf)
     if [ -n "$CASES" ] && [[ "$cid" != *"$CASES"* ]]; then continue; fi
+    if [ -n "$DONE" ] && [[ " $DONE " == *" $cid "* ]]; then continue; fi
     total=$((total + 1))
 
     "$COSIM" run --no-build --dut-kind "$DUT" --tag "$TAG" \
