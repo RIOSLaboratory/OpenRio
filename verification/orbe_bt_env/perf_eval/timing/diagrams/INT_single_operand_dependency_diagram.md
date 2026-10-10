@@ -35,6 +35,8 @@ Landmarks used by every figure. `L` is the producer family's latency and `delta`
 | **Dependent issue** | **`max(T(3+`L`), T(3+`delta`))`** — the producer's P3, or one cycle after the dependent's own dispatch, whichever is later |
 | Dependent `WB` / `C` | issue + 1 / issue + 2 |
 
+ARF takes one cycle: a commit at `C` is readable at `C`+1.
+
 The mechanism label is a function of `delta` and `L`, and it is what makes the two dependent columns line up:
 
 | Condition | Label |

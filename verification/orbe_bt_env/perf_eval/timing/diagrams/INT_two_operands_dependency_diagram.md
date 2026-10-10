@@ -17,7 +17,7 @@ The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md
 | `WB` | **P3** | Result writeback / bypass broadcast. |
 | `C` | **P4** | Commit. |
 
-For a producer of latency `L` whose dispatch is at T2, the producer occupies `SL` at T3, its internal stages across T3…T(2+`L`), `WB` at **T(3+`L`)**, `C` at T(4+`L`), and ARF-ready at T(5+`L`).
+For a producer of latency `L` whose dispatch is at T2, the producer issues at T3, occupies its FU across T3…T(2+`L`), `WB` at **T(3+`L`)**, `C` at T(4+`L`), and ARF-ready at T(5+`L`). ARF takes one cycle: a commit at `C` is readable at `C`+1.
 
 ## Bypass paths, and where they can be consumed
 
