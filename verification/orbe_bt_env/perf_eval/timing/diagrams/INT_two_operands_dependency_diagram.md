@@ -133,8 +133,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
 | `mul x6, x3, x4` · P3 source·G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |
+| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
 | `add x20, x7, x6` · Dependent·G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T6 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G1 P3 Bypass` in one source-resolution cycle.
@@ -177,8 +177,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
 | `ld x6, 0(x10)` · P3 source·G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |  |
+| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
 | `add x20, x7, x6` · Dependent·G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
 
 - **T6 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G3 Load P3 Bypass` in one source-resolution cycle.
