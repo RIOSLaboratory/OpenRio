@@ -14,6 +14,7 @@ Usage:
     python3 gen_cases.py --list     # just print what would be generated
 """
 
+import hashlib
 import re
 import subprocess
 import sys
@@ -110,9 +111,36 @@ def check(cid, instrs):
     return bad
 
 
+MANIFEST = WORK / ".gen_cases_manifest.tsv"
+
+
+def read_manifest():
+    """case id -> sha256 of the content this tool last wrote"""
+    if not MANIFEST.exists():
+        return {}
+    out = {}
+    for line in MANIFEST.read_text(encoding="utf-8").split("\n"):
+        parts = line.split("\t")
+        if len(parts) == 2:
+            out[parts[0]] = parts[1]
+    return out
+
+
+def write_manifest(entries):
+    MANIFEST.write_text("".join("%s\t%s\n" % (k, v) for k, v in sorted(entries.items())),
+                        encoding="utf-8")
+
+
+def sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def main(argv):
     want_elf = "--elf" in argv
     want_list = "--list" in argv
+    force = "--force" in argv
+    manifest = read_manifest()
+    blocked = []
     tpl = TEMPLATE.read_text(encoding="utf-8")
     for ph in ("{CASE_ID}", "{CASE_BODY}"):
         if tpl.count(ph) != 1:
@@ -133,8 +161,17 @@ def main(argv):
                 print("%-50s instrs=%d fillers=%s" % (cid, len(instrs), fillers))
                 continue
             src = WORK / "cases" / (cid + ".S")
-            src.write_text(tpl.replace("{CASE_ID}", cid).replace("{CASE_BODY}", "\n".join(body)),
-                           encoding="utf-8")
+            text = tpl.replace("{CASE_ID}", cid).replace("{CASE_BODY}", "\n".join(body))
+            # Never clobber a file this tool did not write, or one that has been edited
+            # since. The calibrated recipes are hand-built and must survive a rerun.
+            if src.exists() and not force:
+                on_disk = src.read_text(encoding="utf-8")
+                ours_and_unmodified = (on_disk == text) or (manifest.get(cid) == sha(on_disk))
+                if not ours_and_unmodified:
+                    blocked.append(cid)
+                    continue
+            src.write_text(text, encoding="utf-8")
+            manifest[cid] = sha(text)
             if want_elf:
                 elf = WORK / "elf" / (cid + ".elf")
                 r = subprocess.run([GCC, "-march=" + MARCH, "-mabi=" + MABI,
@@ -145,6 +182,12 @@ def main(argv):
                     problems.append("%s: link failed: %s" % (cid, r.stderr.strip()[:120]))
 
     if not want_list:
+        write_manifest(manifest)
+        if blocked:
+            print("REFUSED to overwrite %d case file(s), they are not ours or were edited:" % len(blocked))
+            for c in blocked:
+                print("    %s" % c)
+            print("    pass --force only if you intend to discard those edits")
         print("cases: %d   fillers emitted: %d" % (len(rows), total_filler))
         print("output: %s" % (WORK / ("elf" if want_elf else "cases")))
     if problems:

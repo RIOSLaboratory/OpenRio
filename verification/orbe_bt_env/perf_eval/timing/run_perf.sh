@@ -31,7 +31,7 @@ VERBOSITY=${VERBOSITY:-2}
 TIMEOUT=${TIMEOUT:-2000000}
 SEED=${SEED:-1}
 JOBS=${JOBS:-8}
-REGEN=1
+REGEN=0        # regeneration is opt-in: the case files may be hand-calibrated
 BUILD=1
 CASES=""
 
@@ -47,6 +47,7 @@ while [ $# -gt 0 ]; do
         --dut)       DUT="$2"; shift 2 ;;
         --timeout)   TIMEOUT="$2"; shift 2 ;;
         --seed)      SEED="$2"; shift 2 ;;
+        --regen)     REGEN=1; shift ;;
         --no-regen)  REGEN=0; shift ;;
         --skip-done) SKIP_DONE=1; shift ;;
         --no-build)  BUILD=0; shift ;;
@@ -62,6 +63,8 @@ mkdir -p "$RESULTS"
 if [ "$REGEN" = 1 ]; then
     echo "== regenerate .S/.elf from the caselists"
     python3 "$GEN" --elf || exit 1
+else
+    echo "== using the existing .S/.elf (pass --regen to rebuild them from the caselists)"
 fi
 
 if [ "$BUILD" = 1 ]; then
