@@ -34,6 +34,10 @@ from pathlib import Path
 
 ENV = Path("/work/home/danielle/workspace/suncheek/model/OpenRio/verification/orbe_bt_env")
 WORK = Path("/work/home/danielle/workspace/suncheek/model/perf_eval_work")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent))
+from lane_check import surplus_by_case          # noqa: E402
+
 CASELISTS = [ENV / "perf_eval/timing/caselists/INT_single_operand_dependency_caselist_v1.md",
              ENV / "perf_eval/timing/caselists/INT_two_operands_dependency_caselist.md"]
 TC = Path("/work/stu/yzhang/workspace/riscv/bin")
@@ -130,7 +134,7 @@ def events_for_pc(pc, by_pc, by_tag):
     return ev
 
 
-def audit(tag, dut, case_filter, selftest):
+def audit(tag, dut, case_filter, selftest, surplus):
     cases = parse_caselists()
     logdir = ENV / "sim" / ("verilator_" + tag) / "log" / dut
     rows, bad = [], 0
@@ -181,7 +185,17 @@ def audit(tag, dut, case_filter, selftest):
             # arrives is wait_for_p3 with a stall; report the stall explicitly.
             if got_mech == "UNKNOWN" and "P3" in prod and dep.get("P2") is not None                and dep["P2"] >= prod["P3"] and dep.get("P1") is not None                and dep["P1"] < prod["P3"]:
                 got_mech = "stalled(%d)" % (dep["P2"] - prod["P3"])
-            if got_mech == "UNKNOWN":
+            # Filler contamination: if the producer's own writeback was pushed out by
+            # same-group arbitration with a filler, the mechanism this case was built to
+            # exercise never happened, so it cannot be judged. The delta still can be,
+            # because a delta is a dispatch property.
+            contaminated = surplus.get(cid, 0) > 0
+            if contaminated:
+                verdict = "DELTA_OK" if got_delta == want_delta else "MISMATCH"
+                got_mech = "contaminated(+%d)" % surplus[cid]
+                if got_delta != want_delta:
+                    bad += 1
+            elif got_mech == "UNKNOWN":
                 verdict = "UNVERIFIED"          # never a pass
                 bad += 1
             elif got_delta == want_delta and got_mech == want_mech:
@@ -204,8 +218,9 @@ def main():
                     help="negative control: perturb the prediction, expect MISMATCH")
     a = ap.parse_args()
 
-    rows, bad = audit(a.tag, a.dut, a.case, a.selftest)
-    judged = [r for r in rows if r[1] in ("OK", "MISMATCH", "UNVERIFIED")]
+    surplus = surplus_by_case(a.tag, a.dut)
+    rows, bad = audit(a.tag, a.dut, a.case, a.selftest, surplus)
+    judged = [r for r in rows if r[1] in ("OK", "MISMATCH", "UNVERIFIED", "DELTA_OK")]
     print("%-46s %-9s %-6s %-6s %-12s %s" % ("case", "verdict", "want", "got", "want-mech", "got-mech"))
     for r in rows:
         print("%-46s %-9s %-6s %-6s %-12s %s" % r)

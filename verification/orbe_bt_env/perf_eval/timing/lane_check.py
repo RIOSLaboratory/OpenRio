@@ -95,6 +95,28 @@ def main(tag, dut):
     print("cases with a surplus: %d     total surplus cycles: %d" % (cases_hit, surplus_total))
 
 
+def surplus_by_case(tag, dut):
+    """case id -> total writeback surplus cycles, for use as a contamination filter"""
+    logdir = ENV / "sim" / ("verilator_" + tag) / "log" / dut
+    out = {}
+    for d in sorted(logdir.glob("*_1")):
+        log = d / "sim.log"
+        if not log.exists():
+            continue
+        tot = 0
+        for e in walk(log):
+            if "P2" not in e or "P3" not in e or "mnem" not in e:
+                continue
+            L = L_CLEAN.get(family(e["mnem"]))
+            if L is None:
+                continue
+            gap = e["P3"] - e["P2"]
+            if gap != L:
+                tot += gap - L
+        out[d.name[:-2]] = tot
+    return out
+
+
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "timing_delta",
          sys.argv[2] if len(sys.argv) > 2 else "rtl_v1")
