@@ -106,7 +106,7 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 
 ## P1 MUX Case List
 
-| Case | Source 1 Ready | Source 2 Ready | Instructions | Fillers | Timing Setup | Expected Behavior |
+| Case | Source 1 Ready | Source 2 Ready | Instructions | Fillers after each | Timing Setup | Expected Behavior |
 |:---|:---|:---|:---|:---|:---|:---|
 | `INT2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 3 / 3 | Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together. | Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle. |
 | `INT2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | 3 / 3 | Issue load one cycle before G0 ALU producer so both P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G0 Bypass. |
@@ -130,7 +130,7 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 
 In every P2 case below, the dependent instruction is already resident in its group-local ISQ before the source-ready cycle. At least one not-yet-ready register source observes a same-cycle P3 tag match at P2, unless the case is the pure `Stored Ready at dispatch` resident-data case. `P4 Commit CDB` is intentionally absent because it terminates at P1 MUX and never drives resident-entry P2 MUX forwarding.
 
-| Case | Source 1 at P2 MUX | Source 2 at P2 MUX | Instructions | Fillers | Timing Setup | Expected Behavior |
+| Case | Source 1 at P2 MUX | Source 2 at P2 MUX | Instructions | Fillers after each | Timing Setup | Expected Behavior |
 |:---|:---|:---|:---|:---|:---|:---|
 | `INT2_P2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 3 / 0 | Dispatch dependent early with wait tags for both operands. Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together while the dependent is resident. | P2 FU-input mux selects rs1 from G1 Bypass and rs2 from G0 Bypass; the resident entry can issue in that cycle if the selected FU is free. |
 | `INT2_P2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | 3 / 0 | Dispatch dependent early with wait tags; issue the load one cycle before the G0 ALU producer so both P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G0 Bypass. |
@@ -144,7 +144,7 @@ In every P2 case below, the dependent instruction is already resident in its gro
 
 These cases cover the legal shape hidden behind the gray same-P3-source diagonal cells. The gray cells mean two different producers cannot publish on the same group P3 bypass lane in the same cycle. They do not forbid one producer payload from feeding both rs1 and rs2 of the same dependent instruction.
 
-| Case | MUX Point | Source Ready | Instructions | Fillers | Timing Setup | Expected Behavior |
+| Case | MUX Point | Source Ready | Instructions | Fillers after each | Timing Setup | Expected Behavior |
 |:---|:---|:---|:---|:---|:---|:---|
 | `INT2_SAME_RD_P1_G0P3_dispatch_dispatch` | P1 MUX | G0 P3 Bypass fanout | `add x5, x1, x2 -> add x20, x5, x5` | 3 | Producer reaches G0 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G0 Bypass payload into both operands. |
 | `INT2_SAME_RD_P1_G1P3_dispatch_dispatch` | P1 MUX | G1 P3 Bypass fanout | `mul x5, x1, x2 -> add x20, x5, x5` | 7 | MUL producer reaches G1 P3 when dependent constructs its ISQ payload. | P1 source resolution matches the same producer tag for both rs1 and rs2 and captures one G1 Bypass payload into both operands. |

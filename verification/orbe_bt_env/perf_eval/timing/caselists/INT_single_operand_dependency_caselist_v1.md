@@ -151,7 +151,7 @@ add x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | G | Instructions | Fillers | Behavior |
+| Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|
 | `ALU_to_ALU_delta_0` | G0 → G1 | `add x5, x1, x2 -> add x6, x5, x3` | 0 | `overlay`; slot0 producer ALU claims G0 first and slot1 dependent ALU routes to G1 in the post-slot0 view. |
 | `ALU_to_ALU_delta_1` | G0 → G0 | `sub x5, x3, x4 -> add x6, x5, x7` | 1 | `wait_for_p3` |
@@ -168,7 +168,7 @@ mul x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | G | Instructions | Fillers | Behavior |
+| Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|
 | `MUL_to_ALU_delta_0` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | 0 | `overlay`; producer MUL targets G1 and dependent ALU can route to G0. |
 | `MUL_to_ALU_delta_1` | G1 → G0 | `mul x5, x3, x4 -> add x7, x5, x8` | 1 | `wait_for_p3` |
@@ -187,7 +187,7 @@ div x5, x1, x2
 add x6, x5, x3
 ```
 
-| Case | G | Instructions | Fillers | Behavior |
+| Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|
 | `DIV_to_ALU_delta_0` | G0 → G1 | `div x5, x1, x2 -> add x6, x5, x3` | 0 | `overlay`; producer DIV targets G0 and dependent ALU can route to G1. |
 | `DIV_to_ALU_delta_1` | G0 → G0 | `div x5, x3, x4 -> add x7, x5, x8` | 1 | `wait_for_p3` |
@@ -209,7 +209,7 @@ add x6, x5, x3
 
 Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates).
 
-| Case | G | Instructions | Fillers | Behavior |
+| Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|
 | `LOAD_to_ALU_delta_0` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 0 | `overlay`; producer LOAD targets G3 and dependent ALU can route to G0/G1. |
 | `LOAD_to_ALU_delta_1` | G3 → G0 | `lw x5, 8(x2) -> add x7, x5, x8` | 1 | `wait_for_p3` |
@@ -232,7 +232,7 @@ add  x6, x5, x3
 
 `L = 1` here is the **link-value** latency. JALR also has a redirect-ready latency (measured 2), which is a control-flow metric and is not enumerated in this caselist.
 
-| Case | G | Instructions | Fillers | Behavior |
+| Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|
 | `JALR_to_ALU_delta_0` | G0 → G1 | `jalr x5, 0(x10) -> add x6, x5, x3` | 0 | `overlay`; producer JALR targets G0 and dependent ALU can route to G1. |
 | `JALR_to_ALU_delta_1` | G0 → G0 | `jalr x5, 0(x10) -> add x7, x5, x8` | 1 | `wait_for_p3` |
