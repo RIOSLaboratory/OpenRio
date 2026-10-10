@@ -130,6 +130,14 @@ interface ob_cosim_if #(
   // `issue_valid && FU_ready[FU_Group]`. Latency is measured from the accept.
   logic [3:0] isq_issue_fire;
 
+  // [perf_eval timing] P3 writeback / bypass broadcast, one entry per completion lane.
+  // Taken off the backend's lane_bypass_* bus, where valid and tag travel together, so a
+  // consumer can attribute a published tag to the lane that published it. Primitive
+  // fields only, like everything else here; no parameter is added, because LANE_NUM is
+  // deliberately last and six call sites pass parameters positionally.
+  logic [LANE_NUM-1:0]   lane_bypass_valid;
+  logic [ROB_ADDR_W-1:0] lane_bypass_tag [LANE_NUM];
+
   // Level-2 CSR unit boundary observation channels.
   logic csr_in_valid;
   logic [ROB_ADDR_W-1:0] csr_in_tag;

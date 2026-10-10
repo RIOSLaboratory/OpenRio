@@ -271,14 +271,20 @@ riscv64-unknown-elf-gcc -march=rv64ima -mabi=lp64 -nostdlib -nostartfiles \
 | **P4 commit** | `[BE][COMMIT] cycle=… group=… pc=…` | ≥ 2 |
 | P4 commit（备选） | `[BE][COSIM_OB] cycle=… pc=… result=…` | ≥ 1 |
 | flush / recovery | `[BE][RECOVERY_FLUSH] cycle=… kind=… origin=…` | ≥ 2 |
-| **P3 bypass / ISQ issue** | `isq_g0..g3_issue_*` 信号**已在观测面上，但尚未打印** | 待补 |
+| **P2 ISQ issue（火）** | `[BE_TB] [COSIM] [ISQ_FIRE] cycle=… group=… tag=…` | ≥ 2 |
+| **P3 bypass 广播** | `[BE_TB] [COSIM] [P3_BYPASS] cycle=… lane=… tag=…` | ≥ 2 |
 
 **抽取口径**：按 `pc` 认指令（`objdump` 的 `.dump` 与日志中的 `pc` 对照）。
 
-> ⚠️ P3 的打印是本方法**目前唯一缺的观测**。`tb/agents/be/be_agent.sv` 已经从
-> `ob_cosim_vif.isq_g0..g3_issue_*` 取到数据（存进 `l2_isq_by_rob`），只差一行
-> `$display`。在补上之前，`p3_capture` / `wait_for_p3` 的**机制**判定只能靠
-> P1/P4 cycle 间接推断。
+> **2026-10-10 补齐。** P2 的打印由 latency bench 先加（`[ISQ_FIRE]`，取 `isq_issue_fire`
+> = 请求 ∧ 该组 FU 的 ready，即**火**）；P3 的打印本轮补上（`[P3_BYPASS]`，4 lane 的
+> `lane_bypass_valid/tag`）。四级现已齐备：P1 `[BE][DECODE]` / P2 `[ISQ_FIRE]` /
+> P3 `[P3_BYPASS]` / P4 `[BE][COMMIT]`，全部在 verbosity ≥ 2。
+>
+> ⚠️ **但 P2/P3 没有外部参照。** ISA model 没有流水级，这两级的"实际位置"无法被 cosim
+> 交叉验证（P1/P4 有）。因此 P2/P3 只能靠三件事自证：① 探针取**火**而非**请求**
+> （`issue_valid` 是请求行，会提前若干拍）；② 同一 `tag` 的事件链自洽
+> （`dispatch ≤ issue ≤ bypass ≤ commit`）；③ 比对器带**负控制**（喂错的预期必须报错）。
 
 ### Step 5 — 算 delta 并对表
 

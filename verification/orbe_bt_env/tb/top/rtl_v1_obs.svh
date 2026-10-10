@@ -200,6 +200,19 @@ typedef struct packed {
        (u_backend.isq1_FU_Group == or_be_types_pkg::G1_FU_MUL) ? u_backend.mul_FU_ready : 1'b0);
   assign rtl_isq_issue_fire[2] = u_backend.isq2_issue_valid && u_backend.g2fu_FU_ready;
   assign rtl_isq_issue_fire[3] = u_backend.isq3_issue_valid && u_backend.lsuif_FU_ready;
+  // [perf_eval timing] P3 writeback / bypass broadcast. Sampled at the same
+  // combinational stage as the ISQ issue observation above, so the same obs_ flop
+  // registers it and it stays cycle-aligned with the DECODE / ISQ_FIRE / COMMIT lines.
+  logic [or_be_types_pkg::NUM_LANES-1:0] rtl_lane_bypass_valid;
+  logic [or_be_types_pkg::TAG_W-1:0]     rtl_lane_bypass_tag [or_be_types_pkg::NUM_LANES];
+  logic [or_be_types_pkg::NUM_LANES-1:0] obs_lane_bypass_valid;
+  logic [or_be_types_pkg::TAG_W-1:0]     obs_lane_bypass_tag [or_be_types_pkg::NUM_LANES];
+  // u_backend.lane_bypass_valid is an unpacked array (logic [NUM_LANES]), so each lane is
+  // packed into the vector here rather than assigned wholesale.
+  for (genvar g_rtl_bp = 0; g_rtl_bp < or_be_types_pkg::NUM_LANES; g_rtl_bp++) begin : g_rtl_bypass
+      assign rtl_lane_bypass_valid[g_rtl_bp] = u_backend.lane_bypass_valid[g_rtl_bp];
+      assign rtl_lane_bypass_tag[g_rtl_bp]   = u_backend.lane_bypass_tag[g_rtl_bp];
+  end
   assign rtl_csr_in_valid = u_backend.u_csr_unit.accept;
   assign rtl_csr_in_tag = u_backend.isq0_self_tag;
   assign rtl_csr_in_addr = u_backend.csrfu_csr_addr;
@@ -498,6 +511,10 @@ typedef struct packed {
   assign ob_cosim_vif.isq_g3_issue_valid = obs_isq_g3_issue_valid;
   assign ob_cosim_vif.isq_g3_issue_pld = obs_isq_g3_issue_pld;
   assign ob_cosim_vif.isq_issue_fire = obs_isq_issue_fire;
+  assign ob_cosim_vif.lane_bypass_valid = obs_lane_bypass_valid;
+  for (genvar g_obs_bp = 0; g_obs_bp < or_be_types_pkg::NUM_LANES; g_obs_bp++) begin : g_obs_bypass_tag
+      assign ob_cosim_vif.lane_bypass_tag[g_obs_bp] = obs_lane_bypass_tag[g_obs_bp];
+  end
   assign ob_cosim_vif.csr_in_valid = obs_csr_in_valid;
   assign ob_cosim_vif.csr_in_tag = obs_csr_in_tag;
   assign ob_cosim_vif.csr_in_addr = obs_csr_in_addr;
@@ -712,7 +729,9 @@ typedef struct packed {
       obs_isq_g3_issue_valid <= rtl_isq_g3_issue_valid;
       obs_isq_g3_issue_pld <= rtl_isq_g3_issue_pld;
       obs_isq_issue_fire <= rtl_isq_issue_fire;
+      obs_lane_bypass_valid <= rtl_lane_bypass_valid;
       for (int lane = 0; lane < NUM_LANES; lane++) begin
+        obs_lane_bypass_tag[lane] <= rtl_lane_bypass_tag[lane];
         obs_fu_result[lane] <= rtl_fu_result[lane];
         obs_fu_mispredict[lane] <= rtl_fu_mispredict[lane];
         obs_fu_exception[lane] <= rtl_fu_exception[lane];

@@ -991,6 +991,13 @@ class be_agent;
       cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [ISQ_FIRE] cycle=%0d group=3 tag=0x%0h mem_funct3=%0d",
                     cycle_count, ob_cosim_vif.isq_g3_issue_pld.self_tag,
                     ob_cosim_vif.isq_g3_issue_pld.mem_funct3));
+    // [perf_eval timing] P3 writeback / bypass broadcast: one line per publishing lane,
+    // on the same cycle base as the DECODE / ISQ_FIRE / COMMIT lines.
+    for (int bp_lane = 0; bp_lane < 4; bp_lane++) begin
+      if (ob_cosim_vif.lane_bypass_valid[bp_lane])
+        cfg.print_be(2, $sformatf("[BE_TB] [COSIM] [P3_BYPASS] cycle=%0d lane=%0d tag=0x%0h",
+                                  cycle_count, bp_lane, ob_cosim_vif.lane_bypass_tag[bp_lane]));
+    end
     if (!level2_enabled())
       return;
     if (ob_cosim_vif.isq_g0_issue_valid === 1'b1) begin
