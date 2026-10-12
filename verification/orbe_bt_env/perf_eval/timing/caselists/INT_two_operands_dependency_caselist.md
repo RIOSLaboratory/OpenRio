@@ -125,7 +125,7 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 | `INT2_ARF_G0P3` | Already in ARF | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | 3 / 3 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G0 producer for `x5` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G0 Bypass. |
 | `INT2_G0P3_IMM` | G0 P3 Bypass | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | 3 | G0 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G0 Bypass; rs2 is immediate and has no dependency tag. |
 | `INT2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | 0 / 7 | Issue `mul` one cycle before load so G1 and G3 P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass. |
-| `INT2_P4_G1P3` | P4 Commit | G1 P3 Bypass | `mul x6, x3, x4; add x7, x8, x9 -> add x20, x7, x6` | 1 / 5 | Arrange the older `mul` producer to publish at G1 P3 in the same cycle that `x7` commits. | P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2. |
+| `INT2_P4_G1P3` | P4 Commit | G1 P3 Bypass | `ld x6, 0(x10); mul x8, x1, x2 -> add x20, x6, x8` | 1 / 5 branch | The commit-side producer is placed before the MUL and the fillers are never-taken branches; see the note below. Measured `ld.P4 = mul.P3 = dep.P1`. | P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2. |
 | `INT2_ARF_G1P3` | Already in ARF | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | 0 / 7 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G1 producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G1 Bypass. |
 | `INT2_G1P3_IMM` | G1 P3 Bypass | IMM | `mul x6, x3, x4 -> addi x20, x6, 16` | 7 | G1 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag. |
 | `INT2_P4_G3P3` | P4 Commit | G3 Load P3 Bypass | `mul x6, x3, x4; ld x8, 0(x10) -> add x20, x6, x8` | 1 / 5 chained | The commit-side producer is placed **before** the load, and the fillers form a dependency chain. Both are forced; see the note below the table. Measured `mul.P4 = ld.P3 = dep.P1`. | P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2. |
@@ -157,6 +157,16 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 > `P4`. A chain advances one filler per cycle and, being a single ALU op per cycle, stays
 > on G0, which leaves the G1 producer alone. The measured values are `mul.P1=7 P4=12`,
 > `ld.P1=8 P3=12`, `dep.P1=12`.
+>
+> **`INT2_P4_G1P3` needs one more step beyond that, and its fillers are branches.** Its
+> bypass side must be a MUL because the token is `G1P3`, so the MUL is pinned to G1. A
+> chain cannot be used here: a chain element dispatched while the previous one still holds
+> `G0`'s entry is routed to G1, and one such element landing in the MUL's writeback cycle
+> pushes `mul.P3` from 12 to 13 exactly when the dependent's fillers become long enough to
+> be useful. Never-taken branches avoid this because a BRU op is in the fixed `G0` group
+> and cannot be pushed to G1; `bne x0, x0, 7f` never redirects, is single-cycle and writes
+> no register. The measured values are `ld.P1=7 P4=12` on lane 3, `mul.P1=8 P3=12` on
+> lane 1, `dep.P1=12`, both producers' writebacks clean.
 
 ## P2 MUX Case List
 
