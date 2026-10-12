@@ -12,7 +12,6 @@ _start:
     add  x6, x5, x3
 pass:
     sd   x28, 0(x29)
-9:  wfi
-    j    9b
+1:  j    1b
 .section .data
 scratch: .quad 0

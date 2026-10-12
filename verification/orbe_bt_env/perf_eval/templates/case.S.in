@@ -14,8 +14,9 @@
 #   * 退出码保留   : x28, x29, x31 —— case 不得触碰
 #   * 退出方式     : 向 `tohost` 写 1（riscv-tests 的 pass 约定）；
 #                    `tohost` 由 templates/link.ld 定义。
-#   * 每条 case 必须能跑到 pass 并停机（wfi 自旋），
-#     否则 ISA model 不会请求退出，仿真会一直跑到 timeout。
+#   * 退出后不得再退休任何指令。收尾用自旋 `1: j 1b`，**不要加 wfi**：
+#     退出由 tohost 存储触发，参考模型在 tohost 处停止；带 wfi 的自旋会被 RTL 反复
+#     退休，产生参考模型没有的提交，比较器随即报 PC_MISMATCH（在 rtl_full 上实测）。
 # =============================================================================
 
 .option norvc
@@ -37,5 +38,4 @@ pass:
     addi x28, zero, 1
     la   x29, tohost
     sd   x28, 0(x29)
-1:  wfi
-    j    1b
+1:  j    1b

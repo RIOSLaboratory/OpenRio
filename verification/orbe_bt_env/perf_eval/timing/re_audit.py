@@ -30,7 +30,7 @@ GCC, OD, NM = (TC / "riscv64-unknown-elf-gcc", TC / "riscv64-unknown-elf-objdump
                TC / "riscv64-unknown-elf-nm")
 COSIM = ENV / "tools/verilator_cosim.sh"
 LINK = ENV / "perf_eval/templates/link.ld"
-TAG, DUT = "timing_delta", "rtl_full"   # 必须用已有 build 的 tag，否则 --no-build 会失败
+TAG, DUT = "timing_full", "rtl_full"   # 必须用已有 build 的 tag，否则 --no-build 会失败
 
 
 def parse_caselists():
