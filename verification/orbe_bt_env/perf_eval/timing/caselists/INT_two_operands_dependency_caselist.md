@@ -87,12 +87,18 @@ groups, which is what the figures already require.
   a `G1`-pinned producer's own `P3` and therefore its `P4`. The count-to-gap relation
   changes too, so it has to be measured rather than computed from `2g - 1`.
   `INT2_P4_G3P3` is the worked example, with `Fillers` `1 / 5 chained`.
-- **Two counting conventions in the tables.** Rows whose `Fillers` entry ends in `branch`
-  use never-taken branches (`bne x0, x0, 7f`), and the entry is a measured count, not a
-  `2g - 1` value. They are the rows where a producer is pinned to `G1` or `G0` and a shared
-  lane must stay free: a branch is a BRU op in the fixed `G0` group, so it cannot be pushed
-  onto `G1`, and it is single-cycle so the granularity stays at one cycle. Every other row
-  uses the independent `addi` fillers and the `2g - 1` count.
+- **Three counting conventions in the tables.** A plain number is the independent
+  single-cycle `addi` filler and the `2g - 1` count does hold for it. `branch` marks
+  never-taken branches (`bne x0, x0, 7f`), used where a producer is pinned to `G1` and must
+  keep its lane: a BRU op is in the fixed `G0` group so it cannot be pushed onto `G1`, and it
+  is single-cycle so the granularity stays at one cycle. `chained` marks a dependency chain of
+  `addi`, which advances one filler per cycle and stays on `G0`.
+  `Nld+Mfp` marks `N` load fillers plus `M` `fadd.s` fillers, used where **both** lanes 0 and 1
+  are held by producers: the load uses `G3` and the `fadd.s` uses `G2`, so neither can steal a
+  producer's writeback. Those two fillers do not advance the stream one cycle each, so the count
+  had to be measured; the rows also need the FS enable for the `fadd.s`. Every notation other
+  than a plain number is a measured recipe, and such rows are frozen under `../calibrated_cases/`
+  because `gen_cases.py` cannot render them.
 - **Count**: `Fillers` lists, in program order, how many fillers follow each case
   instruction, so the last entry always follows the last producer.
 - **Slot order within a cycle**: a case instruction must be the **first** of the two
@@ -106,9 +112,10 @@ groups, which is what the figures already require.
   instructions occupy slots 0 and 1 of one cycle and must go to different groups, which
   the figures already require.
 
-Worked example: `INT2_G1P3_G0P3` has `Fillers` = `3 / 3`, so the program is `mul`,
-3 fillers, `add x5`, 3 fillers, `add x20`. The two producers then dispatch at cycles 0
-and 2 and the dependent at cycle 4, which is the arrangement the figure shows.
+Worked example: `INT2_G3P3_G1P3` has `Fillers` = `0 / 4 branch`, so the program is `mul`, the
+load, 4 never-taken branches, then `add x20`. Rows whose entry is a plain number use the
+`2g - 1` independent `addi` filler instead. `INT2_G1P3_G0P3` uses the third notation,
+`Nld+Mfp`; see the note under the table.
 
 **Assumption to confirm by simulation**: a straight-line program of this shape
 sustains two dispatches per cycle.
@@ -125,7 +132,7 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 
 | Case | Source 1 Ready | Source 2 Ready | Instructions | Fillers after each | Timing Setup | Expected Behavior |
 |:---|:---|:---|:---|:---|:---|:---|
-| `INT2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 3 / 3 | Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together. | Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle. |
+| `INT2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `div x6, x3, x4; mul x8, x1, x2 -> add x20, x8, x6` | `0ld+1fp / 0ld+3fp` | The G0 side is a **DIV**, not an ALU, and it dispatches one cycle **before** the MUL so the two P3 publications coincide. Fillers must stay off lanes 0 and 1. See the note below; measured `div.P3 = mul.P3 = dep.P1`. | Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle. |
 | `INT2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | 3 / 3 | Issue load one cycle before G0 ALU producer so both P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G0 Bypass. |
 | `INT2_P4_G0P3` | P4 Commit | G0 P3 Bypass | `add x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 1 / 3 | Arrange older `x6` producer to commit in the same cycle that `x5` producer publishes at G0 P3. | P1 source resolution uses Commit CDB for rs1 and G0 Bypass for rs2. |
 | `INT2_ARF_G0P3` | Already in ARF | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | 3 / 3 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G0 producer for `x5` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G0 Bypass. |
@@ -173,6 +180,23 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 > and cannot be pushed to G1; `bne x0, x0, 7f` never redirects, is single-cycle and writes
 > no register. The measured values are `ld.P1=7 P4=12` on lane 3, `mul.P1=8 P3=12` on
 > lane 1, `dep.P1=12`, both producers' writebacks clean.
+
+> **Note on `INT2_G1P3_G0P3`: both producers hold a lane, so the G0 side was changed.**
+>
+> This row needs one cycle to carry three things: the G1 P3 publication, the G0 P3
+> publication, and the dependent's source resolution. Every filler type that is single-cycle
+> is an ALU op, and such an op is routed to whichever of `G0` and `G1` is free; with a
+> producer pinned to each lane, one of them is always taken, so an independent filler, a
+> chain or a branch all end up stealing a producer's writeback. Branches are worst here
+> because a BRU op is in the fixed `G0` group and collides with the `G0` producer directly.
+>
+> The only lane-safe fillers are `ld` on `G3` and `fadd.s` on `G2`, and those advance the
+> stream roughly two cycles per filler, so the counts had to be measured. What makes the row
+> work is the **choice of the G0 producer**: a DIV has a `P3` delta of five against an ALU's
+> two, so it must dispatch one cycle *before* the MUL, and with that spacing the two
+> publications land together while both writebacks stay clean. Order matters: with the MUL
+> first, no spacing produced a clean coincidence. Measured `div.P1=15 P3=20` on lane 0,
+> `mul.P1=16 P3=20` on lane 1, `dep.P1=20`.
 
 ## P2 MUX Case List
 
