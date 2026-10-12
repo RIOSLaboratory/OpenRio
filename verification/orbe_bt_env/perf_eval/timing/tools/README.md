@@ -162,3 +162,37 @@ MUL 是 3，别混。
    就会被当成 LOAD 并误报 surplus。
 2. `family()` 期望**大写**助记符（它解析日志里的 `inst_mnemonic=`）。传小写会静默落进
    默认的 `ALU`、L=1，把 MUL/DIV 判成脏。本轮我就在 `re_audit.py` 里踩过一次。
+
+## JALR 作 producer：结论是**凑不出来**（附证据与复现脚本）
+
+K-Map 要求的是"JALR 作 producer，consumer 任意"。为此先修掉了当初挂死的根因：
+**跳转目标寄存器未初始化**导致跳到地址 0。修法是让 target = JALR 的下一条指令
+（落空路径），这样 dependent 在架构正确路径上。修好之后程序能正常跑，
+JALR 的写回间隔为 **1**，与 `Latency_Report.md` 的 `link 值 = 1` 一致。
+
+但是 delta 阶梯凑不出来。原因是 **JALR 自己的重定向会冲刷它后面派发的一切**：
+凡是落在链路值可见窗口内派发的 dependent 都是投机派发，**从未提交**。
+
+`jalr_producer_commit.py` 的输出（每条打印"该次派发的 delta 是否提交"）：
+
+| 填充物 | 各次派发 delta（✓=提交，×=被冲刷） | 提交实例的最小 delta |
+|---|---|---|
+| 0 | 1×  6✓ | 6 |
+| 1 | 2×  6✓ | 6 |
+| 2 | 2×  7✓ | 7 |
+| 3 | 3×  7✓ | 7 |
+| 4 | 3×  8✓ | 8 |
+| 5 | 8✓ | 8 |
+| 6 | 9✓ | 9 |
+
+**消费者换成 MUL 结果完全相同**（`jalr_producer_commit.py` 会同时跑 ALU 与 MUL）——
+成因在前端重定向，与消费者落在哪个 group 无关。
+
+**预热也无法绕过**（`jalr_producer_warmup.py`）：先执行一次同目标的 JALR，重定向次数
+从 2 增到 3，提交实例的最小 delta 从 6 **升到 10**。这个配置里 JALR 不被预测。
+
+**⇒ 对 JALR（L=1，阶梯 0..4）**：没有一条 delta 可实现。实际可达的只有 delta ≥ 6，
+按 `mech_of` 全部落在 **`arf_read`**（delta ≥ L+3）——即依赖者派发时链路值早已提交，
+旁路捕获机制一个都测不到。
+
+**复现**：`python3 tools/jalr_producer_commit.py`（约 20 次仿真）。
