@@ -79,6 +79,14 @@ groups, which is what the figures already require.
 - **Why an integer ALU operation**: the dispatcher can send it to either `G0` or `G1`,
   so a filler sharing a cycle with a case instruction that is pinned to one group can
   always be placed in the other, and never displaces the case.
+- **Exception: dependency-chained fillers.** When a lane must be kept free, the fillers are
+  written as a chain, each `addi` reading the previous filler's result, instead of as
+  independent instructions. A chain advances one filler per cycle and, being a single ALU
+  op per cycle, is routed to `G0`; independent fillers are not, because the second of the
+  two dispatched in a cycle is routed to `G1` and takes that lane's writeback, which pushes
+  a `G1`-pinned producer's own `P3` and therefore its `P4`. The count-to-gap relation
+  changes too, so it has to be measured rather than computed from `2g - 1`.
+  `INT2_P4_G3P3` is the worked example, with `Fillers` `1 / 5 chained`.
 - **Count**: `Fillers` lists, in program order, how many fillers follow each case
   instruction, so the last entry always follows the last producer.
 - **Slot order within a cycle**: a case instruction must be the **first** of the two
@@ -120,7 +128,7 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 | `INT2_P4_G1P3` | P4 Commit | G1 P3 Bypass | `mul x6, x3, x4; add x7, x8, x9 -> add x20, x7, x6` | 1 / 5 | Arrange the older `mul` producer to publish at G1 P3 in the same cycle that `x7` commits. | P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2. |
 | `INT2_ARF_G1P3` | Already in ARF | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | 0 / 7 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G1 producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G1 Bypass. |
 | `INT2_G1P3_IMM` | G1 P3 Bypass | IMM | `mul x6, x3, x4 -> addi x20, x6, 16` | 7 | G1 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag. |
-| `INT2_P4_G3P3` | P4 Commit | G3 Load P3 Bypass | `ld x6, 0(x10); add x7, x8, x9 -> add x20, x7, x6` | 1 / 5 | Arrange the older `ld` producer to publish at G3 P3 in the same cycle that `x7` commits. | P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2. |
+| `INT2_P4_G3P3` | P4 Commit | G3 Load P3 Bypass | `mul x6, x3, x4; ld x8, 0(x10) -> add x20, x6, x8` | 1 / 5 chained | The commit-side producer is placed **before** the load, and the fillers form a dependency chain. Both are forced; see the note below the table. Measured `mul.P4 = ld.P3 = dep.P1`. | P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2. |
 | `INT2_ARF_G3P3` | Already in ARF | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | 0 / 7 | Producer for `x11` is issued early enough to commit before the dependent reaches P1; load producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G3 load Bypass. |
 | `INT2_G3P3_IMM` | G3 Load P3 Bypass | IMM | `ld x6, 0(x10) -> addi x20, x6, 16` | 7 | Load producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G3 load Bypass; rs2 is immediate and has no dependency tag. |
 | `INT2_P4_P4` | P4 Commit | P4 Commit | `add x5, x1, x2; add x6, x3, x4 -> add x20, x5, x6` | 0 / 5 | Arrange the two older producers as P4 head0/head1 commits in the dependent source-resolution cycle. | P1 source resolution captures both operands from the two Commit CDB lanes. |
@@ -128,6 +136,27 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 | `INT2_P4_IMM` | P4 Commit | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | 5 | Older `x5` producer commits in the dependent immediate-form instruction's source-resolution cycle. | rs1 captures Commit CDB; rs2 is immediate and has no dependency tag. |
 | `INT2_ARF_ARF` | Already in ARF | Already in ARF | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | 0 / 7 | Both producers are issued early enough to commit before the dependent reaches P1, so neither source has a live DST_REG mapping. | Both operands read ARF at P1; no bypass or commit overlay is needed. |
 | `INT2_ARF_IMM` | Already in ARF | IMM | `add x10, x1, x2 -> addi x20, x10, 16` | 7 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; the second operand is immediate. | rs1 reads ARF; rs2 is immediate and has no dependency tag. |
+
+> **Note on `INT2_P4_G3P3`: the composer and the fillers are both forced.**
+>
+> The row needs three cycles to be the same one: the commit-side producer's `P4`, the
+> load's `P3`, and the dependent's `P1`. Two things block the obvious construction.
+>
+> **The commit-side producer cannot be an ALU.** Its commit would have to land on the
+> load's `P3`, which needs it to dispatch one cycle *after* the load. Dispatch follows
+> program order, so it would then sit behind the load, and in-order commit holds its
+> commit at or after the load's own commit, which is the load's `P3` plus one. The
+> measured gap is `+1` with the load first and `-1` with the ALU first, so zero is
+> unreachable for an ALU composer. This row therefore uses a MUL, whose `P4` delta of
+> five is large enough, and the ALU/MUL choice does not change what the dependent sees:
+> rs1 arrives on the Commit CDB either way.
+>
+> **The fillers must be a dependency chain, not `2g - 1` independent ones.** With
+> independent fillers, one of the two dispatched per cycle is routed to G1, takes that
+> lane's writeback and pushes the commit-side producer's own `P3`, and therefore its
+> `P4`. A chain advances one filler per cycle and, being a single ALU op per cycle, stays
+> on G0, which leaves the G1 producer alone. The measured values are `mul.P1=7 P4=12`,
+> `ld.P1=8 P3=12`, `dep.P1=12`.
 
 ## P2 MUX Case List
 
