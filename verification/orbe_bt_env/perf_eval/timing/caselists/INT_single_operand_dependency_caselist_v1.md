@@ -51,10 +51,24 @@ ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases + MUL_to_JALR 7 cases =
 >
 > The rule `P3 delta = latency + 1` is unchanged.
 >
-> **JALR is a consumer, never a producer.** The earlier shape had `JALR` on the producer side
-> and consumed its link value (`rd = PC + 4`). That shape is withdrawn: producing the link and
-> changing the control flow occupy the same window, and the redirect squashes the dependent, so
-> the case cannot measure what it claims. The family is now `MUL_to_JALR`: a MUL produces the
+> **A JALR cannot act as a producer, and the reason is structural.** `p4/flush_model.sv` states
+> that the retire decision belongs to the CompletionScoreboard, and that this module only
+> translates an already-decided flush into a recovery target and broadcasts it: the JALR's control
+> decision takes effect **at retire**, via `global_flush_late`. That net gates the dispatch and
+> execution paths — `p1/FP_tag_mapping.sv` documents that a flush suppresses the alloc and returns
+> the tag table to IDLE, and every ISQ group computes `issue_valid = issue_req &&
+> !global_flush_late` and `bypass_capture = isq_valid && !global_flush_late && !issue_fire`, with
+> `g3_lsu_iface` gated the same way. So a consumer dispatched inside the link's visibility window
+> must be dispatched **before the JALR retires**, and everything fetched that early is speculation:
+> the flush **cancels** that dispatch rather than delaying it. Being inside the window and
+> surviving it are mutually exclusive by construction.
+>
+> Measured consequence: attempts at `delta` 1, 2 and 3 do appear in the log but never commit, and
+> the first dispatch that survives is **six cycles** after the JALR's dispatch (`tools/jalr_producer_commit.py`).
+> The JALR's ladder is `0..4`, so no row is reachable, and every attainable delta is at least six,
+> which is `arf_read` for all of them. A MUL consumer behaves identically, because the flush sits
+> upstream of group assignment, which is why this family adds nothing over `MUL_to_ALU` and is not
+> enumerated.</ The family is now `MUL_to_JALR`: a MUL produces the
 > jump target and the JALR consumes it through `rs1`, which is a dependency the architecture
 > really has. The ladder therefore follows the **producer's** latency, `L = 3`, enumerated over
 > `0..6`. The producer's type is irrelevant to the dependency; only its latency matters. The
