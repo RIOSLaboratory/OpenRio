@@ -33,7 +33,7 @@ This v2 caselist reduces the previous full producer-dependent expansion to one r
 Total case count:
 
 ```text
-ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases = 27 cases
+ALU 5 cases + MUL 7 cases + DIV 8 cases + LOAD 7 cases + JALR 5 cases = 32 cases
 ```
 
 > **Revision (2026-10): producer latencies replaced by measured values.**
@@ -47,7 +47,7 @@ ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases = 27 cases
 > | MUL | 3 | **3** | unchanged |
 > | DIV | 8 | **4** | 12 → **8** cases |
 > | LOAD | 2 → 3 | **3** | 6 → **7** cases (previous revision) |
-> | JALR | 3 | — | **removed from the enumerated set**: a JALR cannot act as a producer |
+> | JALR | 3 | **1** | 7 → **5** cases; enumerated with a same-PC warm-up prerequisite |
 >
 > The rule `P3 delta = latency + 1` is unchanged.
 >
@@ -97,7 +97,7 @@ Normal no-older-blocker path:
 | MUL | 3 | 4 | 5 | 6 | 0..6 |
 | DIV | **4** | **5** | **6** | **7** | **0..7** |
 | LOAD | 3 | 4 | 5 | 6 | 0..6 |
-| JALR | — | — | — | — | not enumerated |
+| JALR (link, with warm-up) | **1** | **2** | **3** | **4** | **0..4** |
 
 JAL/JALR note:
 
@@ -254,21 +254,44 @@ Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates)
 | `LOAD_to_ALU_delta_5` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 9 | `p4_capture` |
 | `LOAD_to_ALU_delta_6` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 11 | `arf_read` |
 
-## JALR is not enumerated
+## JALR_to_ALU
 
-**Which operand is the producer.** The assembly form is `jalr rd, imm(rs1)`: the **first**
-operand is `rd`, and that is the register a consumer reads. Its value is the link, `PC + 4` —
-the address of the instruction after the JALR, **not** the jump target. The second operand,
-`rs1`, is an input, which is why a JALR can be a consumer of something else. Two traps when
-building a link dependency: `rd = x0` produces nothing (`INT_tag_mapping.sv` and `INT_ARF.sv`
-both guard on `rd != 0`), and `rd = x1` may be compressed to the two-byte `c.jalr`, whose link
-is `PC + 2` instead, so use a register such as `x5`.
+Representative (the warm-up is part of the case):
 
-A JALR cannot act as a producer in a dependency case: its control decision is only known at retire,
-and the flush that follows cancels any consumer dispatched inside the link value's visibility
-window. The full argument, with the RTL that implements it and the measurements behind it, is in
-the revision block at the top of this file. A JALR consumer against a MUL producer was enumerated
-for a period and has been removed as a duplicate of `MUL_to_ALU`.
+```asm
+    la   x11, JT
+    li   x12, 2
+LOOP:
+    mv   x10, x11
+    jalr x5, 0(x10)
+JT:
+    addi x12, x12, -1
+    bne  x12, x0, LOOP
+    add  x6, x5, x3
+```
+
+**Precondition: the same-PC JALR must already have executed once.** A JALR is always taken, so
+`fu/alu_simple.sv`'s mispredict expression reduces to "the FE must have predicted taken to the
+exact target", and the FE's `l1btb.sv`, the only branch predictor, is indexed by PC — so only a
+previous execution of the *same* JALR populates the entry. Measured on `rtl_full`: the first
+execution reports `mispredict=1` and redirects, the second reports `mispredict=0` with no redirect,
+and the link value then travels the bypass normally. The case therefore loops the JALR once and
+measures the second execution.
+
+**Why an earlier baseline could not build this.** Under `--dut-kind rtl_v1` the FE is `fe_agent`,
+which hardwires `pred_taken = 0`; every taken control transfer then mispredicts, flushes, and
+cancels any consumer inside the link's visibility window, which is why the family was withdrawn.
+The base DUT is now `rtl_full`, whose FE does predict, so the family is restored.
+
+`L = 1` is the link value (`PC + 4`), and `rd` is the first operand — see the operand note above.
+
+| Case | G | Instructions | Fillers after each | Behavior |
+|:---|:---|:---|:---|:---|
+| `JALR_to_ALU_delta_0` | G0 → G1 | `jalr x5, 0(x10) -> add x6, x5, x3` | 0 | `overlay`; producer JALR targets G0 and dependent ALU can route to G1. |
+| `JALR_to_ALU_delta_1` | G0 → G0 | `jalr x5, 0(x10) -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `JALR_to_ALU_delta_2` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | 3 | `p3_capture` |
+| `JALR_to_ALU_delta_3` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | 5 | `p4_capture` |
+| `JALR_to_ALU_delta_4` | G0 → G0 | `jalr x5, 0(x10) -> add x6, x5, x3` | 7 | `arf_read` |
 
 ## Notes
 

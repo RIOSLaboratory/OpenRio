@@ -442,3 +442,73 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
 - **T8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
 - **T9 (Issue):** the dependent issues one cycle after ready payload construction.
+
+## Case 28: JALR_to_ALU_delta_0 (overlay)
+
+**Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
+**Description:** Same-bundle rename overlay gives the dependent the producer tag; the resident dependent waits for P3 forwarding.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |
+| `add x6, x5, x3` - Dependent-G1 | IB | dispatch | ISQ Wait | ALU1 | WB | C |
+
+- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
+- **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+
+## Case 29: JALR_to_ALU_delta_1 (wait_for_p3)
+
+**Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
+**Description:** Dependent dispatches before producer P3, stores the `wait_tag` in ISQ, then wakes through resident-entry forwarding.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |
+| `add x7, x5, x8` - Dependent-G0 |  | IB | dispatch | ALU0 | WB | C |
+
+- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
+- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+
+## Case 30: JALR_to_ALU_delta_2 (p3_capture)
+
+**Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
+**Description:** Dependent first P1 attempt exactly matches producer P3 Bypass and writes a ready ISQ payload.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  | IB | dispatch | ALU0 | WB | C |
+
+- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
+- **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
+- **T5 (Issue):** the dependent issues one cycle after ready payload construction.
+
+## Case 31: JALR_to_ALU_delta_3 (p4_capture)
+
+**Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
+**Description:** Dependent first P1 attempt exactly matches producer P4 Commit CDB and captures `commit_data`.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | dispatch | ALU0 | WB | C |
+
+- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
+- **T5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
+- **T6 (Issue):** the dependent issues one cycle after ready payload construction.
+
+## Case 32: JALR_to_ALU_delta_4 (arf_read)
+
+**Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
+**Description:** Producer has already committed before dependent P1, so the source is read from ARF.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
+
+- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
+- **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
+- **T7 (Issue):** the dependent issues one cycle after ready payload construction.

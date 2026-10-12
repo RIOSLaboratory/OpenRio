@@ -69,7 +69,7 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 | MUL | 3 | 4 | 5 | 6 | 0..6 |
 | DIV | **4** | **5** | **6** | **7** | **0..7** |
 | LOAD | **3** | **4** | **5** | **6** | **0..6** |
-| JALR | — | — | — | — | **不枚举**（不能作 producer，见 caselist 顶部） |
+| JALR（link；需同 PC 预热）| **1** | **2** | **3** | **4** | **0..4** |
 
 > **JALR 不进入本 caselist 的枚举。** 原因不是排布技巧，而是结构性的：`p4/flush_model.sv`
 > 注明 retire 决定属于 CompletionScoreboard，JALR 的控制决定在**退休时**才通过
@@ -93,10 +93,10 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 
 | caselist | 内容 |
 |---|---|
-| `INT_single_operand_dependency_caselist_v1.md` | **27 条**：ALU 5 + MUL 7 + DIV 8 + LOAD 7 |
+| `INT_single_operand_dependency_caselist_v1.md` | **32 条**：ALU 5 + MUL 7 + DIV 8 + LOAD 7 + JALR 5 |
 | `INT_two_operands_dependency_caselist.md` | **30 条**：P1 MUX 17 + P2 MUX 7 + same-RD fanout 6 |
 
-合计 57 条。其中 25 条是手工标定并按实测配方固化在 `timing/calibrated_cases/`，
+合计 62 条。其中 25 条是手工标定并按实测配方固化在 `timing/calibrated_cases/`，
 由 `timing/install_calibrated.py` 装入跑批目录；`timing/re_audit.py` 会用权威口径把它们
 逐条重验。
 

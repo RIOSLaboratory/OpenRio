@@ -313,3 +313,26 @@ redirect"，端口带 `upd_target` / `bp_type_t` / `upd_ctr` ⇒ **真 FE 会预
 这正是 `alu_simple.sv:440` 的 `mispredict_flag` 需要的东西：只要 BTB 命中，
 `pred_taken=1` 且 `pred_target_pc == branch_target` ⇒ 不置 flush ⇒ JALR 才能当普通 rd 生产者。
 `rtl_v1` 下不可能，因为 FE agent 硬编码 `pred_taken=0`。
+
+### 更正：JALR 作 producer 在 `rtl_full` 下**可以**构造（BTB 命中）
+
+此前把 `JALR_to_ALU` 一族撤掉，理由是"构造不出来"——**该结论只在 `rtl_v1` 下成立**，
+因为那里的 FE 是 `fe_agent`，硬编码 `pred_taken = 0`，任何 taken 的控制转移都必然误预测并冲刷。
+基准 DUT 换成 `rtl_full` 后，真 FE 带 `l1btb.sv`，条件就满足了：
+
+**前置条件：同一条 JALR（同 PC、同目标）必须先执行过一次**（BTB 按 PC 索引）。
+`tools/jalr_btb_warmup.py` 用循环让 JALR 执行两遍，实测：
+
+```
+JALR pc=0x80000028
+  第1次: P1=26 P2=27 P3=28 P4=29   mispredict=1     ← 建 BTB 条目
+  第2次: P1=46 P2=47 P3=48 P4=49   mispredict=0     ← 命中，不冲刷
+```
+
+第二次不置 `flush_valid` ⇒ 不发 redirect ⇒ 链路值经旁路正常传递，消费者可落在任意 delta。
+**⇒ 该族恢复枚举：`JALR_to_ALU_delta_0..4`（L=1，阶梯 0..4，5 条）**，
+用例程序需包含一次预热执行（循环），测量的是第二次。
+
+**连带更正**：K-Map 里原先那条注记
+"JAL/JALR with rd != x0: register-result producer exists, covered by ALU/BRU 1-cycle producer POI"
+**现在是正确的**，不需要改；此前我把它列为"需修改"是基于已作废的结论。
