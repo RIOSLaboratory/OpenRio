@@ -13,7 +13,7 @@ RTL，逐拍抽出这条指令的**派发 / 发射 / 提交 cycle**，算出实�
 ```text
 caselist(.md)  ──gen_cases──▶  .S  ──gcc+link.ld──▶  .elf
                                                       │
-                                          verilator_cosim.sh (rtl_v1)
+                                          verilator_cosim.sh (rtl_full)
                                                       │
                                               sim.log (逐拍事件)
                                                       │
@@ -30,7 +30,7 @@ caselist(.md)  ──gen_cases──▶  .S  ──gcc+link.ld──▶  .elf
 - **基准本身还是 draft**：两份 caselist 都写着
   `Normative timing sources: pending promotion to spec/or-be/`。
   因此本方法的结论形式是 **"RTL vs draft 预测"**，不是 "RTL vs 已冻结规范"。
-- **主 DUT 用 `rtl_v1`**（BE RTL + FE agent + cache agent）。理由见 §5。
+- **基准 DUT 用 `rtl_full`**（BE RTL + OR_FE RTL + OR_Cache RTL，不含任何 agent）。理由见 §5。
 - **必须人工判定**，不是流程缺陷：caselist 的 `behavior` 标签描述的是微架构机制
   （bypass 捕获 / commit CDB 捕获 / ARF 读取），脚本无法可靠推断；口径差异和
   不符项的归因都需要人来判断。
@@ -125,39 +125,42 @@ export PATH=/opt/riscv/bin:$PATH        # 或显式设 OBJDUMP=
 export ISA_MODEL_ROOT=<isa model 目录>
 ```
 
-## 5. 为什么主 DUT 用 `rtl_v1`
+## 5. 基准 DUT：`rtl_full`（FE + BE + Cache 完全体）
 
-caselist 的预测量**全部是 BE 内部量**（P1 派发、P3 bypass、P4 commit CDB、ARF 读取），
-FE 和 Cache 不进入这些定义。用 `rtl_v1` 的好处：
+caselist 的预测量是 **BE 内部量**（P1 派发、P3 bypass、P4 commit CDB、ARF 读取），但被测对象是
+**整机时序**：取指节奏、redirect、ICache/BTB、以及 LOAD 的真实 Cache 行为都会影响这些拍号。
 
-1. **可隔离噪声**：FE 由 agent 占位，不引入取指节奏、redirect、ICache miss 的干扰。
-2. **可控**：`fe_agent` 每拍最多交付 2 槽且冻结 cursor，所以 "同拍双发"（`delta_0`
-   `overlay`）这类 case 在 `rtl_v1` 上能稳定复现。
-3. **快且确定**：无 cache 行为差异，可复现。
+**所以基准 DUT 是 `rtl_full`**：`cfg/filelist/rtl_full.f` = `rtl_fe.f` + `cache_rtl.f`，
+即 BE RTL + OR_FE RTL + OR_Cache RTL，**不含任何 agent**。一批 case 用完全体一次跑完，
+**中途不换 DUT**（§5.1 的历史理由见下）。
 
-`rtl_full`（FE+BE+Cache）用于阶段 2 的端到端评估（见 §10），**以及 latency 标定**（见 §5.1）。
+`agent` / `rtl_v1` / `rtl_fe` / `rtl_cache` 保留为**隔离与诊断**用途 —— 例如把某个现象单独
+归因到 FE 或 Cache —— **不作为符合性判定的依据**。
 
-### 5.1 例外：**latency 标定必须用 `rtl_full`**
+### 5.1 历史：曾以 `rtl_v1` 为主 DUT
 
-上面第 1 条"可隔离噪声"对 **delta 判定**成立，但对 **latency 标定不成立**：
+早期把主 DUT 定为 `rtl_v1`（BE RTL + FE agent + cache agent），理由是"隔离噪声、可控、
+可复现"；只把 latency 标定划给 `rtl_full`，因为 `cache_agent` 是**行为模型**，
+拿它测 LOAD 延迟是**循环论证**。
 
-- 片内 FU（ALU / MUL / DIV / FPU / JALR）的延迟在 BE 内部，与 FE / Cache 无关；
-- **LOAD 的延迟由 Cache 决定**，而 `rtl_v1` 后面接的是 `cache_agent` ——
-  拿它测 LOAD 延迟，测到的只是 agent 自己的参数，**是循环论证**。
+**该划分已废弃**，统一为 `rtl_full`。原因：
 
-所以 **latency 标定用 `rtl_full`（FE+BE+Cache 完全体）**：一批 case 里 LOAD 与其它指令
-混在一起测，用完全体一次跑完就能拿到**所有**相关指令的 latency，**中途不换 DUT**。
+1. 判定的对象是**交付的整机**，不是 BE 的孤立行为 —— 用 agent 顶替 FE 或 Cache，
+   等于把被测对象的一部分换成了模型；
+2. agent 顶替会**改变结论**，不只是噪声：`fe_agent` 硬编码 `pred_taken = 0`，
+   于是**每一个 taken 的控制转移都必然误预测并触发 flush**（JALR 一族因此完全测不到）；
+   真 FE 有 `l1btb.sv`（其头注释自称 "the only branch predictor"）会给出 taken/目标预测；
+3. LOAD 的 P3 发布时刻由 Cache 决定，agent 与真 Cache 不同，故 LOAD 的 delta 也必须在
+   完全体上判定。
 
-**这不违反 §10 的禁令** —— §10 禁的是"用 `rtl_full` 做 **delta 判定**"，两件事目的不同：
+| 活动 | DUT |
+|---|---|
+| delta / 机制**符合性判定** | **`rtl_full`** |
+| latency **标定** | **`rtl_full`** |
+| 隔离诊断（把现象归因到 FE / Cache / BE） | `rtl_v1` / `rtl_fe` / `rtl_cache` / `agent` |
 
-| 活动 | DUT | 原因 |
-|---|---|---|
-| delta / 机制**符合性判定** | `rtl_v1` | 需要**受控**的派发 cycle（§9.3） |
-| latency **标定** | `rtl_full` | 需要**真实**的 FU 与 Cache |
-
-> `cache_agent` 是**行为模型**：只保证 load data 正确返回（功能正确），**不是性能依据**。
-> 所以它的固定延迟参数对 latency 标定没有意义；但它**确实影响"跑在 `rtl_v1` 上的
-> LOAD delta 判定"** —— 因为那个 delta 的 P3 发布时刻正由它决定。
+> `cache_agent` 只保证 load data 功能正确返回，**不是性能依据**；`fe_agent` 不做任何预测。
+> 两者都不得作为判定依据。
 
 ## 6. 流程总览
 
@@ -166,7 +169,7 @@ FE 和 Cache 不进入这些定义。用 `rtl_v1` 的好处：
 | 0 | 钉住溯源 | `manifest.yaml` | 手工 |
 | 1 | caselist `.md` → `.S` | `cases/<case_id>_k<k>.S` | `gen_cases.py` |
 | 2 | `.S` → `.elf` | `elf/<case_id>_k<k>.elf` | `run_perf.sh compile` |
-| 3 | 跑 RTL | `sim/verilator_<TAG>/log/rtl_v1/<name>_<seed>/sim.log` | `verilator_cosim.sh` |
+| 3 | 跑 RTL | `sim/verilator_<TAG>/log/rtl_full/<name>_<seed>/sim.log` | `verilator_cosim.sh` |
 | 4 | 逐拍抽取事件 | `results/<case_id>.events.tsv` | `compare.py extract` |
 | 5 | 算 delta、对表 | `results/<case_id>.md` | `compare.py report` |
 | 6 | **人工判定** | 结论与归因 | 人 |

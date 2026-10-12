@@ -2,10 +2,11 @@
 # =============================================================================
 # run_perf.sh -- run the INT dependency conformance cases and collect their logs.
 #
-# DUT is rtl_v1 on purpose. METHOD section 5 fixes rtl_v1 for the delta / mechanism
-# conformance judgement, because that judgement needs the controlled dispatch cycles
-# an agent-driven front end gives; rtl_full is reserved for latency calibration and
-# METHOD section 10 forbids it here.
+# DUT defaults to rtl_full: the base DUT is the complete FE + BE + Cache build
+# (cfg/filelist/rtl_full.f), per METHOD section 5. The agent-backed kinds are for
+# isolation and diagnosis only -- fe_agent hardwires pred_taken to zero, so every
+# taken control transfer mispredicts and flushes there, which changes results rather
+# than merely adding noise.
 #
 # Verbosity must stay at 2 or above. The [BE] event trace that compare.py reads
 # (DECODE / ISSUE / WB / COMMIT per instruction) is only emitted at that level.
@@ -26,7 +27,7 @@ GEN="$ENV/perf_eval/timing/gen_cases.py"
 
 TAG=${TAG:-timing_delta}
 SKIP_DONE=0
-DUT=${DUT:-rtl_v1}
+DUT=${DUT:-rtl_full}
 VERBOSITY=${VERBOSITY:-2}
 TIMEOUT=${TIMEOUT:-2000000}
 SEED=${SEED:-1}

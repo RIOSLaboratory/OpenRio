@@ -28,7 +28,7 @@ WORK = Path("/work/home/danielle/workspace/suncheek/model/perf_eval_work/filler_
 GCC = Path("/work/stu/yzhang/workspace/riscv/bin/riscv64-unknown-elf-gcc")
 COSIM = ENV / "tools/verilator_cosim.sh"
 LINK = ENV / "perf_eval/templates/link.ld"
-TAG, DUT = "p3exp", "rtl_v1"
+TAG, DUT = "p3exp", "rtl_full"
 
 ENC = {"mul": 0x022082b3, "div": 0x0220c2b3, "add": 0x002082b3}
 ADD_ENC = 0x00328333                      # the consumer, add x6, x5, x3

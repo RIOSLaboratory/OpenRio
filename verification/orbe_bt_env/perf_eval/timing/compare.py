@@ -213,7 +213,7 @@ def audit(tag, dut, case_filter, selftest, surplus):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="timing_delta")
-    ap.add_argument("--dut", default="rtl_v1")
+    ap.add_argument("--dut", default="rtl_full")
     ap.add_argument("--case", default="")
     ap.add_argument("--selftest", action="store_true",
                     help="negative control: perturb the prediction, expect MISMATCH")
