@@ -237,6 +237,19 @@ mul  x10, x11, x1
 jalr x5, 0(x10)
 ```
 
+> **K-Map correspondence.** The K-Map used to mark `JALR` as a register-result **producer** — the
+> cell in the BRU/JALR producer row under the ALU column, whose text is `JALR`. That shape is
+> withdrawn: a JALR changes control flow in the same window in which it would publish the link
+> value, and the redirect squashes the dependent, so the case cannot measure what it claims. With
+> the JALR as a **dependent**, the family is `MUL_to_JALR`, and the K-Map marks the MUL producer
+> entry instead while the ALU entry stays unmarked: an ALU producer reaches only `delta` 2 and up,
+> so it cannot cover `0..4` and is not used.
+>
+> Two texts in the K-Map still describe the withdrawn shape and need updating there: the column
+> header `BRU (exclude jump instructions)` should admit jumps as dependents, and the note
+> `JAL/JALR with rd != x0: register-result producer exists, covered by ALU/BRU 1-cycle producer
+> POI` should record that the JALR is a consumer only.
+
 The producer multiplies the target address by one, so the jump target is always the label the
 program intends and the producer is still multi-cycle. The jump lands on the instruction
 immediately after the `jalr`, so the fillers in the window are not skipped. `L = 3` is the
