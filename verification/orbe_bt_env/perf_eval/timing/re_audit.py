@@ -187,6 +187,29 @@ def main():
         res = de.get("P1") if mux == "P1" else de.get("P2")
 
         claims = []
+        # 补充组的 same-RD fanout：一个生产者的同一份 payload 同时喂 rs1 与 rs2。
+        # P1 MUX 行要求解析拍恰好命中 P3；P2 MUX 行要求已在 ISQ 驻留且 bypass 到达同拍发射。
+        if cid.startswith("INT2_SAME_RD_"):
+            prd_pc = next((q for q, (inst, mn) in info.items()
+                           if mn in [pm for _, pm in prods]
+                           and ((inst >> 7) & 0x1F) == (rnum(d[2]) or -1)), None)
+            pe = bypc.get(prd_pc, {})
+            if cid.startswith("INT2_SAME_RD_P1_"):
+                claims.append("dep.P1 == mul.P3")
+                if de.get("P1") != pe.get("P3"):
+                    reasons.append("P1 MUX 未命中：dep.P1=%s mul.P3=%s" % (de.get("P1"), pe.get("P3")))
+            else:
+                claims.append("dep.P1 < mul.P3 <= dep.P2")
+                if not (de.get("P1", 99) < pe.get("P3", 0) <= de.get("P2", -1)):
+                    reasons.append("P2 MUX 未驻留唤醒：dep.P1=%s dep.P2=%s mul.P3=%s"
+                                   % (de.get("P1"), de.get("P2"), pe.get("P3")))
+            if "is_good=1" not in txt:
+                reasons.append("模型未正常退出")
+            print("%-40s %-22s %-24s %s" % (cid, " ".join(gaps), " ".join(claims),
+                                            "通过" if not reasons else "未通过: " + "; ".join(reasons)))
+            if reasons:
+                bad.append(cid)
+            continue
         toks = cid.replace("INT2_", "").replace("P2_", "").rsplit("_", 2)
         if cid.startswith("INT2_"):
             pairs = [(toks[0], d[2]), (toks[1], d[3])]
