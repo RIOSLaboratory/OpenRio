@@ -273,3 +273,43 @@ JALR pc=0x8000001c  rd=x5  rs1=x11  imm=8
 **这也说明 K-Map 那一行的本意**：让 JALR 充当一个普通的 rd 生产者，为 consumer 提供 rs；
 一旦它触发 flush，窗口内的消费者全被作废，任何 delta 都凑不出来——**该行的意义正建立在
 "它不 flush"之上**，而这需要 FE 预测正确（见上文 `pred_taken` / `pred_target_pc` 条件）。
+
+## 基准 DUT：`rtl_full` 是完整体，但当前一切 delta 测量跑的是 `rtl_v1`
+
+**事实（已核实 filelist）**：
+
+| DUT_KIND | BE | FE | Cache |
+|---|---|---|---|
+| `agent` | BFM | agent | agent |
+| `rtl_v1` | RTL | **FE agent** | **cache agent** |
+| `rtl_fe` | RTL | OR_FE RTL | cache agent |
+| `rtl_cache` | RTL | FE agent | OR_Cache RTL |
+| **`rtl_full`** | **RTL** | **OR_FE RTL** | **OR_Cache RTL** |
+
+`rtl_full.f` = `rtl_fe.f` + `cache_rtl.f`，不含任何 agent；`tools/verilator_cosim.sh:92`
+的默认值就是 `rtl_full`。
+
+**但仓库当前策略相反**：`run_perf.sh:5-7,29` 明确把默认 DUT 定为 `rtl_v1`（注释写
+"rtl_full is reserved for latency calibration"），`METHOD.md:33/138-149` 同样把主 DUT 定为
+`rtl_v1`、只把 latency 标定划给 `rtl_full`。⇒ **目前 20 条固化用例、surplus 分析、以及全部
+JALR 实验都是在 `rtl_v1` 下做的**，只有 latency 标定用了完整体。
+
+### 换到 `rtl_full` 时发现的两个阻碍（实测）
+
+1. **P3 观测面在 `rtl_full` 下不存在。** P3 探针写在 `tb/agents/be/be_agent.sv`，而
+   `rtl_v1_obs.svh` 是在 `be_tb_top.sv:503` 里以 `ifdef ORBE_DUT_RTL_V1` 包进来的。
+   完整体日志里 `P3_BYPASS` 出现 **0 次**，而 delta / 机制判定必须依赖 P3
+   （`mech_of` 用的是 `dep.P1` 与 `prod.P3` / `prod.P4` 的关系）⇒ **观测层要先扩展到 rtl_full**。
+2. **抽样 6 条固化用例在 `rtl_full` 下全部功能失败**：
+   `PC_MISMATCH` → `ERROR_LIMIT` → `is_good=0`。退出序列与 `templates/case.S.in` 逐字一致，
+   所以不是收尾写法问题；分歧是退出前的 PC 推进（`rtl_pc=0x48` vs `ref_pc=0x4c`）。
+   需要单独查因，暂不能假设是同一原因。
+
+### 好消息：JALR 那一行的前提在完整体下存在
+
+`rtl_fe.f:10` 含 `src/core/fe_rtl_v1/l1btb.sv`，头注释为
+"L1BTB: **the only branch predictor**, S0 read, S1 read-out, S1/S2 register, S2 compare and
+redirect"，端口带 `upd_target` / `bp_type_t` / `upd_ctr` ⇒ **真 FE 会预测 taken/not-taken 和目标**。
+这正是 `alu_simple.sv:440` 的 `mispredict_flag` 需要的东西：只要 BTB 命中，
+`pred_taken=1` 且 `pred_target_pc == branch_target` ⇒ 不置 flush ⇒ JALR 才能当普通 rd 生产者。
+`rtl_v1` 下不可能，因为 FE agent 硬编码 `pred_taken=0`。
