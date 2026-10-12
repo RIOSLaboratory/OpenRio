@@ -33,7 +33,7 @@ This v2 caselist reduces the previous full producer-dependent expansion to one r
 Total case count:
 
 ```text
-ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases + MUL_to_JALR 7 cases = 34 cases
+ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases = 27 cases
 ```
 
 > **Revision (2026-10): producer latencies replaced by measured values.**
@@ -47,7 +47,7 @@ ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases + MUL_to_JALR 7 cases =
 > | MUL | 3 | **3** | unchanged |
 > | DIV | 8 | **4** | 12 → **8** cases |
 > | LOAD | 2 → 3 | **3** | 6 → **7** cases (previous revision) |
-> | JALR | 3 | **3** | 5 → **7** cases; JALR is now a consumer |
+> | JALR | 3 | — | **removed from the enumerated set**: a JALR cannot act as a producer |
 >
 > The rule `P3 delta = latency + 1` is unchanged.
 >
@@ -67,12 +67,9 @@ ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases + MUL_to_JALR 7 cases =
 > the first dispatch that survives is **six cycles** after the JALR's dispatch (`tools/jalr_producer_commit.py`).
 > The JALR's ladder is `0..4`, so no row is reachable, and every attainable delta is at least six,
 > which is `arf_read` for all of them. A MUL consumer behaves identically, because the flush sits
-> upstream of group assignment, which is why this family adds nothing over `MUL_to_ALU` and is not
-> enumerated.</ The family is now `MUL_to_JALR`: a MUL produces the
-> jump target and the JALR consumes it through `rs1`, which is a dependency the architecture
-> really has. The ladder therefore follows the **producer's** latency, `L = 3`, enumerated over
-> `0..6`. The producer's type is irrelevant to the dependency; only its latency matters. The
-> redirect-ready latency (measured 2) remains a control-flow metric and is not enumerated.
+> upstream of group assignment. `MUL_to_JALR` was enumerated for a while under an earlier
+> reading; it is a MUL producer against a JALR consumer, so its ladder and its four capture
+> mechanisms are those of `MUL_to_ALU` and it added no coverage. It is removed.
 >
 > **LOAD timing wording** follows Cache HAS `V1.0 rev.1`: E1 AGU, E2 L1 D cache, E3 load-data
 > arbiter together with the CDB FIFO. Three cycles is the **earliest** case; it holds only when
@@ -88,18 +85,21 @@ Normal no-older-blocker path:
 | MUL | 3 | 4 | 5 | 6 | 0..6 |
 | DIV | **4** | **5** | **6** | **7** | **0..7** |
 | LOAD | 3 | 4 | 5 | 6 | 0..6 |
-| JALR (MUL producer) | **3** | **4** | **5** | **6** | **0..6** |
+| JALR | — | — | — | — | not enumerated |
 
 JAL/JALR note:
 
-`JALR` appears in this caselist only as a **dependent**. Its first source, `rs1`, is the jump
-target, so the dependency is architectural: the JALR cannot jump until the target register is
-ready. The producer passes a valid address through by multiplying by one, `mul x10, x11, x1` with
-`x11` pointing at the fall-through label and `x1` equal to 1, which keeps the producer multi-cycle
-without making the target invalid. The jump still occurs and still costs a redirect; it lands on
-the instruction immediately after the JALR so nothing in the measured window is skipped. The
-performance report's "about 3 cycles" for taken `JAL`/`JALR` is the **redirect-ready** metric
-(measured 2 here); it is a control-flow event and is not enumerated as a dependency delta.
+`JALR` is **not enumerated** as a producer, and the reason is structural rather than a matter
+of scheduling. `p4/flush_model.sv` states that the retire decision belongs to the
+CompletionScoreboard, so the JALR's control decision takes effect at retire through
+`global_flush_late`, which gates the tag-mapping alloc and every ISQ group's `issue_valid`
+and `bypass_capture`, and the LSU interface with them. A consumer dispatched inside the link
+value's visibility window therefore has to be dispatched **before the JALR retires**, and
+everything fetched that early is speculation that the flush **cancels**. Being inside the
+window and surviving it are mutually exclusive. Measured, attempts at `delta` 1, 2 and 3 never
+commit and the first dispatch that survives is six cycles out, against a ladder of `0..4`; the
+JALR's own two metrics (`link` value 1, `redirect` ready 2) are unaffected and remain in the
+latency report. Reproduce with `tools/jalr_producer_commit.py`.
 
 Case behavior labels:
 
@@ -242,42 +242,13 @@ Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates)
 | `LOAD_to_ALU_delta_5` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 9 | `p4_capture` |
 | `LOAD_to_ALU_delta_6` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 11 | `arf_read` |
 
-## MUL_to_JALR
+## JALR is not enumerated
 
-Representative:
-
-```asm
-mul  x10, x11, x1
-jalr x5, 0(x10)
-```
-
-> **K-Map correspondence.** The K-Map used to mark `JALR` as a register-result **producer** — the
-> cell in the BRU/JALR producer row under the ALU column, whose text is `JALR`. That shape is
-> withdrawn: a JALR changes control flow in the same window in which it would publish the link
-> value, and the redirect squashes the dependent, so the case cannot measure what it claims. With
-> the JALR as a **dependent**, the family is `MUL_to_JALR`, and the K-Map marks the MUL producer
-> entry instead while the ALU entry stays unmarked: an ALU producer reaches only `delta` 2 and up,
-> so it cannot cover `0..4` and is not used.
->
-> Two texts in the K-Map still describe the withdrawn shape and need updating there: the column
-> header `BRU (exclude jump instructions)` should admit jumps as dependents, and the note
-> `JAL/JALR with rd != x0: register-result producer exists, covered by ALU/BRU 1-cycle producer
-> POI` should record that the JALR is a consumer only.
-
-The producer multiplies the target address by one, so the jump target is always the label the
-program intends and the producer is still multi-cycle. The jump lands on the instruction
-immediately after the `jalr`, so the fillers in the window are not skipped. `L = 3` is the
-producer's latency; the JALR's own redirect is a control-flow event and is not enumerated.
-
-| Case | G | Instructions | Fillers after each | Behavior |
-|:---|:---|:---|:---|:---|
-| `MUL_to_JALR_delta_0` | G1 -> G0 | `mul x10, x11, x1; jalr x5, 0(x10)` | `0ld+0fp` | `overlay` |
-| `MUL_to_JALR_delta_1` | G1 -> G0 | `mul x10, x11, x1; jalr x5, 0(x10)` | `0ld+1fp` | `wait_for_p3` |
-| `MUL_to_JALR_delta_2` | G1 -> G0 | `mul x10, x11, x1; jalr x5, 0(x10)` | `1ld+2fp` | `wait_for_p3` |
-| `MUL_to_JALR_delta_3` | G1 -> G0 | `mul x10, x11, x1; jalr x5, 0(x10)` | `0ld+3fp` | `wait_for_p3` |
-| `MUL_to_JALR_delta_4` | G1 -> G0 | `mul x10, x11, x1; jalr x5, 0(x10)` | `1ld+3fp` | `p3_capture` |
-| `MUL_to_JALR_delta_5` | G1 -> G0 | `mul x10, x11, x1; jalr x5, 0(x10)` | `0ld+4fp` | `p4_capture` |
-| `MUL_to_JALR_delta_6` | G1 -> G0 | `mul x10, x11, x1; jalr x5, 0(x10)` | `1ld+4fp` | `arf_read` |
+A JALR cannot act as a producer in a dependency case: its control decision is only known at retire,
+and the flush that follows cancels any consumer dispatched inside the link value's visibility
+window. The full argument, with the RTL that implements it and the measurements behind it, is in
+the revision block at the top of this file. A JALR consumer against a MUL producer was enumerated
+for a period and has been removed as a duplicate of `MUL_to_ALU`.
 
 ## Notes
 

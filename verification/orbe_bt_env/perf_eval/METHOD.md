@@ -69,12 +69,16 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 | MUL | 3 | 4 | 5 | 6 | 0..6 |
 | DIV | **4** | **5** | **6** | **7** | **0..7** |
 | LOAD | **3** | **4** | **5** | **6** | **0..6** |
-| JALR（**只作 consumer**）| 取**上游生产者**的 L | 同左 +1 | 同左 +2 | 同左 +3 | 同左 0..L+3 |
+| JALR | — | — | — | — | **不枚举**（不能作 producer，见 caselist 顶部） |
 
-> `JALR` 在本 case 集里只作 consumer，它消费的是跳转目标寄存器 `rs1`，所以阶梯由**生产者**的
-> L 决定，与 JALR 自身无关。本 case 集用的生产者是 MUL（L=3），故为 `0..6` 共 7 条。
-> JALR 自身有两个口径：`link 值` = 1（仅在它作生产者时用，本 case 集不用）、
-> `redirect 就绪` = 2（控制流指标，不进依赖公式）。见报告 §3.4。
+> **JALR 不进入本 caselist 的枚举。** 原因不是排布技巧，而是结构性的：`p4/flush_model.sv`
+> 注明 retire 决定属于 CompletionScoreboard，JALR 的控制决定在**退休时**才通过
+> `global_flush_late` 生效，而该信号门控了 tag mapping 的 alloc 与各 ISQ group 的
+> `issue_valid` / `bypass_capture`。因此落在链路值可见窗口内的消费者必须在 JALR 退休前派发，
+> 而那样派发的指令全是投机，会被冲刷**作废**——"落在窗口内"与"能存活"互斥。
+> 实测可达 delta ≥ 6，而 JALR 的阶梯是 `0..4`，故一条都不可实现。复现见
+> `timing/tools/jalr_producer_commit.py`。JALR 自身的两个口径（`link 值` = 1、
+> `redirect 就绪` = 2）不受影响，仍留在报告里。
 
 两操作数 caselist：
 
@@ -89,10 +93,10 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 
 | caselist | 内容 |
 |---|---|
-| `INT_single_operand_dependency_caselist_v1.md` | **34 条**：ALU 5 + MUL 7 + DIV 8 + LOAD 7 + MUL_to_JALR 7 |
+| `INT_single_operand_dependency_caselist_v1.md` | **27 条**：ALU 5 + MUL 7 + DIV 8 + LOAD 7 |
 | `INT_two_operands_dependency_caselist.md` | **30 条**：P1 MUX 17 + P2 MUX 7 + same-RD fanout 6 |
 
-合计 64 条。其中 25 条是手工标定并按实测配方固化在 `timing/calibrated_cases/`，
+合计 57 条。其中 25 条是手工标定并按实测配方固化在 `timing/calibrated_cases/`，
 由 `timing/install_calibrated.py` 装入跑批目录；`timing/re_audit.py` 会用权威口径把它们
 逐条重验。
 
