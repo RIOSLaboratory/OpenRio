@@ -256,6 +256,14 @@ Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates)
 
 ## JALR is not enumerated
 
+**Which operand is the producer.** The assembly form is `jalr rd, imm(rs1)`: the **first**
+operand is `rd`, and that is the register a consumer reads. Its value is the link, `PC + 4` —
+the address of the instruction after the JALR, **not** the jump target. The second operand,
+`rs1`, is an input, which is why a JALR can be a consumer of something else. Two traps when
+building a link dependency: `rd = x0` produces nothing (`INT_tag_mapping.sv` and `INT_ARF.sv`
+both guard on `rd != 0`), and `rd = x1` may be compressed to the two-byte `c.jalr`, whose link
+is `PC + 2` instead, so use a register such as `x5`.
+
 A JALR cannot act as a producer in a dependency case: its control decision is only known at retire,
 and the flush that follows cancels any consumer dispatched inside the link value's visibility
 window. The full argument, with the RTL that implements it and the measurements behind it, is in
