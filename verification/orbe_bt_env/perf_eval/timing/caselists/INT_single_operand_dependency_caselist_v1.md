@@ -66,7 +66,19 @@ ALU  5 cases  + MUL 7 cases + DIV 8 cases + LOAD 7 cases = 27 cases
 > Measured consequence: attempts at `delta` 1, 2 and 3 do appear in the log but never commit, and
 > the first dispatch that survives is **six cycles** after the JALR's dispatch (`tools/jalr_producer_commit.py`).
 > The JALR's ladder is `0..4`, so no row is reachable, and every attainable delta is at least six,
-> which is `arf_read` for all of them. A MUL consumer behaves identically, because the flush sits
+> which is `arf_read` for all of them.
+>
+> **The link value does reach the bypass bus; it is the consumers that disappear.** The JALR's own
+> events show `[P3_BYPASS] lane=0` and an `[FU_WB]` carrying `PC+4` at issue+1, one cycle **before**
+> the `[BE][REDIRECT]` that fires in the same cycle as its `[BE][COMMIT]`. There is therefore exactly
+> one cycle in which the link is on the bus and the flush has not yet happened, and a consumer
+> dispatched in that cycle (delta 3 for this family) does resolve against the bypass — after which
+> the flush resets the entry that captured it. The dependency is not absent, it is unobservable
+> through the bypass: a consumer that survives the flush dispatches at delta 6 or later, by which
+> time the link has retired and is read from the ARF. That is why the family duplicates the
+> `arf_read` rung that every other family already covers.
+>
+> A MUL consumer behaves identically, because the flush sits
 > upstream of group assignment. `MUL_to_JALR` was enumerated for a while under an earlier
 > reading; it is a MUL producer against a JALR consumer, so its ladder and its four capture
 > mechanisms are those of `MUL_to_ALU` and it added no coverage. It is removed.
