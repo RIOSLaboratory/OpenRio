@@ -148,6 +148,7 @@ def main(argv):
     want_elf = "--elf" in argv
     want_list = "--list" in argv
     force = "--force" in argv
+    prune = "--prune" in argv
     manifest = read_manifest()
     blocked = []
     tpl = TEMPLATE.read_text(encoding="utf-8")
@@ -160,8 +161,10 @@ def main(argv):
         (WORK / "elf").mkdir(parents=True, exist_ok=True)
 
     problems, rows, total_filler, skipped = [], [], 0, []
+    known = set()
     for cl in CASELISTS:
         for cid, instrs, fillers in parse_caselist(cl):
+            known.add(cid)
             problems += check(cid, instrs)
             if fillers is None:
                 skipped.append(cid)
@@ -192,6 +195,16 @@ def main(argv):
                                    capture_output=True, text=True)
                 if r.returncode:
                     problems.append("%s: link failed: %s" % (cid, r.stderr.strip()[:120]))
+
+    if prune and not want_list:
+        for sub in ("cases", "elf"):
+            d = WORK / sub
+            if not d.is_dir():
+                continue
+            for f in sorted(d.iterdir()):
+                if f.suffix in (".S", ".elf") and f.stem not in known:
+                    print("prune: removing %s" % (d / f.name))
+                    f.unlink()
 
     if not want_list:
         write_manifest(manifest)
