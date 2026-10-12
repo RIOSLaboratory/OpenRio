@@ -70,6 +70,15 @@ def parse_caselist(path):
         skeleton = cells[cols[0]].strip("`")
         instrs = [p.strip() for p in re.split(r";|->", skeleton) if p.strip()]
         fill_txt = cells[cols[1]].strip()
+        # A row may carry a filler-type marker after the numbers, for example
+        # "0 / 4 branch" or "1 / 5 chained". This generator only knows how to emit
+        # independent addi fillers, so those rows are reported as unrenderable rather
+        # than rendered wrongly: the hand-calibrated file in calibrated_cases/ is the
+        # one that gets run.
+        marked = re.search(r"[A-Za-z]", fill_txt)
+        if marked:
+            out.append((cid, instrs, None))
+            continue
         fillers = [int(x) for x in re.split(r"/", fill_txt)] if fill_txt != "?" else []
         out.append((cid, instrs, fillers))
     return out
@@ -150,10 +159,13 @@ def main(argv):
     if want_elf:
         (WORK / "elf").mkdir(parents=True, exist_ok=True)
 
-    problems, rows, total_filler = [], [], 0
+    problems, rows, total_filler, skipped = [], [], 0, []
     for cl in CASELISTS:
         for cid, instrs, fillers in parse_caselist(cl):
             problems += check(cid, instrs)
+            if fillers is None:
+                skipped.append(cid)
+                continue
             body, nf = expand(cid, instrs, fillers)
             total_filler += nf
             rows.append((cid, len(instrs), fillers, nf))
@@ -189,6 +201,11 @@ def main(argv):
                 print("    %s" % c)
             print("    pass --force only if you intend to discard those edits")
         print("cases: %d   fillers emitted: %d" % (len(rows), total_filler))
+        if skipped:
+            print("SKIPPED %d row(s) with a filler-type marker; this generator cannot "
+                  "render them:" % len(skipped))
+            for c in skipped:
+                print("    %-50s use calibrated_cases/%s.S" % (c, c))
         print("output: %s" % (WORK / ("elf" if want_elf else "cases")))
     if problems:
         print("\nPROBLEMS:")

@@ -79,3 +79,22 @@ BRU 属于 **G0 固定**组，不会被挤到 G1；单周期；不写寄存器�
 2. **正则的捕获组序号要数清楚。** `[P3_BYPASS] cycle=(\d+) lane=(\d+) tag=(\S+)` 里
    `group(2)` 是 lane 不是 tag，写错会把事件挂到别的指令上，让整个标定结论失真。
    我在这一轮里犯过一次，另一次犯在 `[ISQ_FIRE]` 上。
+
+## 接线：把固化用例装进跑批目录
+
+`calibrated_cases/*.S` 是标定过的版本，跑批读的却是 `perf_eval_work/elf/*.elf`，那是
+`gen_cases.py` 从 caselist 生成的版本。**不做这一步，跑批用到的仍是未标定的程序**，
+标定结果对最终比对没有贡献。这一步由 `../install_calibrated.py` 完成：
+
+```
+python3 perf_eval/timing/install_calibrated.py           # 复制并编译全部固化用例
+python3 perf_eval/timing/install_calibrated.py --dry-run # 只列出会做什么
+```
+
+它把 `.S` 复制到 `$WORK/cases/` 并逐个编译成 `$WORK/elf/`。复制之后 `gen_cases.py`
+会拒绝覆盖这些文件，所以重新生成不会把手写版本冲掉。
+
+配套的一处修改：caselist 的 `Fillers` 列现在允许在数字后带填充物类型标记（`0 / 4 branch`、
+`1 / 5 chained`）。`gen_cases.py` 遇到这种行会跳过并提示改用固化文件，而不是按整数解析
+（它原本会因为这一列而直接崩掉）。它只认独立 `addi` 填充物，渲染带标记的行必然出错，
+因此跳过比渲染更安全。
