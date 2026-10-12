@@ -18,9 +18,16 @@
 | DIV/REM | G0 `div_simple`，lane 0 | **4** |
 | LOAD（整数） | G3 `g3_lsu_iface` → LSU，lane 3 | **3** |
 | LOAD（FP：flw/fld） | G3 LSU，lane 3 | **3** |
-| **JALR**（本 case 集里**只作 consumer**：producer=ALU，consumer=BRU(JALR)） | 依赖公式取**上游 ALU 的 L**（JALR 在 G0，与 ALU 同组同模块） | **1** |
+| **JALR**（本 case 集里**只作 consumer**）| 依赖公式取**上游生产者的 L**，与 JALR 自身无关；下表这个 `1` 是**以 ALU 为 producer** 的实测点 | **1**（ALU producer）|
 | ↳ JALR 自身口径① `link 值`（producer 侧；本 case 集用不到） | G0 `alu_simple`（BRU），lane 0 | 1 |
 | ↳ JALR 自身口径② `redirect 就绪`（taken/redirect 指标；**不进**依赖公式） | 同上 | 2 |
+
+> **JALR 作 consumer 时，取哪个 L 由 producer 决定，而不是"必须用 ALU"。**
+> 任何指令都能当 producer，条件是**它到 JALR 的整条 delta 阶梯都能构造出来**：
+> 对 producer 延迟 `L`，需要 `δ = 0 .. L+3` 全部可达。本 case 集用的是 **MUL**（`L = 3`，
+> `δ = 0..6` 全部实测可达，7 条）。以 ALU 为 producer（`L = 1`，阶梯 `0..4`）实测**达不到
+> `δ = 0` 与 `1`** —— JALR 是控制指令，最早只能在 dependent 派发后第 2 拍进入解析，
+> 所以那条路只有 3 条可实现，这也是本 case 集改选 MUL 的原因。
 | FP 算术（F/D） | G2 `fpu_simple`，lane 2 | **1** |
 | FP→INT（fcvt/fmv.x/fclass/fcmp） | G2 `fpu_simple`，lane 2 | **1** |
 | AMO（RMW：amoadd/swap/and/or/xor/min/max） | G3 LSU，lane 3 | **4** |
@@ -42,7 +49,7 @@
 5. **L 是整数**：仲裁争用只会让 completion 顺延**整整一拍**（见 §3.3 的 A/B 实测），
    不会出现 1.01 这类小数。
 6. **ALU 两个实例都直接测过**：G0（lane0）与 G1（lane1）各一条，均为 1。
-7. **JALR 在本 case 集里只作 consumer，依赖公式取 `1`**：producer 是 ALU（L=1），
+7. **JALR 在本 case 集里只作 consumer，依赖公式取上游生产者的 L**：报告这个实测点用 ALU（L=1），
    consumer 是 BRU 型 JALR。**进入依赖公式的永远是 producer 的 L，所以是 1。**
    JALR 自身另有两个口径，但都不是本 case 集会用到的东西：
    - **① `link 值` = 1**（`[ISQ_FIRE]` → `[FU_WB]` lane0 `rd=PC+4`）：普通寄存器生产者口径；
@@ -79,7 +86,7 @@ producer 才需要 L。
 | 指令类 | 是否测 | 说明 |
 |---|---|---|
 | I（ALU/移位/slt/addi/lui/auipc） | ✅ | G0/G1 `alu_simple` |
-| I（jal/jalr） | ✅ | G0 BRU。**本 case 集里只作 consumer**（producer=ALU）→ 依赖公式取**上游 ALU 的 L=1**；JALR 自身口径①`link 值`=1、②`redirect 就绪`=2 见 §3.4 |
+| I（jal/jalr） | ✅ | G0 BRU。**本 case 集里只作 consumer** → 依赖公式取**上游生产者的 L**（本 case 集用 MUL，L=3；该 producer 的 `δ=0..L+3` 须全部可达）；JALR 自身口径①`link 值`=1、②`redirect 就绪`=2 见 §3.4 |
 | M（mul*） | ✅ | G1 `mul_simple` |
 | M（div/rem*） | ✅ | G0 `div_simple` |
 | 整数 LOAD | ✅ | G3 LSU，**只测直接命中** |
@@ -104,7 +111,7 @@ producer 才需要 L。
 | DIV（`div x5,x1,x2`） | **4** | 0 | `[ISQ_FIRE] cycle=20 group=0 tag=0x7` | `[FU_WB] cycle=24 lane=0 tag=0x7` |
 | LOAD（`ld x5,0(x2)`） | **3** | 3 | `[LSU_ISSUE] cycle=36 tag=0xb` | `[LSU_BYPASS] cycle=39 tag=0xb` |
 | LOAD-FP（`flw f5,0(x2)`） | **3** | 3 | `[LSU_ISSUE] cycle=44 tag=0xd` | `[LSU_BYPASS] cycle=47 tag=0xd` |
-| **JALR（依赖 case 就用这个）**：JALR 作 consumer，producer 是 ALU | **1** | — | 取**上游 ALU 的 L**（ALU `[ISQ_FIRE]`→`[FU_WB]`=1） | 见 §3.4 |
+| **JALR（依赖 case 就用这个）**：JALR 作 consumer，producer 可以是 ALU 或 MUL 等 | **1**（以 ALU 为 producer 的实测点；用 MUL 则为 3）| — | 取**上游生产者的 L**（ALU 时 `[ISQ_FIRE]`→`[FU_WB]`=1）| 见 §3.4 |
 | ↳ JALR 自身口径① `link 值`（producer 侧；本 case 集用不到） | 1 | 0 | `[ISQ_FIRE] cycle=19 group=0 tag=0x5 pc=0x80000014 inst=0x000502e7` | `[FU_WB] cycle=20 lane=0 tag=0x5 result=0x80000018(=`PC+4`)` |
 | ↳ JALR 自身口径② `redirect 就绪`（taken/redirect 指标；**不进**依赖公式） | 2 | 0 | 同上，`cycle=19` | `[BE][REDIRECT] cycle=21 redirect_pc=0x80000018` |
 | FP 算术（`fdiv.d f3,f1,f2`） | **1** | 2 | `[ISQ_FIRE] cycle=30 group=2 tag=0xb` | `[FU_WB] cycle=31 lane=2 tag=0xb result=0x3fe0…(=1.0/2.0)` |
@@ -121,7 +128,7 @@ producer 才需要 L。
 | MUL | MUL_mul=3, MUL_mulh=3, MUL_mulhsu=3, MUL_mulhu=3, MUL_mulw=3 |
 | DIV | DIV_div=4, DIV_divu=4, DIV_rem=4, DIV_remu=4, DIV_divw=4, DIV_divuw=4, DIV_remw=4, DIV_remuw=4 |
 | LOAD | LOAD_ld=3, LOAD_lw=3, LOAD_lh=3, LOAD_lb=3, LOAD_lwu=3, LOAD_lhu=3, LOAD_lbu=3, LOAD_flw=3, LOAD_fld=3 |
-| JALR | **依赖 case 用 1**（本 case 集只作 consumer，producer=ALU）。JALR 自身口径仅留档：`link 值`=1、`redirect 就绪`=2（taken 指标）。逐例 CSV：JALR_link=1/2, JALR_taken=1/2, JAL_link=1/—（`jal` 无 redirect）；`L`=link 口径，`L_redirect`=redirect 口径。见 §3.4 |
+| JALR | **依赖 case 取上游生产者的 L**（本 case 集只作 consumer；本表实测点用 ALU 故为 1，本 case 集用 MUL 故为 3；该 producer 的 δ=0..L+3 须全部可达）。JALR 自身口径仅留档：`link 值`=1、`redirect 就绪`=2（taken 指标）。逐例 CSV：JALR_link=1/2, JALR_taken=1/2, JAL_link=1/—（`jal` 无 redirect）；`L`=link 口径，`L_redirect`=redirect 口径。见 §3.4 |
 | FP_ARITH | FP_fadd_s=1, FP_fsub_s=1, FP_fmul_s=1, FP_fdiv_s=1, FP_fmin_s=1, FP_fmax_s=1, FP_fsgnj_s=1, FP_fsgnjn_s=1, FP_fsgnjx_s=1, FP_fadd_d=1, FP_fsub_d=1, FP_fmul_d=1, FP_fdiv_d=1, FP_fmin_d=1, FP_fmax_d=1, FP_fsgnj_d=1, FP_fsqrt_s=1, FP_fsqrt_d=1, FP_fmadd_s=1, FP_fmadd_d=1, FP_fnmsub_s=1 |
 | FP_TO_INT | FPI_fcvt_w_s=1, FPI_fcvt_wu_s=1, FPI_fcvt_l_s=1, FPI_fcvt_lu_s=1, FPI_fcvt_w_d=1, FPI_fcvt_l_d=1, FPI_fcvt_s_w=1, FPI_fcvt_d_w=1, FPI_fcvt_s_d=1, FPI_fcvt_d_s=1, FPI_fmv_x_w=1, FPI_fmv_x_d=1, FPI_fclass_s=1, FPI_fclass_d=1, FPI_feq_s=1, FPI_flt_d=1, FPI_fle_s=1 |
 | AMO | AMO_amoadd_w=4, AMO_amoadd_d=4, AMO_amoswap_w=4, AMO_amoswap_d=4, AMO_amoand_w=4, AMO_amoand_d=4, AMO_amoor_w=4, AMO_amoor_d=4, AMO_amoxor_w=4, AMO_amoxor_d=4, AMO_amomin_w=4, AMO_amomin_d=4, AMO_amomax_w=4, AMO_amomax_d=4, AMO_amominu_w=4, AMO_amominu_d=4, AMO_amomaxu_w=4, AMO_amomaxu_d=4, AMO_lr_w=3, AMO_lr_d=3, AMO_sc_w=4, AMO_sc_d=4, AMO_amoadd_w_oldval=4(旧值 0x1234 校验通过) |
@@ -150,11 +157,13 @@ cycle=22  [FU_WB] lane=1 tag=0x4 result=0x0000000000000023    # MUL 顺延到 22
 即**争用命中同拍时 L 平移整整一拍**。正式 case 都把同组 op 移出写回窗口，报的是
 **无争用固有 L**。
 
-### 3.4 JALR：本 case 集里只作 consumer → 依赖公式用 **1**；JALR 自身两个口径 = 1 / 2
+### 3.4 JALR：本 case 集里只作 consumer → 依赖公式用**上游生产者的 L**；JALR 自身两个口径 = 1 / 2
 
-**先说用法（决定取哪个数）**：本 case 集里 JALR **只作 consumer** —— producer 是 ALU，
-consumer 是 BRU 型 JALR。（BRU 除 link 外没有 rd，"BRU 当 producer"形不成依赖，
-所以 JALR 只能出现在 consumer 位。）**进入依赖公式的永远是 producer 的 L，所以这里取上游 ALU 的 `1`。**
+**先说用法（决定取哪个数）**：本 case 集里 JALR **只作 consumer**，consumer 是 BRU 型 JALR。
+（BRU 除 link 外没有 rd，"BRU 当 producer"形不成依赖，所以 JALR 只能出现在 consumer 位。）
+**进入依赖公式的永远是 producer 的 L**，与 JALR 自身无关；**producer 不限于 ALU**，任何指令都可以，
+条件是它到 JALR 的整条阶梯 `δ = 0 .. L+3` 都能构造出来。本 case 集用 **MUL**（`L = 3`，`δ = 0..6`）。
+下表这个实测点用的是 ALU，所以写作 1。
 下表的两个"JALR 自身口径"是**"JALR 当 producer"时才用得到**的量，列出仅为完整与对照，
 **本 case 集不会用到**：
 
@@ -178,7 +187,7 @@ cycle=35  [BE][DECODE] pc=0x80000030                                 # ③ 目�
 
 | | 回答的问题 | 语义 | 用在哪 |
 |---|---|---|---|
-| **① `1`** | "JALR 的 rd(link) 多久**能被偷传/提交**" | data | `P3 = L + 1` 那类**寄存器生产者**公式（本 case 集用不到，producer 是 ALU） |
+| **① `1`** | "JALR 的 rd(link) 多久**能被偷传/提交**" | data | `P3 = L + 1` 那类**寄存器生产者**公式（本 case 集不用：JALR 只作 consumer） |
 | **② `2`** | "JALR 多久**纠正控制流**" | control | taken/redirect 指标（内网报告给它 3，本版 BE 是 2）；**不进依赖公式** |
 
 **为什么依赖 case 必须用 1、不能用 2**
@@ -293,7 +302,7 @@ tools/verilator_cosim.sh run --no-build --dut-kind rtl_full --tag fu_latency \
    而 `FU_WB` 经一级 obs 寄存器；G3 若与 `FU_WB` 混用会差一拍。
 7. **L 是"无争用固有值"**：若 producer 写回窗口内有同组指令抢 lane，会 +1 整拍（见 §3.3）。
    case 生成用的 L 取固有值。
-8. **JALR 在本 case 集只作 consumer，依赖公式取 `1`**：producer 是 ALU，进入公式的是
+8. **JALR 在本 case 集只作 consumer，依赖公式取上游生产者的 L**（报告实测点用 ALU，为 1；本 case 集用 MUL，为 3）：进入公式的是
    **producer 的 L=1**。JALR 自身的两个口径（`L`=link 值写回=1、`L_redirect`=redirect 就绪=2）
    只是留档，**都不用于依赖 case**；`2` 属于 taken/redirect 指标。详见 §3.4。
 

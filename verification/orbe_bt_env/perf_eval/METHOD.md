@@ -60,13 +60,21 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 
 单操作数 caselist：
 
+数值以 `latency_bench/Latency_Report.md` 的**实测**为准（OpenRio `589ca8f`，`--dut-kind rtl_full`），
+程序里的唯一副本是 `timing/latency_table.py`：
+
 | Producer | Producer latency | P3 delta | P4 delta | ARF boundary delta | 枚举 delta |
 |---|---:|---:|---:|---:|---|
 | ALU | 1 | 2 | 3 | 4 | 0..4 |
 | MUL | 3 | 4 | 5 | 6 | 0..6 |
-| DIV | 8 | 9 | 10 | 11 | 0..11 |
-| LOAD | 2 | 3 | 4 | 5 | 0..5 |
-| JALR link | 3 | 4 | 5 | 6 | 0..6 |
+| DIV | **4** | **5** | **6** | **7** | **0..7** |
+| LOAD | **3** | **4** | **5** | **6** | **0..6** |
+| JALR（**只作 consumer**）| 取**上游生产者**的 L | 同左 +1 | 同左 +2 | 同左 +3 | 同左 0..L+3 |
+
+> `JALR` 在本 case 集里只作 consumer，它消费的是跳转目标寄存器 `rs1`，所以阶梯由**生产者**的
+> L 决定，与 JALR 自身无关。本 case 集用的生产者是 MUL（L=3），故为 `0..6` 共 7 条。
+> JALR 自身有两个口径：`link 值` = 1（仅在它作生产者时用，本 case 集不用）、
+> `redirect 就绪` = 2（控制流指标，不进依赖公式）。见报告 §3.4。
 
 两操作数 caselist：
 
@@ -74,15 +82,19 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 |---|---:|---:|---:|
 | ALU/BRU result | 2 | 3 | 4 |
 | MUL result | 4 | 5 | 6 |
-| DIV/REM result | 9 | 10 | 11 |
-| LOAD hit result | 3 | 4 | 5 |
+| DIV/REM result | **5** | **6** | **7** |
+| LOAD hit result | **4** | **5** | **6** |
 
 ### 2.4 规模
 
 | caselist | 内容 |
 |---|---|
-| `INT_single_operand_dependency_caselist_v1.md` | 37 条：ALU 5 + MUL 7 + DIV 12 + LOAD 6 + JALR 7 |
-| `INT_two_operands_dependency_caselist.md` | P1 MUX（已列 17 条）+ P2 MUX，见原文 |
+| `INT_single_operand_dependency_caselist_v1.md` | **34 条**：ALU 5 + MUL 7 + DIV 8 + LOAD 7 + MUL_to_JALR 7 |
+| `INT_two_operands_dependency_caselist.md` | **30 条**：P1 MUX 17 + P2 MUX 7 + same-RD fanout 6 |
+
+合计 64 条。其中 25 条是手工标定并按实测配方固化在 `timing/calibrated_cases/`，
+由 `timing/install_calibrated.py` 装入跑批目录；`timing/re_audit.py` 会用权威口径把它们
+逐条重验。
 
 ## 3. 产物与仓库边界
 
@@ -339,10 +351,12 @@ ALU_to_ALU_delta_1       1     1       14     15    wait_for_p3    wait_for_p3  
 
 最终产出是一张**按家族聚合**的判定表：
 
+下表只是**格式示例**，数字不是结论（真实结论要等 `compare.py` 在接线后的跑批上产出）：
+
 | Producer 家族 | 覆盖 delta | CONFORM | MISMATCH | 结论 |
 |---|---|---|---|---|
-| ALU_to_ALU | 0..4 | 5/5 | 0 | 符合 |
-| MUL_to_ALU | 0..6 | 6/7 | 1 | delta_3 待查 |
+| ALU_to_ALU | 0..4 | — | — | 待跑批 |
+| MUL_to_ALU | 0..6 | — | — | 待跑批 |
 | ... | | | | |
 
 **注意措辞**：结论是"RTL 符合/偏离 **draft** caselist"，在 caselist 晋升为

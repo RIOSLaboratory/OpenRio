@@ -43,7 +43,8 @@ CASELISTS = [ENV / "perf_eval/timing/caselists/INT_single_operand_dependency_cas
 TC = Path("/work/stu/yzhang/workspace/riscv/bin")
 OBJDUMP, NM = TC / "riscv64-unknown-elf-objdump", TC / "riscv64-unknown-elf-nm"
 
-L_OF = {"ALU": 1, "MUL": 3, "DIV": 4, "LOAD": 3, "JALR": 1}
+# 唯一权威来源：latency_table（出处见该文件）。不要在此重新键入数字。
+from latency_table import L_OF
 SETUP_INSTRS = 4          # templates/case.S.in writes x1..x4 before the case body
 
 

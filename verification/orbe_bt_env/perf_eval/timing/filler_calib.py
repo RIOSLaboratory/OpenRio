@@ -33,9 +33,11 @@ TAG, DUT = "p3exp", "rtl_v1"
 ENC = {"mul": 0x022082b3, "div": 0x0220c2b3, "add": 0x002082b3}
 ADD_ENC = 0x00328333                      # the consumer, add x6, x5, x3
 
+from latency_table import L_OF as _L      # 唯一权威来源，避免手抄
+
 FAMILY = {
-    "MUL": dict(ins="mul  x5, x1, x2", enc=ENC["mul"], L=3),
-    "DIV": dict(ins="div  x5, x1, x2", enc=ENC["div"], L=4),
+    "MUL": dict(ins="mul  x5, x1, x2", enc=ENC["mul"], L=_L["MUL"]),
+    "DIV": dict(ins="div  x5, x1, x2", enc=ENC["div"], L=_L["DIV"]),
 }
 
 PRE = """    addi x1, zero, 1

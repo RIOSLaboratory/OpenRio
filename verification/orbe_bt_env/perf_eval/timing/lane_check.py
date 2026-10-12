@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 
 ENV = Path("/work/home/danielle/workspace/suncheek/model/OpenRio/verification/orbe_bt_env")
-L_CLEAN = {"ALU": 1, "MUL": 3, "DIV": 4, "LOAD": 3, "JALR": 1, "BRU": 1}
+# 唯一权威来源：latency_table.L_OF（出处见该文件）。不要在此重新键入数字。
+from latency_table import L_OF as L_CLEAN
 MNEM = [("MUL", "MUL"), ("DIV", "DIV"), ("REM", "DIV"), ("JALR", "JALR"), ("JAL", "JALR"),
         ("LD", "LOAD"), ("LW", "LOAD"), ("LH", "LOAD"), ("LB", "LOAD"), ("SD", "LOAD"),
         ("SW", "LOAD"), ("SH", "LOAD"), ("SB", "LOAD")]
