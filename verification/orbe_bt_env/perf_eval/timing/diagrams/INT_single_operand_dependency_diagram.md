@@ -8,6 +8,14 @@ This diagram set is the reduced INT single-operand v2 set: one representative IN
 
 Scope note: these figures show the nominal no-older-blocker path. Condition A extensions caused by delayed P4 commit are derived from the spec and are not repeated as separate nominal figures.
 
+
+> **Landmark precondition (added with the `*_p4blocked` cases).** The rows above place `WB` at `T(3+L)` and
+> `C` at `T(4+L)`, and the `p4_capture` rung is defined as "the dependent's P1 lands on the producer's P4".
+> Both assume the producer is already at the commit head when it writes back. Retirement is in order while
+> writeback is not, so when an older instruction is still in flight the producer's `C` slides, `P4 − P3 > 1`,
+> and the nominal `p4_capture` becomes unreachable — the dependent stalls instead. The five `*_p4blocked`
+> cases exist to exercise exactly that condition; they are a separate class, not a re-run of the nominal rung.
+
 ## Stage mapping
 
 The pipeline is the five-stage BE model (see `../../../docs/BE/or_be_has_V1.0.md` §5). Every cell in the figures below is one of these:
@@ -512,3 +520,137 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
 - **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
 - **T7 (Issue):** the dependent issues one cycle after ready payload construction.
+
+## Case 33: ALU_to_ALU_delta_3_p4blocked (p4_capture, commit held)
+
+**Dimension:** INT single-operand dependency | **Equiv:** ALU_to_ALU
+**Description:** The producer writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so its result stays in the P3 Buffer. The dependent therefore finds no Commit CDB at its nominal P1 and must stall instead of capturing from P4.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `div x7, x1, x2` - Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |
+| `add x5, x1, x2` - Producer·G1 | IB | dispatch | ALU1 | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G1 |  |  |  | IB | dispatch | ALU1 | WB | C |
+
+- **T1 (Blocker and producer enqueued together):** the older `div x7, x1, x2` is routed to G0 and the producer to the
+  other ALU group, so the two take separate ISQ entries. The blocker is listed first so it lands in slot 0,
+  which is what forces the flexible producer off G0.
+- **Producer WB (on schedule):** the producer's result enters the P3 Buffer in the same cycle as the nominal
+  figure. This is the point of the construction — the writeback is *not* delayed, only the commit is.
+- **Nominal P4 (Commit CDB expected, does not appear):** the older `div x7, x1, x2` has not retired, and retirement is
+  in order while writeback is not, so the producer stays in the Buffer. No Commit CDB is presented and a
+  P4 → P1 capture is impossible in that cycle.
+- **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
+  (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
+  uses are the measured quantities, not predictions.
+- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
+  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
+  case did not reproduce the target state — report it rather than pass it.
+
+
+## Case 34: MUL_to_ALU_delta_5_p4blocked (p4_capture, commit held)
+
+**Dimension:** INT single-operand dependency | **Equiv:** MUL_to_ALU
+**Description:** The producer writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so its result stays in the P3 Buffer. The dependent therefore finds no Commit CDB at its nominal P1 and must stall instead of capturing from P4.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `div x7, x1, x2` - Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |
+| `mul x5, x1, x2` - Producer-G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G1 |  |  |  |  |  | IB | dispatch | ALU1 | WB | C |
+
+- **T1 (Blocker and producer enqueued together):** the older `div x7, x1, x2` is routed to G0 and the producer to the
+  other ALU group, so the two take separate ISQ entries. The blocker is listed first so it lands in slot 0,
+  which is what forces the flexible producer off G0.
+- **Producer WB (on schedule):** the producer's result enters the P3 Buffer in the same cycle as the nominal
+  figure. This is the point of the construction — the writeback is *not* delayed, only the commit is.
+- **Nominal P4 (Commit CDB expected, does not appear):** the older `div x7, x1, x2` has not retired, and retirement is
+  in order while writeback is not, so the producer stays in the Buffer. No Commit CDB is presented and a
+  P4 → P1 capture is impossible in that cycle.
+- **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
+  (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
+  uses are the measured quantities, not predictions.
+- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
+  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
+  case did not reproduce the target state — report it rather than pass it.
+
+
+## Case 35: DIV_to_ALU_delta_6_p4blocked (p4_capture, commit held)
+
+**Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
+**Description:** The producer writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so its result stays in the P3 Buffer. The dependent therefore finds no Commit CDB at its nominal P1 and must stall instead of capturing from P4.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `mul x7, x1, x2` - Blocker·G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |  |  |
+| `div x5, x1, x2` - Producer-G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |
+
+- **T1 (Blocker and producer enqueued together):** the older `mul x7, x1, x2` is routed to G1 and the producer to the
+  other ALU group, so the two take separate ISQ entries. The blocker is listed first so it lands in slot 0,
+  which is what forces the flexible producer off G1.
+- **Producer WB (on schedule):** the producer's result enters the P3 Buffer in the same cycle as the nominal
+  figure. This is the point of the construction — the writeback is *not* delayed, only the commit is.
+- **Nominal P4 (Commit CDB expected, does not appear):** the older `mul x7, x1, x2` has not retired, and retirement is
+  in order while writeback is not, so the producer stays in the Buffer. No Commit CDB is presented and a
+  P4 → P1 capture is impossible in that cycle.
+- **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
+  (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
+  uses are the measured quantities, not predictions.
+- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
+  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
+  case did not reproduce the target state — report it rather than pass it.
+
+
+## Case 36: LOAD_to_ALU_delta_5_p4blocked (p4_capture, commit held)
+
+**Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
+**Description:** The producer writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so its result stays in the P3 Buffer. The dependent therefore finds no Commit CDB at its nominal P1 and must stall instead of capturing from P4.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `div x7, x1, x2` - Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |
+| `ld x5, 0(x1)` - Producer-G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G1 |  |  |  |  |  | IB | dispatch | ALU1 | WB | C |
+
+- **T1 (Blocker and producer enqueued together):** the older `div x7, x1, x2` is routed to G0 and the producer to the
+  other ALU group, so the two take separate ISQ entries. The blocker is listed first so it lands in slot 0,
+  which is what forces the flexible producer off G0.
+- **Producer WB (on schedule):** the producer's result enters the P3 Buffer in the same cycle as the nominal
+  figure. This is the point of the construction — the writeback is *not* delayed, only the commit is.
+- **Nominal P4 (Commit CDB expected, does not appear):** the older `div x7, x1, x2` has not retired, and retirement is
+  in order while writeback is not, so the producer stays in the Buffer. No Commit CDB is presented and a
+  P4 → P1 capture is impossible in that cycle.
+- **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
+  (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
+  uses are the measured quantities, not predictions.
+- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
+  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
+  case did not reproduce the target state — report it rather than pass it.
+
+
+## Case 37: JALR_to_ALU_delta_3_p4blocked (p4_capture, commit held)
+
+**Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
+**Description:** The producer writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so its result stays in the P3 Buffer. The dependent therefore finds no Commit CDB at its nominal P1 and must stall instead of capturing from P4.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `mul x7, x1, x2` - Blocker·G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |
+| `jalr x5, 0(x10)` - Producer-G0 | IB | dispatch | BRU | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent-G0 |  |  |  | IB | dispatch | ALU0 | WB | C |
+
+- **T1 (Blocker and producer enqueued together):** the older `mul x7, x1, x2` is routed to G1 and the producer to the
+  other ALU group, so the two take separate ISQ entries. The blocker is listed first so it lands in slot 0,
+  which is what forces the flexible producer off G1.
+- **Producer WB (on schedule):** the producer's result enters the P3 Buffer in the same cycle as the nominal
+  figure. This is the point of the construction — the writeback is *not* delayed, only the commit is.
+- **Nominal P4 (Commit CDB expected, does not appear):** the older `mul x7, x1, x2` has not retired, and retirement is
+  in order while writeback is not, so the producer stays in the Buffer. No Commit CDB is presented and a
+  P4 → P1 capture is impossible in that cycle.
+- **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
+  (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
+  uses are the measured quantities, not predictions.
+- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
+  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
+  case did not reproduce the target state — report it rather than pass it.

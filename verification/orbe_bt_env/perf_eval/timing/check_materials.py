@@ -23,9 +23,9 @@ DG_TWO = HERE / "diagrams/INT_two_operands_dependency_diagram.md"
 
 # 期望值（随材料变更一起更新）
 EXPECT_SECTIONS = ["ALU_to_ALU", "MUL_to_ALU", "DIV_to_ALU", "LOAD_to_ALU", "JALR_to_ALU"]
-EXPECT_FAMILY = {"ALU_to_ALU": 5, "MUL_to_ALU": 7, "DIV_to_ALU": 8, "LOAD_to_ALU": 7,
-                 "JALR_to_ALU": 5}
-EXPECT_SINGLE_TOTAL = 32
+EXPECT_FAMILY = {"ALU_to_ALU": 6, "MUL_to_ALU": 8, "DIV_to_ALU": 9, "LOAD_to_ALU": 8,
+                 "JALR_to_ALU": 6}
+EXPECT_SINGLE_TOTAL = 37
 EXPECT_TWO_TOTAL = 30
 
 fails = []
@@ -45,10 +45,10 @@ for sec in EXPECT_SECTIONS:
     check(sec in sections, "小节存在: %s" % sec)
 
 # 必须捕获**完整** Case 名（含 _delta_N），否则会把家族名当 Case 名去和图比较
-rows = re.findall(r"^\| `([A-Za-z0-9_]+_delta_\d+)`", s, re.M)
+rows = re.findall(r"^\| `([A-Za-z0-9_]+_delta_\d+[A-Za-z0-9_]*)`", s, re.M)
 counts = {}
 for cid in rows:
-    fam = re.sub(r"_delta_\d+$", "", cid)
+    fam = re.sub(r"_delta_\d+.*$", "", cid)
     counts[fam] = counts.get(fam, 0) + 1
 check(counts == EXPECT_FAMILY, "家族行数 %s" % counts)
 check(len(rows) == EXPECT_SINGLE_TOTAL, "总数 %d == %d" % (len(rows), EXPECT_SINGLE_TOTAL))

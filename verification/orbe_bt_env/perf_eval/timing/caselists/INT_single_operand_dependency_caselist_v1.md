@@ -194,6 +194,7 @@ add x6, x5, x3
 | `ALU_to_ALU_delta_3` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 5 | `p4_capture` |
 | `ALU_to_ALU_delta_4` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 7 | `arf_read` |
 
+| `ALU_to_ALU_delta_3_p4blocked` | blocker + producer share the enqueue cycle | `div x7, x1, x2(blocker) ; add x5, x1, x2(producer) ; add x6, x5, x3(dependent)` | n/a | P4 capture expected but commit held in the Buffer; dependent stalls (expected) |
 ## MUL_to_ALU
 
 Representative:
@@ -213,6 +214,7 @@ add x6, x5, x3
 | `MUL_to_ALU_delta_5` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `0ld+4fp` | `p4_capture` |
 | `MUL_to_ALU_delta_6` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `1ld+4fp` | `arf_read` |
 
+| `MUL_to_ALU_delta_5_p4blocked` | blocker + producer share the enqueue cycle | `div x7, x1, x2(blocker) ; mul x5, x1, x2(producer) ; add x6, x5, x3(dependent)` | n/a | P4 capture expected but commit held in the Buffer; dependent stalls (expected) |
 ## DIV_to_ALU
 
 Representative:
@@ -233,6 +235,7 @@ add x6, x5, x3
 | `DIV_to_ALU_delta_6` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `1ld+4fp` | `p4_capture` |
 | `DIV_to_ALU_delta_7` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `2ld+4fp` | `arf_read` |
 
+| `DIV_to_ALU_delta_6_p4blocked` | blocker + producer share the enqueue cycle | `mul x7, x1, x2(blocker) ; div x5, x1, x2(producer) ; add x6, x5, x3(dependent)` | n/a | P4 capture expected but commit held in the Buffer; dependent stalls (expected) |
 ## LOAD_to_ALU
 
 Representative:
@@ -254,6 +257,7 @@ Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates)
 | `LOAD_to_ALU_delta_5` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 9 | `p4_capture` |
 | `LOAD_to_ALU_delta_6` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 11 | `arf_read` |
 
+| `LOAD_to_ALU_delta_5_p4blocked` | blocker + producer share the enqueue cycle | `div x7, x1, x2(blocker) ; ld x5, 0(x1)(producer) ; add x6, x5, x3(dependent)` | n/a | P4 capture expected but commit held in the Buffer; dependent stalls (expected) |
 ## JALR_to_ALU
 
 Representative (the warm-up is part of the case):
@@ -310,6 +314,7 @@ unless `pred_taken = 1` **and** `pred_target_pc` equals `(rs1 + imm) & ~1` bit f
 the two fields as stimulus, which makes the precondition constructible instead of something to be
 lucky with.
 
+| `JALR_to_ALU_delta_3_p4blocked` | blocker + producer share the enqueue cycle | `mul x7, x1, x2(blocker) ; jalr x5, 0(x10)(producer) ; add x6, x5, x3(dependent)` | n/a | P4 capture expected but commit held in the Buffer; dependent stalls (expected) |
 ## Notes
 
 - This file intentionally no longer contains `*_to_MUL`, `*_to_DIV`, `*_to_BRU`, `*_to_LOAD`, or `*_to_STORE` dependent expansions.

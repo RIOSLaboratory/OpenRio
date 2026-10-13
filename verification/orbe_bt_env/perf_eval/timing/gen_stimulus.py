@@ -21,7 +21,7 @@ DIAGRAMS = ROOT / "perf_eval/timing/diagrams"
 # 标题有两种形态：`## Case N: <id> (<mech>)` 与 `## Case N: <id>`
 CASE_RE = re.compile(r"^## Case (\d+): (\S+?)(?:\s+\(([^)]+)\))?\s*$", re.M)
 # 两种后缀格式都要认：`- Producer-G0` 与 `· P3 source·G1` => 组名统一取出现的 G<d>
-ROLE_RE = re.compile(r"(Producer|Dependent|P3 source|P4 source|ARF source|IMM|"
+ROLE_RE = re.compile(r"(Producer|Dependent|Blocker|P3 source|P4 source|ARF source|IMM|"
                      r"ISQ_STORED)", re.I)
 GROUP_RE = re.compile(r"\bG([0-3])\b")
 
@@ -93,10 +93,12 @@ def main():
                 e["lane"] = seen.get(e["cyc"], 0)
                 seen[e["cyc"]] = e["lane"] + 1
             # 自检 1：delta
-            dm = re.search(r"_delta_(\d+)$", cid)
+            dm = re.search(r"_delta_(\d+)", cid)
             checks = []
-            if dm and len(entries) == 2:
-                want, got = int(dm.group(1)), entries[1]["cyc"] - entries[0]["cyc"]
+            prod = [e for e in entries if e["role"].lower() == "producer"]
+            dep = [e for e in entries if e["role"].lower() == "dependent"]
+            if dm and len(prod) == 1 and len(dep) == 1:
+                want, got = int(dm.group(1)), dep[0]["cyc"] - prod[0]["cyc"]
                 checks.append(("delta %d" % want, want == got,
                                "实测映射 %d" % got if want != got else ""))
             # 自检 2：同 cycle 必须不同组
