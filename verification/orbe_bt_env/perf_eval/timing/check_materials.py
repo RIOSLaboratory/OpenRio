@@ -44,9 +44,11 @@ sections = [h for h in re.findall(r"^## (.+)$", s, re.M) if not h.startswith("De
 for sec in EXPECT_SECTIONS:
     check(sec in sections, "小节存在: %s" % sec)
 
-rows = re.findall(r"^\| `([A-Za-z0-9_]+)_delta_(\d+)`", s, re.M)
+# 必须捕获**完整** Case 名（含 _delta_N），否则会把家族名当 Case 名去和图比较
+rows = re.findall(r"^\| `([A-Za-z0-9_]+_delta_\d+)`", s, re.M)
 counts = {}
-for fam, _ in rows:
+for cid in rows:
+    fam = re.sub(r"_delta_\d+$", "", cid)
     counts[fam] = counts.get(fam, 0) + 1
 check(counts == EXPECT_FAMILY, "家族行数 %s" % counts)
 check(len(rows) == EXPECT_SINGLE_TOTAL, "总数 %d == %d" % (len(rows), EXPECT_SINGLE_TOTAL))
@@ -54,7 +56,7 @@ check(len(rows) == EXPECT_SINGLE_TOTAL, "总数 %d == %d" % (len(rows), EXPECT_S
 print("== 单操作数 diagram 与 caselist 逐条一致 ==")
 d = DG_SINGLE.read_text(encoding="utf-8")
 d_cases = sorted(re.findall(r"^## Case \d+: ([A-Za-z0-9_]+)", d, re.M))
-c_cases = sorted(cid for cid, _ in rows)
+c_cases = sorted(rows)
 check(len(d_cases) == len(c_cases), "条数 %d vs %d" % (len(d_cases), len(c_cases)))
 check(d_cases == c_cases, "Case 名逐条一致" if d_cases == c_cases
       else "差异: %s" % sorted(set(d_cases) ^ set(c_cases))[:6])
