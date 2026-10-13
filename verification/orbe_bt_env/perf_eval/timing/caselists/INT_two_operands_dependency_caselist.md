@@ -139,6 +139,7 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 | `INT2_G0P3_IMM` | G0 P3 Bypass | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | 3 | G0 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G0 Bypass; rs2 is immediate and has no dependency tag. |
 | `INT2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | 0 / 4 branch | Issue `mul` one cycle before load so G1 and G3 P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass. |
 | `INT2_P4_G1P3` | P4 Commit | G1 P3 Bypass | `ld x6, 0(x10); mul x8, x1, x2 -> add x20, x6, x8` | 1 / 5 branch | The commit-side producer is placed before the MUL and the fillers are never-taken branches; see the note below. Measured `ld.P4 = mul.P3 = dep.P1`. | P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2. |
+| `INT2_P4_G1P3_blocked` | blocker in G0, P4 source in G0 at a later cycle | `div x11, x12, x13 (blocker) ; mul x6,x3,x4 ; add x7,x8,x9 ; add x20,x7,x6` | n/a | rs1 (P4 Commit) held in the Buffer while rs2 arrives from G1 P3 Bypass; dependent stalls with a partially resolvable entry |
 | `INT2_ARF_G1P3` | Already in ARF | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | 0 / 4 branch | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G1 producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G1 Bypass. |
 | `INT2_G1P3_IMM` | G1 P3 Bypass | IMM | `mul x6, x3, x4 -> addi x20, x6, 16` | 5 branch | G1 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag. |
 | `INT2_P4_G3P3` | P4 Commit | G3 Load P3 Bypass | `mul x6, x3, x4; ld x8, 0(x10) -> add x20, x6, x8` | 1 / 5 chained | The commit-side producer is placed **before** the load, and the fillers form a dependency chain. Both are forced; see the note below the table. Measured `mul.P4 = ld.P3 = dep.P1`. | P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2. |
@@ -232,3 +233,10 @@ These cases cover the legal shape hidden behind the gray same-P3-source diagonal
 - White mirrored cells in the K-map are covered by rs1/rs2 symmetry. The chosen source order above follows the filled-triangle orientation where possible.
 - The same-producer shape `add x20, x5, x5` is legal and covered by the supplemental same-RD fanout cases above. It is still not counted as a normal two-source composition POI.
 - P2 cases do not imply that P2 reads ARF. A source shown as `Stored Ready at dispatch` is already present in the resident entry's `entry.rs_data`.
+
+**Deferred: `INT2_P4_P4_blocked`.** Both of its P4 sources are `add`s, so the same-cycle rule forces
+them into G0 and G1 together; a blocker would have to take G2 or G3. G2 is `fpu_simple`, whose latency
+is 1 across the whole family — `fdiv.d` and `fsqrt.d` included — so it retires no later than an ALU and
+cannot hold anything back. That leaves G3, a load, which still needs a memory source in the injection
+shape (see the stimulus method, §3.8). The case is therefore blocked on that open item, not dropped:
+as soon as loads can be injected, it is a copy of this one with the blocker moved to G3.

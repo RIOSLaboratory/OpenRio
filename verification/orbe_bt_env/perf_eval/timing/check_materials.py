@@ -26,7 +26,7 @@ EXPECT_SECTIONS = ["ALU_to_ALU", "MUL_to_ALU", "DIV_to_ALU", "LOAD_to_ALU", "JAL
 EXPECT_FAMILY = {"ALU_to_ALU": 6, "MUL_to_ALU": 8, "DIV_to_ALU": 9, "LOAD_to_ALU": 8,
                  "JALR_to_ALU": 6}
 EXPECT_SINGLE_TOTAL = 37
-EXPECT_TWO_TOTAL = 30
+EXPECT_TWO_TOTAL = 31
 
 fails = []
 

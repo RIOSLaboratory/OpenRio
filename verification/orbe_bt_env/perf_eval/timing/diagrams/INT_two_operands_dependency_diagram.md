@@ -482,3 +482,28 @@ These cases cover the legal shape behind the gray same-P3-source diagonal cells.
 - **T4 (Resident entry):** dependent is already in ISQ with rs1 and rs2 waiting on the same producer tag.
 - **T6 (P2 same-tag match):** one G3 load Bypass payload satisfies both operand inputs.
 - **T6 (Issue):** dependent issues through the FU-input MUX when the selected FU is free.
+
+## Case 31: INT2_P4_G1P3_blocked
+
+**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G1 P3 Bypass
+**Description:** The P4 source writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so the value stays in the P3 Buffer with no Commit CDB presented. rs2 still arrives from the MUL's G1 P3 bypass, so this case also exercises a *partially* resolvable entry.
+
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `div x11, x12, x13` - Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
+| `mul x6, x3, x4` · P3 source·G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |
+| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
+| `add x20, x7, x6` · Dependent·G1 |  |  |  |  | IB | dispatch | ALU1 | WB | C |
+
+- **T1 (Blocker enqueued alongside the MUL):** the older `div x11, x12, x13` takes G0 and the MUL takes G1, so the two land
+  in different ISQ entries. G0 is free at T1 because only the MUL is being enqueued there otherwise.
+- **T5 (P4 source WB, on schedule):** the P4 source writes back on the nominal cycle; its result enters the
+  P3 Buffer. The writeback is not delayed — only the commit is.
+- **T6 (Nominal composition, does not happen):** retirement is in order and the older `div` is still in
+  flight, so no Commit CDB is presented for rs1. rs2 is still delivered by the MUL's G1 P3 bypass at T6,
+  which is why the entry becomes *partially* resolvable rather than simply unmatched.
+- **Expected deviation (this is what the case measures):** the dependent cannot complete its source
+  composition; it stalls (Condition A) until the older instruction retires. Its resolution cycle and the
+  path the missing operand finally takes are the measured quantities.
+- **Check on the run:** the P4 source's `P3 − P2` must still equal its `L` while its `P4 − P3` must exceed 1.
+  If `P4 − P3` is 1 the blocker retired in time and the case did not reproduce the target state.
