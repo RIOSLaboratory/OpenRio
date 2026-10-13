@@ -11,7 +11,9 @@
 输出到 $WORK/stimulus/<case>.tsv（生成物不入库）。
 """
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]          # .../verification/orbe_bt_env
@@ -65,13 +67,61 @@ def instr_of(cell):
     return text, role, grp
 
 
+TOOL = Path("/work/stu/yzhang/workspace/riscv/bin/riscv64-unknown-elf-")
+BASE_PC = 0x80000000
+
+
+def _norm(text):
+    """归一化助记符文本，便于源/反汇编比对。"""
+    t = text.lower().replace(",", " ")
+    t = re.sub(r"\s+", " ", t).strip()
+    # the disassembler drops a zero offset: `0(x10)` and `x10` are the same
+    t = re.sub(r"0\((\w+)\)", r"\1", t)
+    return t
+
+
+def assemble(instrs):
+    """把指令列表汇编成 (hex 列表, 反汇编文本列表)；失败返回 (None, 错误信息)。"""
+    body = "    .option norvc\n    .section .text\n    .globl _start\n_start:\n"
+    body += "".join("    %s\n" % i for i in instrs)
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "a.S"
+        obj = Path(td) / "a.o"
+        src.write_text(body, encoding="utf-8")
+        r = subprocess.run([str(TOOL) + "gcc", "-march=rv64imafdc", "-mabi=lp64d",
+                            "-nostdlib", "-nostartfiles", "-c", "-o", str(obj), str(src)],
+                           capture_output=True, text=True)
+        if r.returncode:
+            return None, r.stderr.strip().split("\n")[-1][:120]
+        od = subprocess.run([str(TOOL) + "objdump", "-d", "-M", "numeric", str(obj)],
+                            capture_output=True, text=True).stdout
+    hexes, texts = [], []
+    for ln in od.split("\n"):
+        m = re.match(r"^\s+([0-9a-f]+):\s+([0-9a-f]{8})\s+(.+)$", ln)
+        if m:
+            hexes.append(m.group(2))
+            texts.append(m.group(3).split("#")[0].strip())
+    if len(hexes) != len(instrs):
+        return None, "指令数不符：汇编 %d 条，反汇编 %d 条" % (len(instrs), len(hexes))
+    return (hexes, texts), None
+
+
+def jalr_pred(instr):
+    """JALR 作 producer 时的预测字段（§3.6）：强制命中。"""
+    m = re.match(r"jalr\s+\w+,\s*(-?\d+|0x[0-9a-f]+)\(", instr.strip(), re.I)
+    if not m:
+        return None
+    imm = int(m.group(1), 0) if not m.group(1).startswith("0x") else int(m.group(1), 16)
+    return 1, imm & ~1
+
+
 def main():
     files = sorted(DIAGRAMS.glob("*.md"))
     if len(sys.argv) > 1:
         files = [DIAGRAMS / a for a in sys.argv[1:]]
     outdir = WORK / "stimulus"
     outdir.mkdir(parents=True, exist_ok=True)
-    total = bad = 0
+    total = bad = asm_bad = 0
     for f in files:
         print("=== %s ===" % f.name)
         for num, cid, mech, header, rows in parse_diagram(f):
@@ -117,18 +167,32 @@ def main():
             note = "; ".join("%s %s %s" % (c[0], "ok" if c[1] else "FAIL", c[2]) for c in checks)
             print("  Case %-3d %-38s %s" % (num, cid, note if checks else "(无条件)"))
 
-            # 输出激励表
-            lines = ["# case %s  (%s)  -- 从 diagram 生成" % (cid, mech),
+            # 输出激励表（含汇编后的编码）
+            res, err = assemble([e["instr"] for e in entries])
+            if err:
+                print("  %-40s 汇编失败: %s" % (cid, err))
+                asm_bad += 1
+            lines = ["# case %s  (%s)  -- 从 diagram 生成；pc 为本文激励自排" % (cid, mech),
                      "# cycle  lane  pc            inst_hex     pred_taken  pred_target_pc  # instr"]
-            for e in entries:
-                lines.append("%-8d %-5d %-13s %-12s %-11d %-15s # %s%s"
-                             % (e["cyc"], e["lane"], "0x80000000+", "TODO",
-                                0, "0x0", e["instr"],
+            for i, e in enumerate(entries):
+                hexs = res[0][i] if res else "??"
+                pt, ptg = 0, 0
+                jp = jalr_pred(e["instr"])
+                if jp:
+                    pt, ptg = jp
+                if res:
+                    # 反汇编回读核对
+                    if _norm(e["instr"]) != _norm(res[1][i]):
+                        print("  %-40s 反汇编不一致: %r vs %r" % (cid, e["instr"], res[1][i]))
+                        asm_bad += 1
+                lines.append("%-8d %-5d 0x%-10x 0x%-10s %-11d 0x%-13x # %s%s"
+                             % (e["cyc"], e["lane"], BASE_PC + 4 * i, hexs, pt, ptg, e["instr"],
                                 "" if not e["role"] else "  [%s %s]" % (e["role"], e["grp"])))
             (outdir / (cid + ".tsv")).write_text("\n".join(lines) + "\n", encoding="utf-8")
     print()
-    print("生成 %d 个激励表到 %s（其中自检未通过 %d 个）" % (total, outdir, bad))
-    return 1 if bad else 0
+    print("生成 %d 个激励表到 %s（时序自检未通过 %d 个；汇编问题 %d 个）"
+          % (total, outdir, bad, asm_bad))
+    return 1 if (bad or asm_bad) else 0
 
 
 if __name__ == "__main__":
