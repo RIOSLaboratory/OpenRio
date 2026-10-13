@@ -31,7 +31,11 @@ def mech_of(delta, L):
 
 
 def observed_mech(p, d):
-    """由事件观测机制，而不是由预测填入。"""
+    """机制按**关系**观测（与 caselist 的阶梯定义一致），不看 P2 是否等待：
+       dep.P1 == prod.P1 -> overlay; == prod.P3 -> p3_capture; == prod.P4 -> p4_capture;
+       > prod.P4 -> arf_read; 其余（落在 prod.P1 与 prod.P3 之间）-> wait_for_p3。
+    注：wait_for_p3 既可能是 ISQ 驻留等待，也可能是 P2 处的 P3 唤醒，二者由 P2-P1 区分，
+    但都属于 wait_for_p3 这一档。"""
     if "P1" not in d or "P1" not in p:
         return "?"
     if d["P1"] == p["P1"]:
@@ -42,9 +46,7 @@ def observed_mech(p, d):
         return "p4_capture"
     if "P4" in p and d["P1"] > p["P4"]:
         return "arf_read"
-    if "P3" in p and d["P1"] < p["P3"]:
-        return "wait_for_p3" if (d.get("P2", d["P1"]) - d["P1"]) > 1 else "overlay*"
-    return "?"
+    return "wait_for_p3"
 
 
 MN2FAM = {"add": "ALU", "addi": "ALU", "sub": "ALU", "and": "ALU", "or": "ALU", "xor": "ALU",
@@ -54,13 +56,12 @@ MN2FAM = {"add": "ALU", "addi": "ALU", "sub": "ALU", "and": "ALU", "or": "ALU", 
 
 
 def mnemonic_of(cid, pc):
-    """从表的原始行里取该 pc 的助记符（表里带注释原文）。"""
+    """助记符在表的行尾注释里：`# add x5, x1, x2  [Producer G1]`。"""
     for ln in (C.SRC / (cid + ".tsv")).read_text(encoding="utf-8").split("\n"):
         f = ln.split("#")[0].split()
         if len(f) >= 3 and f[2].startswith("0x"):
             try:
                 if int(f[2], 16) == pc:
-                    # 助记符在行尾注释里：# div x7, x1, x2  [Blocker G0]
                     tail = ln.split("#", 1)[1].split() if "#" in ln else []
                     return tail[0] if tail else ""
             except ValueError:
