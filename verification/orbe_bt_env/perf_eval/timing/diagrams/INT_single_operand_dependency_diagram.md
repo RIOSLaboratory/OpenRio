@@ -544,9 +544,18 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
   is greater than 1, and the dependent's P1 finds nothing to capture.
 - **Expected deviation (the measured quantity):** the dependent stalls (Condition A) instead of capturing
   from P4, and resolves only after the producer retires.
-- **Check on the run:** the producer's `P3 − P2` must equal `L` (writeback untroubled) while its `P4 − P3`
-  exceeds 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the case missed its target
-  state — report that rather than passing it.
+- **Acceptance (mechanism-based — delta is an output here, not an input):**
+  1. `producer.P3 − P2 == L`: the writeback was not disturbed, which is what separates "commit held"
+     from "execution delayed";
+  2. `producer.P4 − P3 > 1`: the commit really was held. If it is 1 the blocker retired in time and the
+     case missed its target state — report that rather than passing it;
+  3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
+     rather than waited;
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
+
+  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
+  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
+  the case chooses.
 ## Case 34: MUL_to_ALU_delta_5_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** MUL_to_ALU
@@ -569,11 +578,18 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
   (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
   uses are the measured quantities, not predictions.
-- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
-  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
-  case did not reproduce the target state — report it rather than pass it.
+- **Acceptance (mechanism-based — delta is an output here, not an input):**
+  1. `producer.P3 − P2 == L`: the writeback was not disturbed, which is what separates "commit held"
+     from "execution delayed";
+  2. `producer.P4 − P3 > 1`: the commit really was held. If it is 1 the blocker retired in time and the
+     case missed its target state — report that rather than passing it;
+  3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
+     rather than waited;
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
 
-
+  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
+  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
+  the case chooses.
 ## Case 35: DIV_to_ALU_delta_6_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -596,11 +612,18 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
   (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
   uses are the measured quantities, not predictions.
-- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
-  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
-  case did not reproduce the target state — report it rather than pass it.
+- **Acceptance (mechanism-based — delta is an output here, not an input):**
+  1. `producer.P3 − P2 == L`: the writeback was not disturbed, which is what separates "commit held"
+     from "execution delayed";
+  2. `producer.P4 − P3 > 1`: the commit really was held. If it is 1 the blocker retired in time and the
+     case missed its target state — report that rather than passing it;
+  3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
+     rather than waited;
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
 
-
+  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
+  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
+  the case chooses.
 ## Case 36: LOAD_to_ALU_delta_5_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
@@ -623,11 +646,18 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
   (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
   uses are the measured quantities, not predictions.
-- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
-  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
-  case did not reproduce the target state — report it rather than pass it.
+- **Acceptance (mechanism-based — delta is an output here, not an input):**
+  1. `producer.P3 − P2 == L`: the writeback was not disturbed, which is what separates "commit held"
+     from "execution delayed";
+  2. `producer.P4 − P3 > 1`: the commit really was held. If it is 1 the blocker retired in time and the
+     case missed its target state — report that rather than passing it;
+  3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
+     rather than waited;
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
 
-
+  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
+  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
+  the case chooses.
 ## Case 37: JALR_to_ALU_delta_3_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
@@ -650,6 +680,15 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
   (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
   uses are the measured quantities, not predictions.
-- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
-  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
-  case did not reproduce the target state — report it rather than pass it.
+- **Acceptance (mechanism-based — delta is an output here, not an input):**
+  1. `producer.P3 − P2 == L`: the writeback was not disturbed, which is what separates "commit held"
+     from "execution delayed";
+  2. `producer.P4 − P3 > 1`: the commit really was held. If it is 1 the blocker retired in time and the
+     case missed its target state — report that rather than passing it;
+  3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
+     rather than waited;
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
+
+  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
+  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
+  the case chooses.

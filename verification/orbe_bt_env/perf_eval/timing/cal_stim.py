@@ -114,6 +114,9 @@ def calibrate(cid):
         hist[dep[0]["cyc"]] = got
         if best is None or abs(got - target) < abs(best[0] - target):
             best = (got, dep[0]["cyc"], p_, d_)
+        # Judgement discipline: only an EXACT hit counts. Taking the nearest achievable delta would
+        # report success for a case that never instantiated its target mechanism, which is the failure
+        # mode this project keeps hitting.
         if got == target:
             break
         if got < target:
@@ -145,6 +148,7 @@ if __name__ == "__main__":
     for c in cases:
         r = calibrate(c)
         if r:
-            print("%-40s %-8d %-8d %-8s %-9s %-8s %d  探针=%s" %
+            print("%-40s %-8d %-8d %-8s %-9s %-8s %d  %-14s 探针=%s" %
                   (r["cid"], r["target"], r["got"], r["prod_gap"], r["p4p3"], r["wait"], r["rounds"],
+                   "通过" if r["got"] == r["target"] else "目标delta不可达",
                    sorted(r["iters"].items())))

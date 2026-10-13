@@ -505,5 +505,14 @@ These cases cover the legal shape behind the gray same-P3-source diagonal cells.
 - **Expected deviation (this is what the case measures):** the dependent cannot complete its source
   composition; it stalls (Condition A) until the older instruction retires. Its resolution cycle and the
   path the missing operand finally takes are the measured quantities.
-- **Check on the run:** the P4 source's `P3 − P2` must still equal its `L` while its `P4 − P3` must exceed 1.
-  If `P4 − P3` is 1 the blocker retired in time and the case did not reproduce the target state.
+- **Acceptance (mechanism-based — delta is an output here, not an input):**
+  1. `P4 source.P3 − P2 == L`: its writeback was not disturbed;
+  2. `P4 source.P4 − P3 > 1`: its commit really was held by the older `div`. If it is 1 the blocker
+     retired in time and the case missed its target state;
+  3. `dependent.P2 − P1 == 1` and `dependent.P1 == P4 source.P4`: the dependent dispatched on the held
+     commit and had its operands there;
+  4. rs2 arrives from the MUL's G1 P3 bypass while rs1 comes from the held commit, so the entry resolves
+     as a *partially* sourced one — that is the point of this case.
+
+  **Do not assert a target delta for this class** — with the commit held, the dependent's dispatch is
+  gated on it and delta is an output.
