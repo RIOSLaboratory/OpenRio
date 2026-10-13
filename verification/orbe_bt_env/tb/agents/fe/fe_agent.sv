@@ -280,6 +280,111 @@ class fe_agent;
     end
   endtask
 
+  // =====================================================================
+  // Directed injection mode (+IB_STIM=<file>): drive IB from a table.
+  // No ISA model involvement: the table supplies pc, encoding, prediction
+  // fields and the cycle. See perf_eval/IB_STIMULUS_METHOD.md section 9.
+  // =====================================================================
+  bit                 stim_en = 1'b0;
+  string              stim_path;
+  int                 stim_n = 0;
+  int                 stim_cyc  [1024];
+  int                 stim_lane [1024];
+  logic [63:0]        stim_pc   [1024];
+  logic [31:0]        stim_bits [1024];
+  bit                 stim_pt   [1024];
+  logic [63:0]        stim_ptg  [1024];
+  int                 stim_drain = 200;   // drain window after the last row
+
+  function automatic void load_stim();
+    int fd, cyc, lane, pt;
+    logic [63:0] pc, ptg;
+    logic [31:0] bits;
+    string line;
+    fd = $fopen(stim_path, "r");
+    if (fd == 0) begin
+      cfg.reporter.fatal($sformatf("[FE][STIM] cannot open %s", stim_path));
+      return;
+    end
+    stim_n = 0;
+    while ($fgets(line, fd) != 0) begin
+      if (line.len() == 0 || line[0] == "#") continue;
+      if ($sscanf(line, "%d %d %h %h %d %h", cyc, lane, pc, bits, pt, ptg) == 6) begin
+        stim_cyc[stim_n] = cyc;   stim_lane[stim_n] = lane;
+        stim_pc[stim_n] = pc;     stim_bits[stim_n] = bits;
+        stim_pt[stim_n] = (pt != 0); stim_ptg[stim_n] = ptg;
+        stim_n++;
+      end
+    end
+    $fclose(fd);
+    cfg.print_fe(1, $sformatf("[FE][STIM] loaded %0d rows from %s", stim_n, stim_path));
+  endfunction
+
+  task automatic stim_drive_row(input int idx);
+    int ln;
+    ln = stim_lane[idx];
+    vif.fe_be_instr_valid[ln]              <= 1'b1;
+    vif.fe_be_instr_pld[ln].pc             <= stim_pc[idx];
+    vif.fe_be_instr_pld[ln].inst_bits      <= stim_bits[idx];
+    vif.fe_be_instr_pld[ln].is_compressed  <= 1'b0;
+    vif.fe_be_instr_pld[ln].pred_taken     <= stim_pt[idx];
+    vif.fe_be_instr_pld[ln].pred_target_pc <= stim_ptg[idx];
+    vif.fe_be_instr_pld[ln].fetch_excp_vld <= 1'b0;
+    vif.fe_be_instr_pld[ln].exception_cause<= '0;
+    vif.fe_be_instr_pld[ln].exception_tval <= '0;
+  endtask
+
+  task automatic stim_run();
+    int idx, t, drain, injected, j, abs_c;
+    drive_idle();
+    idx = 0; t = 1; drain = -1; injected = 0; abs_c = 0;
+    cfg.print_fe(1, "[FE][STIM] start: table cycles are relative to the first offer");
+    while (1) begin
+      @(posedge vif.clk);
+      abs_c++;
+      if (vif.rst_n !== 1'b1) begin
+        drive_idle(); t = 1; idx = 0; injected = 0; drain = -1; abs_c = 0;
+        continue;
+      end
+      drive_idle();
+      // Assert every pending row whose cycle has arrived. Rows of one cycle are asserted
+      // together (lane prefix), and a row that was not accepted is simply re-asserted next
+      // cycle; the loop stops at the first row whose cycle is still in the future, because
+      // the interface is congested and later rows cannot be taken early anyway.
+      j = idx;
+      while (j < stim_n && stim_cyc[j] <= t) begin
+        stim_drive_row(j);
+        j++;
+      end
+      @(posedge vif.clk);
+      // Deassert right after the sampling edge: the offer must be a one-cycle pulse, or the IB
+      // takes the same row twice.
+      drive_idle();
+      // Acceptance: in order (the interface is a two-bit prefix, lane 1 cannot fire alone).
+      j = idx;
+      while (j < stim_n && stim_cyc[j] <= t) begin
+        if (vif.be_fe_instr_ready[stim_lane[j]] === 1'b1) begin
+          cfg.print_fe(2, $sformatf("[FE][STIM] T%0d lane%0d pc=0x%0h accepted at abs cycle %0d",
+                                    stim_cyc[j], stim_lane[j], stim_pc[j], abs_c));
+          injected++; j++;
+        end else begin
+          break;
+        end
+      end
+      idx = j;
+      if (idx == stim_n && drain < 0) drain = stim_drain;
+      t++;
+      if (drain > 0) begin
+        drain--;
+        if (drain == 0) begin
+          cfg.print_fe(1, $sformatf("[FE][STIM] done: injected %0d of %0d rows, span %0d cycles",
+                                    injected, stim_n, abs_c));
+          $finish;
+        end
+      end
+    end
+  endtask
+
   task automatic drive_idle();
     vif.fe_be_instr_valid <= '0;
     foreach (vif.fe_be_instr_pld[i]) vif.fe_be_instr_pld[i] <= '0;
@@ -301,10 +406,22 @@ class fe_agent;
 
     drive_idle();
 
+    // Directed injection mode: take over the whole steady-state loop, no ISA model involved.
+    if ($value$plusargs("IB_STIM=%s", stim_path)) begin
+      stim_en = 1'b1;
+      if ($value$plusargs("IB_STIM_DRAIN=%d", stim_drain)) ;
+      load_stim();
+    end
+
     // [FSM-1] reset. The prerequisite sequence was completed by initial_agent before this
     // Agent was constructed, and the entry PC was passed in via the constructor; here we only
     // wait for reset release.
     wait (vif.rst_n === 1'b1);
+
+    if (stim_en) begin
+      stim_run();
+      return;
+    end
 
     forever begin
       // [FSM-2] exit takes priority over redirect and deliver; deliver = 00 this cycle.
