@@ -282,8 +282,10 @@ end
    能 → 这是架构可达场景；不能 → 该 case 只是"BE 接口上的合法输入"，图上必须写明前提。
 3. **是否真构成新等价类**：若 JALR 不 flush，它就退化成"G0/ALU0 上一条延迟 1 拍的普通 producer
    + link 写回"（`alu_simple.sv:530-532`：link = `fallthrough_pc`）。按方法论 §5 的判断标准，
-   **若不产生新的 stall / bypass 路径，就不该单独成图**，而应并入现有 ALU producer case 的 bullet。
-   另外 caselist 提到 JALR case 需要 "same-PC warm-up prerequisite"，也要一并核。
+   **若不产生新的 stall / bypass 路径，就不该单独成图**。
+   **此点已由 case set owner 裁定为"保留"，判据改为执行资源覆盖（BRU 与 ALU0 同 FU），见 §9.5。**
+   另："same-PC warm-up prerequisite" 只在 `.S` 路径下需要；注入法直接给足预测字段，
+   该前提**不再需要**。
 
 ### 3.7 激励文件的形态
 
@@ -317,9 +319,10 @@ end
 1. **不是 ST**。绕开 FE 后，FE→BE 接口行为（redirect 后能否及时供指、握手是否正确、
    flush 与 enqueue 同拍）测不到——这些必须走 FE 路径。所以两条路**互补**：
    IB 注入验 BE 时序（diagram 覆盖的一切），FE 路径验 FE/BE 边界与整机。
-2. **丢掉 ISA model 这个值级 golden**。ELF 路径顺带给了 cosim 参考与 tohost 退出。
-   纯注入只有"期望时序"（diagram 即期望）。要么把同一指令流**也**喂给 ISA model 以保留 golden，
-   要么明确"只查时序/唤醒，不查值"。**这是必须由需求方拍板的取舍。**
+2. **丢掉 ISA model 这个值级 golden —— 但不必真的丢掉**。ELF 路径顺带给了 cosim 参考与
+   `tohost` 退出。推荐做法是**同一张激励表也推进 ISA model**（§9.2 第 2 案）：既保留值级对照与
+   退出机制，又不放弃拍序控制权。若最终选择"只查时序"，必须同时显式设计终止条件，
+   否则仿真会跑到 timeout（§9.2 第 1 案）。
 3. **FP / MEM 的图缺口不会被这套方法填上**——它只是投递方式，不产生期望。
 
 ---
@@ -346,5 +349,136 @@ end
 | 3 | 真实 FE 的 BPU 能否预测 JALR（决定 §3.6 的 case 是架构可达还是 BE 合法输入） | 待确认 |
 | 4 | JALR 在"预测命中"下是否构成新等价类（方法论 §5）；same-PC warm-up 的前提是否仍需要 | 待确认 |
 | 5 | 是否保留 ISA model 作为值级 golden（§4 第 2 条） | **需求方拍板** |
-| 6 | `dut_kind` 选择：纯 INT case 用 `rtl_v1`；含 LOAD/STORE 需要 Cache → 确认 `rtl_cache` 是否同样让 agent 占 FE 槽 | 待确认 |
-| 7 | "JALR 只能作 consumer" ruling 需按方法论 §5 的流程重开（回到方案对齐，而非直接改图） | 触发项 |
+| 6 | `dut_kind` 选择：纯 INT case 用 `rtl_v1`；含 LOAD/STORE 需要 Cache → 确认 `rtl_cache` 是否同样让 agent 占 FE 槽 | **已确认**：`cfg/filelist/rtl_cache.f` = BE RTL + OR_Cache RTL，**FE 仍是 fe_agent** ⇒ 注入法与真 Cache 可兼得 |
+| 7 | "JALR 只能作 consumer" ruling 需按方法论 §5 的流程重开 | **已裁定**：保留 JALR producer 一族，依据见 §9.5 |
+
+**上表各项的落点**：第 2 条的可判定化见 §9.3；第 4 条已由 §9.5 裁定；第 5 条的建议见 §9.2；
+第 6 条已确认；本文档的关键断言已外部核实，见 §7。
+
+---
+
+## 7. 核实记录（外部复核）
+
+关键断言不引用本文档自身，逐条对 RTL 与实测核实，避免"文档引用文档"。
+
+| 断言 | 出处 | 核实结果 |
+|---|---|---|
+| lane 是前缀序，`lane1` 不能单独 fire | §3.5 第 3 条 | ✅ `p1/IB.sv:70/165/205/272`：*"two-bit **prefix** strobe, per slot"*、*"`accepted_slot` is a prefix"* |
+| flush 原因集合封闭、无 JALR 专属路径 | §3.6 | ✅ `p4/CompletionScoreboard.sv` 的输入即 `is_fence_i` / `is_mret` / `is_sret` / `mispredict` / `exception` / `interrupt`；`p4/flush_model.sv` 只有一个 `global_flush_late` 生成者 |
+| `mispredict_flag` 表达式 | §3.6 | ✅ `fu/alu_simple.sv:440`，与本文引用逐字一致 |
+| 预测字段经 IB 进入 BE | §1.1 / §3.1 | ✅ `backend_top.sv:827/853`：`fe_instr_pld[s].pred_taken → enq_IB_payload[s].pred_taken`，再经 ISQ 到 FU（`isq0_pred_taken` → `alu_simple.pred_taken`）|
+| `fe_agent` 恒 `pred_taken = 0` | §3.2 | ✅ `tb/agents/fe/fe_agent.sv:224/239/274` 硬编码；`be_tb_top.sv:390` 注释同述 |
+| **预测命中 ⇒ 不 flush** | §3.6 结论表 | ✅ **实测**：同一条 JALR（pc `0x80000028`）在 `rtl_full` 上执行两遍，第 1 遍 `mispredict=1` 且发 redirect，第 2 遍 `mispredict=0` 且无 redirect（`timing/tools/jalr_btb_warmup.py`）|
+
+最后一行是本文档最有价值的推论之一：它把"JALR 作 producer"从"必然被 flush"变成
+"预测字段填对即可"。而 `.S` 路径下要让真 FE 命中，必须先预热**同 PC** 的 BTB 条目
+（实测：换成不同 PC 的 JALR 预热无效）——注入法把这一步整个省掉。
+
+---
+
+## 8. 派发侧契约（§3.5 之外必须自己保证的部分）
+
+§3.5 管的是**入队**（FE↔BE 面）。注入法把控制点前移到"谁在什么时候进 IB"，
+于是**派发侧**的合法性要由激励表自己保证，否则会构造出架构不可达的状态——
+那种 case 量到的不是"违例"，而是"不存在"。
+
+| 约束 | 出处 | 对激励表的要求 |
+|---|---|---|
+| 同拍两个 slot 不能进同一个 group | `p1/dispatch_logic.sv` 的 `groups_distinct` | 同拍注入的两条必须落在不同组（ALU 可 G0/G1，MUL 固定 G1，DIV/CSR/BRU 固定 G0，LSU 固定 G3）|
+| 每组 ISQ 只有 1 个条目 | `p2p3/ISQ_Group*.sv`：`isq_free_for_dispatch = !isq_valid \|\| issue_fire` | 同组两条至少错开一拍，除非前一条当拍发射 |
+| `accept[1] ⇒ accept[0]`（`10` 结构上不可能）| `dispatch_logic.sv:116-117 / :420` | 单条指令必须放 **slot 0** |
+| 同组 P3 写回 lane 每拍只有一个赢家 | `p2p3/p3_arbiter_G*.sv` | **注入法下不再需要照顾**：没有 filler 去抢 lane（§2.1）|
+
+最后一行是本法最大的实际收益：`.S` 路径下我们花了数轮去"标定填充物以避开 producer 的写回 lane"
+（`5d03f8c` / `475e1ef` / `9c54293` / `ed82b91`），注入法把它**从源头消掉**。
+
+---
+
+## 9. 实施规格
+
+### 9.1 激励表格式（补全 §3.7 的语义）
+
+```
+# cycle  lane  pc            inst_hex     pred_taken  pred_target_pc   note
+1        0     0x8000000c    0x002081b3   0           0x0              producer
+3        0     0x80000010    0x403182b3   0           0x0              consumer, delta 2
+```
+
+- `cycle` 就是 diagram 的 `T` 号，**delta 在文件里字面可读**（§2.2）。
+- `inst_hex` 由 `.S` 经 `as`/`objdump` 抽取（§3.7），**原工具链一行不废**。
+- `pred_*` 是**逐指令**字段：普通算术指令填 `0/0`；JALR 要"强制命中"就填
+  `pred_taken=1`、`pred_target_pc=(rs1+imm)&~1`（§3.6，注意 bit0 必须为 0）。
+- 表中**未出现的 cycle 就是不注入**（`fe_valid=0`，§1.4），零成本。
+
+### 9.2 终止条件（**必须显式设计**）
+
+`.S` 路径靠 ISA model 的 `tohost` 退出结束仿真；纯注入没有这条路径。
+**不定终止规则，仿真会一直跑到 timeout。**
+
+1. **表跑完即停**：注入表执行完就停止驱动并结束仿真。简单，但失去值级 golden。
+2. **同一张表也推进 ISA model（推荐）**：既保留值级对照与 `tohost` 退出，又不放弃拍序控制权。
+   于是 §4 第 2 条不再是"二选一"。
+
+### 9.3 非侵入性验收试验（把 §6 第 2 条变成可判定）
+
+"注入不改变被测时序"不能靠声明。建议验收条件：
+
+> 取一条**已冻结**的用例（例如 `calibrated_cases/MUL_to_ALU_delta_4.S`），用注入方式重放
+> （同一指令流、同一顺序），要求 **P1 / P2 / P3 逐拍与 `.S` 路径完全相同**；
+> 否则不接受该注入实现。此后任何注入驱动的改动都要重跑这条基线。
+
+判据用 P1/P2/P3 而非 P4，是因为机制判定（`mech_of`）只依赖这三者；
+若第 2 案（同喂 ISA model）落地，P4 与值级对照也应一并要求一致。
+
+### 9.4 对现有材料的改动清单
+
+| 现有材料 | 注入法下的变化 |
+|---|---|
+| caselist 的 `Fillers after each` 列 | 换成 **`Inject at cycle`**（或直接 `delta`）列；`gen_cases.py` 的解析随之改 |
+| caselist / diagram 的 `Tn` 槽位与 landmark | **不变**（§5）|
+| `run_perf.sh` / `compare.py` / `re_audit.py` | 仍可跑 `rtl_full`；判据不变 |
+| `lane_check.py` 的 surplus | 注入法下应**恒为 0**——可作为"注入是否自洽"的旁证 |
+| `calibrated_cases/*.S` | 保留为回归基线（§9.3），不再作为主投放形式 |
+| `tools/` 里的填充物标定脚本 | 归档；其结论（哪种填充物抢哪条 lane）转为**校验注入合法性**的知识 |
+
+### 9.5 JALR / BRU：裁定已下
+
+§3.6 第 3 点提出的"若不产生新 stall/bypass 路径就不该单独成图"，**已被 case set owner 的裁定覆盖**：
+
+- **裁定**：保留 `JALR_to_ALU` 一族（5 条）；
+- **依据**：`top/backend_top.sv:1215` 的 FU 例化名是 `u_alu0_bru`，同文件 `:699` 注释写明
+  "G0 : ALU0/BRU, CSR, DIV" ⇒ **BRU 与 ALU0 共用同一执行单元**，是需要被观测的**执行资源**；
+- **性质**：这是**资源覆盖**判据，**不是**"依赖机制不同"的主张——两者 L 都是 1，
+  阶梯与四种捕获机制确实相同；这一点已写进 caselist 的 JALR 小节，不再重新推导。
+
+⇒ 注入法下 JALR 一族的成本从"要构造同 PC 的 BTB 预热"降为"表里多两列"，
+且 `delta_0`（前缀序允许同拍 lane0+lane1）**一并可得**。
+
+### 9.6 两种落地形态（A 纯注入 / B 程序驱动 + 拍序控制）
+
+§9.1 的表自带 `pc` 与 `inst_hex`，是最独立的形态；但它不是唯一形态，也不是推荐形态。
+
+| | **A. 纯注入** | **B. 程序驱动 + 拍序控制（推荐）** |
+|---|---|---|
+| 指令从哪来 | 表格手填 `pc` / `inst_hex` | 仍来自 `.S → .ELF` 与 ISA model |
+| 拍序从哪来 | 表格 `cycle` 列 | **表格 `cycle` 列**（与 A 相同）|
+| 值级 golden | **丢弃** | **自动保留** |
+| 终止条件 | 必须自定（§9.2 第 1 案）| `tohost` 退出**自动生效** |
+| 表里要写什么 | pc + 指令编码 + 预测字段 | 只需写"第几拍放几条、预测字段" |
+
+**为什么 B 能"自动"保留 golden**：ISA model 是按 **BE 的 commit** 步进的，不是按取指步进的。
+所以只要注入的指令流与 model 的程序一致，model 就会跟着正常推进，`is_good` 与 `tohost`
+退出照常工作——**而"什么时候把这条指令交给 IB"完全由我们决定**。
+
+这正是 §3.2 那句结论的字面落地：
+
+> **"取代 FE" = 换掉它的"取指决策"，保留它的"协议驱动"。**
+
+即：在 `fe_agent` 里把"何时 `offer_valid`"从"跟着 model 走"改为"查表"，
+而 `offer_pld`（`pc` / `inst_bits` / `is_compressed`）仍然取自 model。
+
+**两个前提**（否则 B 会退化成 A 的缺点而拿不到优点）：
+
+1. 注入拍序仍须满足 §3.5 的三条契约与 §8 的派发侧约束；
+2. model 是按 commit 步进的，因此"某条指令被延迟注入"只会让 model **停在原处**，不会错位——
+   但若延迟长到触发 timeout，就仍是失败（§9.2）。
