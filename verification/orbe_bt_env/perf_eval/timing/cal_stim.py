@@ -34,7 +34,7 @@ def read_table(path):
         if len(f) < 6:
             continue
         role = ""
-        m = re.search(r"\[(\w+)\s", ln.split("#", 1)[1]) if "#" in ln else None
+        m = re.search(r"\[([^\]]+)\]", ln.split("#", 1)[1]) if "#" in ln else None
         if m:
             role = m.group(1)
         rows.append(dict(cyc=int(f[0]), lane=int(f[1]), pc=int(f[2], 16), hex=f[3],

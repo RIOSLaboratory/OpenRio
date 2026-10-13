@@ -45,7 +45,17 @@ for sec in EXPECT_SECTIONS:
     check(sec in sections, "小节存在: %s" % sec)
 
 # 必须捕获**完整** Case 名（含 _delta_N），否则会把家族名当 Case 名去和图比较
-rows = re.findall(r"^\| `([A-Za-z0-9_]+_delta_\d+[A-Za-z0-9_]*)`", s, re.M)
+# 只统计**家族小节内部**的用例行：文档里其它表格（如实测结果表）也会出现同样形状的行，
+# 不加限定就会把结果表算成用例，从而误报。
+_fam_blocks = []
+for _fam in EXPECT_SECTIONS:
+    _i = s.find("## %s" % _fam)
+    if _i < 0:
+        continue
+    _j = s.find("\n## ", _i + 1)
+    _fam_blocks.append(s[_i:_j if _j > 0 else len(s)])
+_rows_txt = "\n".join(_fam_blocks)
+rows = re.findall(r"^\| `([A-Za-z0-9_]+_delta_\d+[A-Za-z0-9_]*)`", _rows_txt, re.M)
 counts = {}
 for cid in rows:
     fam = re.sub(r"_delta_\d+.*$", "", cid)

@@ -346,3 +346,31 @@ lucky with.
 Every row whose entry is not a plain number is frozen under `../calibrated_cases/` and installed
 into the run set by `../install_calibrated.py`. `gen_cases.py` cannot render those notations, so it
 skips such rows and points at the frozen file instead of emitting a wrong program.
+
+## P4-blocked 类的实测结果与两处推迟（A 形态，rtl_v1）
+
+判据（机制型，δ 为输出）：`P3−P2 == L`、`P4−P3 > 1`、`dep.P2−P1 == 1`、`dep.P1 == prod.P4`。
+
+| case | L | P3−P2 | P4−P3 | dep.P2−P1 | dep.P1==prod.P4 | 判定 |
+|---|---|---|---|---|---|---|
+| `ALU_to_ALU_delta_3_p4blocked` | 1 | 1 | 3 | 1 | ✓ | 通过 |
+| `MUL_to_ALU_delta_5_p4blocked` | 3 | 3 | 2 | 1 | ✓ | 通过 |
+| `LOAD_to_ALU_delta_5_p4blocked` | 3 | 3 | 2 | 1 | ✓ | 通过 |
+| `JALR_to_ALU_delta_3_p4blocked` | 1 | 1 | 3 | 1 | ✓ | 通过 |
+| `DIV_to_ALU_delta_6_p4blocked` | 4 | 4 | **1** | 1 | ✓ | 未通过 |
+| `INT2_P4_G1P3_blocked`① | 1 | 1 | 4 | 1 | ✓ | 通过 |
+
+① 两操作数那条，见另一份 caselist。
+
+**两条机制判据在 6 个不同 producer 上全部成立**（`dep.P2−P1 == 1` 且 `dep.P1 == prod.P4`）：
+提交被压住时，dependent 的派发**被门控在该次提交上**并在派发拍即取得操作数。
+⇒ δ 是**结果**而非输入，本类不断言目标 δ。
+
+**`DIV_to_ALU_delta_6_p4blocked` 为何未通过（结构性，非构造失误）**：
+要求阻塞物**严格晚于** producer 的写回退休（`blocker.P4 > producer.P3`）。producer 是 DIV（L=4），
+而 INT 类 FU 的延迟为 FPU 1 / MUL 3 / LOAD 3 / DIV 4（`latency_table.py`）——**没有任何 L ≥ 5 的阻塞物**，
+即便把阻塞物提前一拍也仍相等（实测 `P4−P3 = 1`）。
+**结论：该条需要一个访存型慢阻塞物（冷 miss 的 LOAD）⇒ 与 `INT2_P4_P4_blocked` 一起，等 A 形态的内存来源就绪。**
+
+⇒ **7 条 blocked case 中已有 5 条实测通过**；剩下 2 条（DIV 族 + `INT2_P4_P4`）的**唯一**阻塞项是
+**A 形态下的内存来源**（`IB_STIMULUS_METHOD.md` §3.8：前置注入或后门预置）。
