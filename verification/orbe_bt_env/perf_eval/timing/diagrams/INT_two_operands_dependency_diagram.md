@@ -386,10 +386,11 @@ These cases complement the P1 MUX figures above. The dependent instruction is al
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `add x10, x1, x2` - Stored Ready at dispatch | IB | dispatch | ALU0 | WB | C |  |  |  |  |  |
-| `add x11, x3, x4` - Stored Ready at dispatch | IB | dispatch | ALU0 | WB | C |  |  |  |  |  |
+| `add x10, x1, x2` · Stored Ready at dispatch·G0 | IB | dispatch | ALU0 | WB | C |  |  |  |  |  |
+| `add x11, x3, x4` · Stored Ready at dispatch·G1 | IB | dispatch | ALU1 | WB | C |  |  |  |  |  |
 | `add x20, x10, x11` - Dependent-G0 |  |  |  |  | IB | dispatch | ISQ Wait | ALU0 | WB | C |
 
+- **T1 (Two producers, different groups, required):** the two `add`s share the T1 enqueue cycle, so they must be routed to different groups — the ISQ holds one entry per group and `dispatch_logic` cannot accept two same-group dispatches in one cycle. They are therefore drawn as `·G0` on `ALU0` and `·G1` on `ALU1`.
 - **T6 (Resident entry):** the dependent has already dispatched into its group-local ISQ and carries stored ready data and/or `wait_tag`s.
 - **T8 (P2 MUX source-ready):** both operands come from already valid `entry.rs_data`; no current-cycle forwarding source is required.
 - **T8 (Issue rule):** if the selected FU is free, the resident entry issues through the P2 FU-input MUX in this cycle; otherwise matched forwarding data is latched and becomes `Stored Ready` for retry.
