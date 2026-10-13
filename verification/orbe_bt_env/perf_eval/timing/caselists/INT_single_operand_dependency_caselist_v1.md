@@ -188,22 +188,127 @@ add x6, x5, x3
 
 | Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|
-| `JALR_to_ALU_delta_0` | — | — | — | **not yet constructed**; delta 0 needs the same-cycle dual dispatch that also blocks every other family's delta-0 row (see the note below) |
+| `ALU_to_ALU_delta_0` | G0 → G1 | `add x5, x1, x2 -> add x6, x5, x3` | 0 | `overlay`; slot0 producer ALU claims G0 first and slot1 dependent ALU routes to G1 in the post-slot0 view. |
+| `ALU_to_ALU_delta_1` | G0 → G0 | `sub x5, x3, x4 -> add x6, x5, x7` | 1 | `wait_for_p3` |
+| `ALU_to_ALU_delta_2` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 3 | `p3_capture` |
+| `ALU_to_ALU_delta_3` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 5 | `p4_capture` |
+| `ALU_to_ALU_delta_4` | G0 → G0 | `add x5, x1, x2 -> add x6, x5, x3` | 7 | `arf_read` |
+
+## MUL_to_ALU
+
+Representative:
+
+```asm
+mul x5, x1, x2
+add x6, x5, x3
+```
+
+| Case | G | Instructions | Fillers after each | Behavior |
+|:---|:---|:---|:---|:---|
+| `MUL_to_ALU_delta_0` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `0 exit-first` | `overlay`; producer MUL targets G1 and dependent ALU can route to G0. |
+| `MUL_to_ALU_delta_1` | G1 → G0 | `mul x5, x3, x4 -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `MUL_to_ALU_delta_2` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `1ld+2fp` | `wait_for_p3` |
+| `MUL_to_ALU_delta_3` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `0ld+3fp` | `wait_for_p3` |
+| `MUL_to_ALU_delta_4` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `1ld+3fp` | `p3_capture` |
+| `MUL_to_ALU_delta_5` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `0ld+4fp` | `p4_capture` |
+| `MUL_to_ALU_delta_6` | G1 → G0 | `mul x5, x1, x2 -> add x6, x5, x3` | `1ld+4fp` | `arf_read` |
+
+## DIV_to_ALU
+
+Representative:
+
+```asm
+div x5, x1, x2
+add x6, x5, x3
+```
+
+| Case | G | Instructions | Fillers after each | Behavior |
+|:---|:---|:---|:---|:---|
+| `DIV_to_ALU_delta_0` | G0 → G1 | `div x5, x1, x2 -> add x6, x5, x3` | `0 exit-first` | `overlay`; producer DIV targets G0 and dependent ALU can route to G1. |
+| `DIV_to_ALU_delta_1` | G0 → G0 | `div x5, x3, x4 -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `DIV_to_ALU_delta_2` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 3 | `wait_for_p3` |
+| `DIV_to_ALU_delta_3` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | 5 | `wait_for_p3` |
+| `DIV_to_ALU_delta_4` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `1ld+3fp` | `wait_for_p3` |
+| `DIV_to_ALU_delta_5` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `0ld+4fp` | `p3_capture` |
+| `DIV_to_ALU_delta_6` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `1ld+4fp` | `p4_capture` |
+| `DIV_to_ALU_delta_7` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `2ld+4fp` | `arf_read` |
+
+## LOAD_to_ALU
+
+Representative:
+
+```asm
+ld x5, 0(x1)
+add x6, x5, x3
+```
+
+Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates).
+
+| Case | G | Instructions | Fillers after each | Behavior |
+|:---|:---|:---|:---|:---|
+| `LOAD_to_ALU_delta_0` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 0 | `overlay`; producer LOAD targets G3 and dependent ALU can route to G0/G1. |
+| `LOAD_to_ALU_delta_1` | G3 → G0 | `lw x5, 8(x2) -> add x7, x5, x8` | 1 | `wait_for_p3` |
+| `LOAD_to_ALU_delta_2` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 3 | `wait_for_p3` |
+| `LOAD_to_ALU_delta_3` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 5 | `wait_for_p3` |
+| `LOAD_to_ALU_delta_4` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 7 | `p3_capture` |
+| `LOAD_to_ALU_delta_5` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 9 | `p4_capture` |
+| `LOAD_to_ALU_delta_6` | G3 → G0 | `ld x5, 0(x1) -> add x6, x5, x3` | 11 | `arf_read` |
+
+## JALR_to_ALU
+
+Representative (the warm-up is part of the case):
+
+```asm
+    la   x11, JT
+    li   x12, 2
+LOOP:
+    mv   x10, x11
+    jalr x5, 0(x10)
+JT:
+    addi x12, x12, -1
+    bne  x12, x0, LOOP
+    add  x6, x5, x3
+```
+
+**Precondition: the same-PC JALR must already have executed once.** A JALR is always taken, so
+`fu/alu_simple.sv`'s mispredict expression reduces to "the FE must have predicted taken to the
+exact target", and the FE's `l1btb.sv`, the only branch predictor, is indexed by PC — so only a
+previous execution of the *same* JALR populates the entry. Measured on `rtl_full`: the first
+execution reports `mispredict=1` and redirects, the second reports `mispredict=0` with no redirect,
+and the link value then travels the bypass normally. The case therefore loops the JALR once and
+measures the second execution.
+
+**Why an earlier baseline could not build this.** Under `--dut-kind rtl_v1` the FE is `fe_agent`,
+which hardwires `pred_taken = 0`; every taken control transfer then mispredicts, flushes, and
+cancels any consumer inside the link's visibility window, which is why the family was withdrawn.
+The base DUT is now `rtl_full`, whose FE does predict, so the family is restored.
+
+`L = 1` is the link value (`PC + 4`), and `rd` is the first operand — see the operand note above.
+
+| Case | G | Instructions | Fillers after each | Behavior |
+|:---|:---|:---|:---|:---|
+| `JALR_to_ALU_delta_0` | — | — | — | **not yet constructed**; delta 0 needs same-cycle dual dispatch, which the injection method makes first-class |
 | `JALR_to_ALU_delta_1` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `0fp` | `wait_for_p3` |
 | `JALR_to_ALU_delta_2` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `2fp` | `p3_capture` |
 | `JALR_to_ALU_delta_3` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `3ld` | `p4_capture` |
 | `JALR_to_ALU_delta_4` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `3fp` | `arf_read` |
 
 Counts are measured recipes, not the `2g - 1` value: `Nfp` is `N` `fadd.s` on lane 2 and `Nld` is
-`N` loads on lane 3, both of which keep off the JALR's own lane 0. Both `fadd.s` and `ld` advance
-the stream about two cycles each, so no single filler type reaches every delta; `fp` covers 1, 2 and
-4, `ld` covers 1, 3 and 4.
+`N` loads on lane 3, both of which keep off the JALR's own lane 0. Neither reaches every delta on
+its own, so the recipes mix them: `fp` covers 1, 2 and 4, `ld` covers 1, 3 and 4.
 
-**Delta 0 is not constructible so far, and that is not specific to this family.** Sweeping the
-complete DUT, the smallest reachable delta is 1 for JALR and 6 for the `MUL`/`DIV` delta-0 rows,
-which is the same thing seen from a different starting point: a delta of 0 means the producer and
-the dependent dispatch in the same cycle, and that has not been observed on the real front end. The
-row stays unconstructed until that question is settled for the whole case set.
+**Why this family is kept although its producer latency equals the ALU's.** The JALR is not here to
+add a new dependency mechanism — with a correct prediction it is an ordinary one-cycle producer on
+G0/lane 0, and its ladder and capture mechanisms are the ALU's. It is kept for **execution-resource
+coverage**: `top/backend_top.sv:1215` instantiates `u_alu0_bru`, i.e. the BRU shares ALU0's FU
+("G0 : ALU0/BRU, CSR, DIV"), so the BRU is a resource whose timing must be observed with a BRU
+instruction. Ruling from the case-set owner, recorded rather than re-derived.
+
+**Prerequisite for the producer to be usable at all**: `fu/alu_simple.sv` makes a JALR mispredict
+unless `pred_taken = 1` **and** `pred_target_pc` equals `(rs1 + imm) & ~1` bit for bit. Under
+`fe_agent` predictions are hardwired to zero, so every JALR flushed; the injection method supplies
+the two fields as stimulus, which makes the precondition constructible instead of something to be
+lucky with.
 
 ## Notes
 
