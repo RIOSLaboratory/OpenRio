@@ -526,28 +526,27 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 **Dimension:** INT single-operand dependency | **Equiv:** ALU_to_ALU
 **Description:** The producer writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so its result stays in the P3 Buffer. The dependent therefore finds no Commit CDB at its nominal P1 and must stall instead of capturing from P4.
 
-| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x7, x1, x2` - Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |
-| `add x5, x1, x2` - Producer·G1 | IB | dispatch | ALU1 | WB | C |  |  |  |
-| `add x6, x5, x3` - Dependent-G1 |  |  |  | IB | dispatch | ALU1 | WB | C |
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `div x7, x1, x2` - Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
+| `add x5, x1, x2` - Producer·G1 |  | IB | dispatch | ALU1 | WB | C |  |  |  |
+| `add x6, x5, x3` - Dependent·G1 |  |  |  |  | IB | dispatch | ALU1 | WB | C |
 
-- **T1 (Blocker and producer enqueued together):** the older `div x7, x1, x2` is routed to G0 and the producer to the
-  other ALU group, so the two take separate ISQ entries. The blocker is listed first so it lands in slot 0,
-  which is what forces the flexible producer off G0.
-- **Producer WB (on schedule):** the producer's result enters the P3 Buffer in the same cycle as the nominal
-  figure. This is the point of the construction — the writeback is *not* delayed, only the commit is.
-- **Nominal P4 (Commit CDB expected, does not appear):** the older `div x7, x1, x2` has not retired, and retirement is
-  in order while writeback is not, so the producer stays in the Buffer. No Commit CDB is presented and a
-  P4 → P1 capture is impossible in that cycle.
-- **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
-  (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
-  uses are the measured quantities, not predictions.
-- **Check on the run:** the producer's `P3 − P2` must still equal `L` (writeback untroubled) while its
-  `P4 − P3` must be greater than 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the
-  case did not reproduce the target state — report it rather than pass it.
-
-
+- **T1 (Blocker, one cycle ahead of the producer):** the older `div x7, x1, x2` is enqueued alone and routed
+  to G0. Putting it one cycle earlier rather than beside the producer is not cosmetic: when both G0 and G1
+  are taken in the producer's own enqueue cycle, the dependent's dispatch can only land on the cycles where
+  its group's ISQ entry frees, and the delta quantises to 2 or 6 — 3 is unreachable. With the blocker ahead
+  of it the producer and dependent share G1 and the dependent's dispatch is free to land on 3.
+- **Producer WB at T4, on schedule:** the result enters the P3 Buffer in the nominal cycle. The writeback is
+  not delayed; only the commit is.
+- **T5 (Nominal P4 — no Commit CDB):** the older `div`, issued at T3 with L=4, retires no earlier than T8,
+  and retirement is in order while writeback is not. The producer therefore sits in the Buffer, `P4 − P3`
+  is greater than 1, and the dependent's P1 finds nothing to capture.
+- **Expected deviation (the measured quantity):** the dependent stalls (Condition A) instead of capturing
+  from P4, and resolves only after the producer retires.
+- **Check on the run:** the producer's `P3 − P2` must equal `L` (writeback untroubled) while its `P4 − P3`
+  exceeds 1 (commit held). If `P4 − P3` is 1 the blocker retired in time and the case missed its target
+  state — report that rather than passing it.
 ## Case 34: MUL_to_ALU_delta_5_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** MUL_to_ALU

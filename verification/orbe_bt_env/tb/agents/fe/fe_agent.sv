@@ -340,10 +340,10 @@ class fe_agent;
     idx = 0; t = 1; drain = -1; injected = 0; abs_c = 0;
     cfg.print_fe(1, "[FE][STIM] start: table cycles are relative to the first offer");
     while (1) begin
-      @(posedge vif.clk);
       abs_c++;
       if (vif.rst_n !== 1'b1) begin
         drive_idle(); t = 1; idx = 0; injected = 0; drain = -1; abs_c = 0;
+        @(posedge vif.clk);
         continue;
       end
       drive_idle();
