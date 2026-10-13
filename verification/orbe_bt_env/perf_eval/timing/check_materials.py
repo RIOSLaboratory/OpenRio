@@ -69,6 +69,20 @@ check(len(t2) == EXPECT_TWO_TOTAL, "caselist 条数 %d == %d" % (len(t2), EXPECT
 check(t2 == d2, "Case 名逐条一致" if t2 == d2
       else "差异: %s" % sorted(set(t2) ^ set(d2))[:6])
 
+
+
+# ---- IB 激励法文档：小节完整性（曾被一次错误的字符串区间整节删除）----
+IB_DOC = HERE.parent / "IB_STIMULUS_METHOD.md"
+REQUIRED = ["## 7. 核实记录", "## 8. 派发侧契约", "## 9. 实施规格",
+            "### 9.1 激励表格式", "### 9.2 终止条件", "### 9.3 非侵入性验收试验",
+            "### 9.4 对现有材料的改动清单", "### 9.5 JALR / BRU", "### 9.6 形态决定",
+            "### 9.7 从 diagram 直接生成激励表"]
+print("== IB_STIMULUS_METHOD.md 小节完整性 ==")
+doc = IB_DOC.read_text(encoding="utf-8")
+missing = [h for h in REQUIRED if h not in doc]
+check(not missing, "必需小节齐全" if not missing else "缺失: %s" % missing)
+check(len(doc.split("\n")) > 400, "文档行数 %d > 400" % len(doc.split("\n")))
+
 print()
 if fails:
     print("材料自检未通过：%d 项" % len(fails))
