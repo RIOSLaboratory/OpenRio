@@ -30,7 +30,8 @@ caselist(.md)  ──gen_cases──▶  .S  ──gcc+link.ld──▶  .elf
 - **基准本身还是 draft**：两份 caselist 都写着
   `Normative timing sources: pending promotion to spec/or-be/`。
   因此本方法的结论形式是 **"RTL vs draft 预测"**，不是 "RTL vs 已冻结规范"。
-- **基准 DUT 用 `rtl_full`**（BE RTL + OR_FE RTL + OR_Cache RTL，不含任何 agent）。理由见 §5。
+- **阶段 1 判定 DUT 用 `rtl_v1`**（BE RTL + FE agent + cache agent）：本阶段的被测对象是 **BE 的
+  bypass / 时序机制**，LOAD 在其中的角色只是"提供一个 latency 拍数"，不需要真 Cache。理由见 §5。
 - **必须人工判定**，不是流程缺陷：caselist 的 `behavior` 标签描述的是微架构机制
   （bypass 捕获 / commit CDB 捕获 / ARF 读取），脚本无法可靠推断；口径差异和
   不符项的归因都需要人来判断。
@@ -125,42 +126,49 @@ export PATH=/opt/riscv/bin:$PATH        # 或显式设 OBJDUMP=
 export ISA_MODEL_ROOT=<isa model 目录>
 ```
 
-## 5. 基准 DUT：`rtl_full`（FE + BE + Cache 完全体）
+## 5. 阶段 1 的判定 DUT：`rtl_v1`（BE RTL + FE agent + cache agent）
 
-caselist 的预测量是 **BE 内部量**（P1 派发、P3 bypass、P4 commit CDB、ARF 读取），但被测对象是
-**整机时序**：取指节奏、redirect、ICache/BTB、以及 LOAD 的真实 Cache 行为都会影响这些拍号。
+本阶段问的是 **BE 的 bypass 网络与时序机制是否符合预测**。被测对象是 BE；FE 与 Cache 在其中
+扮演的角色是**提供两个输入**：
 
-**所以基准 DUT 是 `rtl_full`**：`cfg/filelist/rtl_full.f` = `rtl_fe.f` + `cache_rtl.f`，
-即 BE RTL + OR_FE RTL + OR_Cache RTL，**不含任何 agent**。一批 case 用完全体一次跑完，
-**中途不换 DUT**（§5.1 的历史理由见下）。
+- **FE agent 提供取指节奏与指令身份**。注入形态（`IB_STIMULUS_METHOD.md`）下，指令的 pc、
+  编码与预测字段（`pred_taken` / `pred_target_pc`）**全部取自激励表**，所以 `fe_agent`
+  硬编码 `pred_taken = 0` 这件事**不影响本阶段** —— 预测值是我们喂进去的，不是 agent 的默认值。
+- **cache agent 提供 LOAD 的延迟拍数**。对 BE 而言，LOAD 就是一个"延迟 N 拍后在 G3 上写回"的源；
+  BE 的 bypass 行为不关心这 N 拍是命中、缺失还是模型给的常数。**因此不需要接真 Cache RTL。**
 
-`agent` / `rtl_v1` / `rtl_fe` / `rtl_cache` 保留为**隔离与诊断**用途 —— 例如把某个现象单独
-归因到 FE 或 Cache —— **不作为符合性判定的依据**。
+**所以阶段 1 的判定 DUT 是 `rtl_v1`。**`rtl_cache` / `rtl_full` 不作为本阶段的判定依据。
 
-### 5.1 历史：曾以 `rtl_v1` 为主 DUT
+> **但 agent 的延迟参数是"输入"，必须可溯源。** 按 §9.7，拍数类事实不得凭文档措辞或凭手感设定：
+> 本套件用的 `LOAD = 3` 是 **Cache HAS 记载的命中延迟**，并由 `rtl_full` 上的 latency bench
+> **独立实测确认**（`latency_bench/Latency_Report.md`）。任何对 agent 参数的修改都要走同样的溯源。
 
-早期把主 DUT 定为 `rtl_v1`（BE RTL + FE agent + cache agent），理由是"隔离噪声、可控、
-可复现"；只把 latency 标定划给 `rtl_full`，因为 `cache_agent` 是**行为模型**，
-拿它测 LOAD 延迟是**循环论证**。
+### 5.1 DUT 无关性抽查（本次实测，作为交叉验证）
 
-**该划分已废弃**，统一为 `rtl_full`。原因：
+把整批用例换到 `rtl_cache`（BE RTL + **真 OR_Cache RTL** + FE agent）重跑一遍：
 
-1. 判定的对象是**交付的整机**，不是 BE 的孤立行为 —— 用 agent 顶替 FE 或 Cache，
-   等于把被测对象的一部分换成了模型；
-2. agent 顶替会**改变结论**，不只是噪声：`fe_agent` 硬编码 `pred_taken = 0`，
-   于是**每一个 taken 的控制转移都必然误预测并触发 flush**（JALR 一族因此完全测不到）；
-   真 FE 有 `l1btb.sv`（其头注释自称 "the only branch predictor"）会给出 taken/目标预测；
-3. LOAD 的 P3 发布时刻由 Cache 决定，agent 与真 Cache 不同，故 LOAD 的 delta 也必须在
-   完全体上判定。
+| 观察 | 结果 |
+|---|---|
+| 不含 LOAD 的用例 | **逐条与 `rtl_v1` 一致**（BE 侧行为与 D 侧用什么实现无关）|
+| 含 LOAD 的用例 | 在 `rtl_cache` 上写回间隔为 **15 拍**（冷路径：注入形态下地址来自 setup 寄存器，D-Cache 与 DTLB 均未触碰，`[CACHE_EQUIV] excp=0` 表明不是故障）|
+| 结论 | `rtl_v1` 与真 Cache 的差异**只出现在 LOAD 的延迟数值**上，而该数值正是我们希望用 agent 固定住的那个"输入" |
+
+这次抽查同时澄清了此前的困惑：**3 拍是命中延迟，15 拍是冷缺失**。两者并不矛盾，
+本阶段按 §9.7 选择**命中延迟**作为 LOAD 的延迟输入（与 caselist 预测的口径一致）。
+
+### 5.2 `rtl_full` / `rtl_cache` 的适用场景
 
 | 活动 | DUT |
 |---|---|
-| delta / 机制**符合性判定** | **`rtl_full`** |
-| latency **标定** | **`rtl_full`** |
+| 阶段 1：delta / 机制**符合性判定** | **`rtl_v1`** |
+| 阶段 1：DUT 无关性抽查、参数交叉确认 | `rtl_cache`（D 侧）+ `rtl_full`（端到端） |
+| 阶段 2：端到端性能（IPC、总 cycle、flush 次数） | `rtl_full` |
 | 隔离诊断（把现象归因到 FE / Cache / BE） | `rtl_v1` / `rtl_fe` / `rtl_cache` / `agent` |
 
-> `cache_agent` 只保证 load data 功能正确返回，**不是性能依据**；`fe_agent` 不做任何预测。
-> 两者都不得作为判定依据。
+> 历史说明：曾一度把阶段 1 的判定改到 `rtl_full`，理由是"判定的对象是交付的整机"。
+> 该理由对**阶段 2（端到端）**成立，但对阶段 1 不成立 —— 阶段 1 的被测量是 BE 内部量，
+> 把 FE 与 Cache 换成真 RTL 只会**引入与被测机制无关的变量**（真 Cache 的冷/热、真 FE 的
+> 预测与取指抖动）。裁决：阶段 1 回到 `rtl_v1`，用 agent 提供那两个输入。
 
 ## 6. 流程总览
 
@@ -448,9 +456,9 @@ case 若没有 `tohost` 写入 + `wfi`，ISA model 不会请求退出 → 仿真
 **不要用 `rtl_full` 做阶段 1 的 delta 判定**：micro-case 依赖受控的派发 cycle，
 而真实 FE 的取指节奏会把它搅乱（§9.3）。
 
-> ⚠️ **这条只管 delta 判定。latency 标定反而必须用 `rtl_full`**（见 §5.1）：
-> `rtl_v1` 后面接的是 `cache_agent`，LOAD 的返回时刻由 agent 自己的参数决定，
-> 拿它标定 LOAD 延迟是循环论证。
+> ⚠️ **这条只管符合性判定。latency 的"标定"（即决定 agent 该用哪个延迟值）不能靠 `rtl_v1`**：
+> 它后面接的是 `cache_agent`，LOAD 的返回时刻由 agent 自己的参数决定，拿它标定 LOAD 延迟是循环论证。
+> 标定要用 `rtl_full` 上的 latency bench，结果再作为**输入**写进 agent 的配置（§5 的溯源要求）。
 
 ## 11. 当前状态
 
