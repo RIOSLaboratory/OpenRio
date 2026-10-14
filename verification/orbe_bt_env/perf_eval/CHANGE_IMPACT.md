@@ -111,15 +111,15 @@ K-map 内的阶段引用只有这几种：
 
 ## 3. 计划的改法
 
-| # | 对象 | 改什么 | 理由 |
-|---|---|---|---|
-| 1 | `diagrams/INT_single_operand_*.md` | 在每例散文里显式写出 **ISQ 驻留 = P2**（补阶段名标注 `RS0` → `RS0 [P2]`）。⛔ **槽位变更分两类**（2026-10 修订，原"只允许改标签"已作废）：**① 参数驱动的机械重算 ✅ 允许** —— `L` 按实测更新后按 `WB@T(3+L)` 重画全表；**② 为对齐某次仿真结果而单独平移槽位 ⛔ 禁止**。判据见 `timing/REVISION_PLAN.md` §5.2 / §9⑤ | 现在只写 "waits resident in ISQ"，没给阶段号；`wait_for_p3` 因此没有阶段归属。**原"不得改 T 槽位"作废的原因**：`L` 恰好编码在 T 列里（`WB@T(3+L)`），按字面执行则任何 `L` 更新都做不了；而"改预测去迎合 RTL"这个目的由**②**继续挡住 |
-| 2 | `diagrams/*.md` 头部 | 补一节「阶段对照表」：`IB/RSx/SL/WB/C` ↔ `P0..P4` | 读者不必再猜（我自己就猜错过） |
-| 3 | `caselists/*.md` 头部 | 在 `Normative timing sources` 处补上 golden 锚点（OpenRio commit SHA） | 现在写的是 `pending promotion to spec/or-be/`，无法追溯 |
-| 4 | `diagrams/*.md` + `caselists/*.md` 的**数值** | 以**仿真实测**比对 diagram 的逐拍时间线（主）与 caselist 阈值表（交叉校验）；不一致时由**材料所有者**判定是否修订，**不得由 RTL 反推** | 唯一真正的实质风险 |
-| 5 | `caselists/*.md` 阈值表 + 各家族 case 数 | 改成 **L 参数化**（§4.2）：`P3=L+1` / `P4=L+2` / `ARF=L+3`，枚举 `0..L+3`。**`L` 变则 case 数变，需增删 case** | 8 月写死的是**公司内部算子**的值，对我们的外网 FU 无约束力 |
-| 6 | 各 FU 的 `L` | 用同事的 latency ELF **实测**（`issue_valid → result_valid`），逐个 FU 填；**LOAD 见 §4.6** | 取代 §4.2 的幻数；这是唯一能定的方式 |
-| 7 | K-maps ×3 | **不动** | §2.3 |
+| # | 对象 | 改什么 | 理由 | 状态 |
+|---|---|---|---|---|
+| 1 | `diagrams/INT_single_operand_*.md` | 在每例散文里显式写出 **ISQ 驻留 = P2**（补阶段名标注 `RS0` → `RS0 [P2]`）。⛔ **槽位变更分两类**（2026-10 修订，原"只允许改标签"已作废）：**① 参数驱动的机械重算 ✅ 允许** —— `L` 按实测更新后按 `WB@T(3+L)` 重画全表；**② 为对齐某次仿真结果而单独平移槽位 ⛔ 禁止**。判据见 `timing/REVISION_PLAN.md` §5.2 / §9⑤ | 现在只写 "waits resident in ISQ"，没给阶段号；`wait_for_p3` 因此没有阶段归属。**原"不得改 T 槽位"作废的原因**：`L` 恰好编码在 T 列里（`WB@T(3+L)`），按字面执行则任何 `L` 更新都做不了；而"改预测去迎合 RTL"这个目的由**②**继续挡住 | **已完成，但落法不同**：阶段归属靠**列名统一**落实（`RS0..RS3` → `dispatch`、删掉 `SL`、FU 名直接写 `MUL MUL MUL`），而不是给每格加 `[P2]` 后缀。两类槽位变更规则仍然有效 |
+| 2 | `diagrams/*.md` 头部 | 补一节「阶段对照表」：`IB/RSx/SL/WB/C` ↔ `P0..P4` | 读者不必再猜（我自己就猜错过） | **已完成**：两张图都有 `## Stage mapping` 表 |
+| 3 | `caselists/*.md` 头部 | 在 `Normative timing sources` 处补上 golden 锚点（OpenRio commit SHA） | 现在写的是 `pending promotion to spec/or-be/`，无法追溯 | **已完成**：caselist 头部已写 golden 锚点（OpenRio commit SHA） |
+| 4 | `diagrams/*.md` + `caselists/*.md` 的**数值** | 以**仿真实测**比对 diagram 的逐拍时间线（主）与 caselist 阈值表（交叉校验）；不一致时由**材料所有者**判定是否修订，**不得由 RTL 反推** | 唯一真正的实质风险 | **已完成并已自动化**：`timing/run_all.py` 一条命令产出对照表（`CONFORMANCE_<tag>_<dut>.md`） |
+| 5 | `caselists/*.md` 阈值表 + 各家族 case 数 | 改成 **L 参数化**（§4.2）：`P3=L+1` / `P4=L+2` / `ARF=L+3`，枚举 `0..L+3`。**`L` 变则 case 数变，需增删 case** | 8 月写死的是**公司内部算子**的值，对我们的外网 FU 无约束力 | **已完成**：§4.2 为 L 参数化表；各家族 case 数已按实测 `L` 重算（单 37 + 两 31） |
+| 6 | 各 FU 的 `L` | 用同事的 latency ELF **实测**（`issue_valid → result_valid`），逐个 FU 填；**LOAD 见 §4.6** | 取代 §4.2 的幻数；这是唯一能定的方式 | **已完成**：`L` 已实测（ALU 1 / MUL 3 / DIV 4 / LOAD 3；JALR link 1、redirect 2），L 的**唯一来源**是 `timing/latency_table.py`；**不再用**同事的 latency ELF（改用注入形态自测） |
+| 7 | K-maps ×3 | **不动** | §2.3 | **保持**：K-maps 未动（由材料所有者另行处理） |
 
 ---
 
@@ -291,13 +291,13 @@ K-map 内的阶段引用只有这几种：
 
 | # | 事项 | 状态 |
 |---|---|---|
-| 1 | 用**观测面**测 G3 的 `isq_g3_issue_valid` → lane-3 写回事件的拍差，应得 **3**；同法测 ALU（应得 1）、MUL（应得 3）作方法自检 | ⏳ |
-| 2 | ⛔ **不要用 latency ELF 报的"latency"数字来定 `L`** —— 该数字**自带口径**，而 ALU / MUL 恰好"占用 = 拍差"，**根本标定不出它用的是哪一种** | 规矩 |
-| 3 | latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」 | ⏳ |
-| 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7 | ✅ **已做**（作者复核后定稿：`3 拍` 为**下界**，前提是条目成为 CDB head） |
-| 5 | ~~修正 cache agent 的 load done 时刻~~ → **作者确认不需要改**（agent 只保证行为正确性，不承担性能） | ✅ **已回退** |
-| 6 | 测量时**规避 G0 / G1 的 lane 仲裁** —— 否则 `L` 会被量成"真值 + 仲裁等待" | 规矩（见下） |
-| 7 | ~~静态推算 DIV 的 `L = 4`，待实测确认~~ → **实测确认为 4**，caselist 已改为 8 条 | ✅ **已闭环** |
+| 1 | 用**观测面**测 G3 的 `isq_g3_issue_valid` → lane-3 写回事件的拍差，应得 **3**；同法测 ALU（应得 1）、MUL（应得 3）作方法自检 | ⏳ | **已完成，但落法不同**：阶段归属靠**列名统一**落实（`RS0..RS3` → `dispatch`、删掉 `SL`、FU 名直接写 `MUL MUL MUL`），而不是给每格加 `[P2]` 后缀。两类槽位变更规则仍然有效 |
+| 2 | ⛔ **不要用 latency ELF 报的"latency"数字来定 `L`** —— 该数字**自带口径**，而 ALU / MUL 恰好"占用 = 拍差"，**根本标定不出它用的是哪一种** | 规矩 | **已完成**：两张图都有 `## Stage mapping` 表 |
+| 3 | latency ELF 的真正用途：确认「不考虑 cache miss 时 `L` 是**常量**而非变量」 | ⏳ | **已完成**：caselist 头部已写 golden 锚点（OpenRio commit SHA） |
+| 4 | 修正 Cache HAS 的 3.1 / 3.2 / 6.7 | ✅ **已做**（作者复核后定稿：`3 拍` 为**下界**，前提是条目成为 CDB head） | **已完成并已自动化**：`timing/run_all.py` 一条命令产出对照表（`CONFORMANCE_<tag>_<dut>.md`） |
+| 5 | ~~修正 cache agent 的 load done 时刻~~ → **作者确认不需要改**（agent 只保证行为正确性，不承担性能） | ✅ **已回退** | **已完成**：§4.2 为 L 参数化表；各家族 case 数已按实测 `L` 重算（单 37 + 两 31） |
+| 6 | 测量时**规避 G0 / G1 的 lane 仲裁** —— 否则 `L` 会被量成"真值 + 仲裁等待" | 规矩（见下） | **已完成**：`L` 已实测（ALU 1 / MUL 3 / DIV 4 / LOAD 3；JALR link 1、redirect 2），L 的**唯一来源**是 `timing/latency_table.py`；**不再用**同事的 latency ELF（改用注入形态自测） |
+| 7 | ~~静态推算 DIV 的 `L = 4`，待实测确认~~ → **实测确认为 4**，caselist 已改为 8 条 | ✅ **已闭环** | **保持**：K-maps 未动（由材料所有者另行处理） |
 | 8 | 测 LOAD 时**规避 CDB FIFO 的呈现排队** —— 否则 `L` 会被量成"3 + 排队等待" | 规矩（见下） |
 
 #### DIV 的 `L = 4`：静态推算 → **实测确认**（已改参数）
@@ -399,7 +399,7 @@ Cache HAS `V1.0 rev.1` 把 load 延迟写成**下界**：
 > **教训**：这一处我和用户来回争了多轮，**根因是一直在拿 HAS 的散文推数字**。
 > 上述结论只有一条依据 —— **读 RTL**。已把这条写进 `METHOD.md` §9.7。
 
-**产出**：一张「**diagram 预期 vs 仿真实测**」对照表 → 明确哪些家族可原样保留、哪些需要由材料所有者修订。
+**产出（已完成）**：「**diagram 预期 vs 仿真实测**」对照表由 `timing/run_all.py` 自动生成，落在 `perf_eval_work/results/CONFORMANCE_<tag>_<dut>.md`（含按家族汇总、逐条预期/实测并排、结构性发现清单、推迟条目）。当前结果：**68 条用例，通过 67、推迟 1、未通过 0**；其中 `DIV_to_ALU_delta_6_p4blocked` 按材料所有者口径标注为**推迟**（当前 latency 不支持构造，等未来替换内网算子后再更新）。
 
 ### 4.7 旁路路径：预期**有 RTL 依据**（不写进 diagram）
 

@@ -292,7 +292,7 @@ The base DUT is now `rtl_full`, whose FE does predict, so the family is restored
 | Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|
 | `JALR_to_ALU_delta_0` | — | — | — | **not yet constructed**; delta 0 needs same-cycle dual dispatch, which the injection method makes first-class |
-| `JALR_to_ALU_delta_1` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `0fp` | `wait_for_p3` |
+| `JALR_to_ALU_delta_1` | G0 -> G0 | `jalr x5, 0(x10) -> add x7, x5, x8` | `0fp` | `wait_for_p3` |
 | `JALR_to_ALU_delta_2` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `2fp` | `p3_capture` |
 | `JALR_to_ALU_delta_3` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `3ld` | `p4_capture` |
 | `JALR_to_ALU_delta_4` | G0 -> G0 | `jalr x5, 0(x10); add x6, x5, x3` | `3fp` | `arf_read` |

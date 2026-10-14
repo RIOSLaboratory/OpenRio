@@ -100,7 +100,11 @@ def main():
         if r.returncode != 0:
             print("生成失败，中止")
             return 2
-        subprocess.run([sys.executable, str(HERE / "check_materials.py")], check=False)
+        for chk in ("check_materials.py", "check_recipes.py"):
+            r = subprocess.run([sys.executable, str(HERE / chk)], capture_output=True, text=True)
+            if r.returncode != 0:
+                print("  [%s] 未通过：" % chk)
+                print("\n".join("    " + l for l in r.stdout.strip().split("\n")[-6:]))
 
     cases = sorted(p.stem for p in C.SRC.glob("*.tsv"))
     if o["cases"]:
