@@ -139,6 +139,7 @@ def main():
     outdir = WORK / "stimulus"
     outdir.mkdir(parents=True, exist_ok=True)
     total = bad = asm_bad = 0
+    want_ids = set()
     for f in files:
         print("=== %s ===" % f.name)
         for num, cid, mech, header, rows in parse_diagram(f):
@@ -206,6 +207,19 @@ def main():
                              % (e["cyc"], e["lane"], BASE_PC + 4 * i, hexs, pt, ptg, e["instr"],
                                 "" if not e["role"] else "  [%s %s]" % (e["role"], e["grp"])))
             (outdir / (cid + ".tsv")).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            want_ids.add(cid)
+    # 陈旧产物清理：用例改名后，旧名字的表会留在运行集里，导致"多跑一条"
+    # （实测踩过：改名后跑出 69 条，其中一条是改名前的旧内容）。移到 stimulus_stale/ 备查。
+    stale_dir = outdir.parent / "stimulus_stale"
+    stale_dir.mkdir(parents=True, exist_ok=True)
+    extras = sorted({q.stem for q in outdir.glob("*.tsv")} - want_ids)
+    for cid in extras:
+        (outdir / (cid + ".tsv")).replace(stale_dir / (cid + ".tsv"))
+    if extras:
+        print("已移出陈旧产物 %d 个（改名前的旧表）：%s" % (len(extras), ", ".join(extras)))
+    missing = sorted(want_ids - {q.stem for q in outdir.glob("*.tsv")})
+    if missing:
+        print("警告：图纸里有但运行集里没有：%s" % ", ".join(missing))
     print()
     print("生成 %d 个激励表到 %s（时序自检未通过 %d 个；汇编问题 %d 个）"
           % (total, outdir, bad, asm_bad))
