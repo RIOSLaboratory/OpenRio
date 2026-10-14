@@ -5,7 +5,6 @@
 | Revision | Change Note | Author | Date |
 |---|---|---|---|
 | V1.0 | Initial version (corresponding to architecture spec v5 / RTL R3) | OR_Cache team | 2026/09/29 |
-| V1.0 rev.1 | Clarified load completion timing. 3.1 and 3.2 previously said a direct load hit returns in two cycles, which contradicted 6.7 and the RTL: the two-cycle figure (`LSU_LOAD_PIPE_STAGES`) covers only the AGU and D-cache cycles, while the **earliest BE-visible** latency is **three** cycles (four when ISB / WB merging is needed). `dc_ld_arb` forms the entry combinationally in E3; `dc_cdb` captures it at the clock edge immediately following E3, and only its head read is combinational. These earliest latencies require the entry to become the CDB head. Updated 6.7 and the cycle-count reference; no parameter value, interface or behaviour changed. | OR_Cache team (clarification requested by perf_eval) | 2026/10/09 |
 
 ## 2. Contents
 
