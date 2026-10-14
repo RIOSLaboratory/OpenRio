@@ -174,9 +174,12 @@ def judged(cid):
         tmp0.unlink(missing_ok=True)
         ok, note = two_operand(cid, rows, ev0)
         dd = ev0.get(dep[0]["pc"], {})
-        return dict(cid=cid, verdict="通过" if ok else "未通过", L="-",
-                    delta=dd.get("P2", 0) - dd.get("P1", 0) if "P1" in dd else "-",
-                    gap="-", p4p3="-", wait="-", mech="-", note=note)
+        # 两操作数/blocked 类**没有单一的 δ**（多源合成）。这里只报"依赖者是否在派发拍就绪"
+        # 对应的等待拍数，δ 一律留空，避免报告里把等待拍数误读成 δ。
+        return dict(cid=cid, verdict="通过" if ok else "未通过", L="-", delta="-",
+                    gap="-", p4p3="-",
+                    wait=(dd.get("P2", 0) - dd.get("P1", 0)) if "P1" in dd else "-",
+                    mech="-", note=note)
     if len(src) != 1 or len(dep) != 1:
         return dict(cid=cid, verdict="解析失败", note="producer=%d dep=%d" % (len(src), len(dep)))
     prod = src
