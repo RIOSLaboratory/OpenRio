@@ -23,6 +23,20 @@ DIAGRAMS = ROOT / "perf_eval/timing/diagrams"
 # 标题有两种形态：`## Case N: <id> (<mech>)` 与 `## Case N: <id>`
 CASE_RE = re.compile(r"^## Case (\d+): (\S+?)(?:\s+\(([^)]+)\))?\s*$", re.M)
 # 两种后缀格式都要认：`- Producer-G0` 与 `· P3 source·G1` => 组名统一取出现的 G<d>
+# 标签写法 -> 规范角色
+ROLE_MAP = [
+    (r"p3 bypass", "P3 source"),
+    (r"p4 commit", "P4 source"),
+    (r"p4 source", "P4 source"),
+    (r"p3 source", "P3 source"),
+    (r"arf source", "ARF source"),
+    (r"^\s*imm\b|·\s*imm", "IMM"),
+    (r"stored ready", "ISQ_STORED"),
+    (r"producer", "Producer"),
+    (r"dependent", "Dependent"),
+    (r"blocker", "Blocker"),
+]
+
 ROLE_RE = re.compile(r"(Producer|Dependent|Blocker|P3 source|P4 source|ARF source|IMM|"
                      r"ISQ_STORED)", re.I)
 GROUP_RE = re.compile(r"\bG([0-3])\b")
@@ -58,10 +72,13 @@ def instr_of(cell):
     if not m:
         return cell, "", ""
     text, rest = m.group(1).strip(), m.group(2)
+    # 图上有多种标签写法，统一映射成规范角色（顺序即优先级）
     role = ""
-    r = ROLE_RE.search(rest)
-    if r:
-        role = r.group(1)
+    low = rest.lower()
+    for pat, canon in ROLE_MAP:
+        if re.search(pat, low):
+            role = canon
+            break
     g = GROUP_RE.search(rest)
     grp = ("G" + g.group(1)) if g else ""
     return text, role, grp

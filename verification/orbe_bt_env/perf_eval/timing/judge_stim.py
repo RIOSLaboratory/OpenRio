@@ -70,17 +70,116 @@ def mnemonic_of(cid, pc):
 
 
 def roles(rows):
-    prod = [r for r in rows if r["role"].lower().startswith(("producer", "p4 source"))]
+    """通用解析：producer/源（有写回）、dependent、blocker。"""
+    src = [r for r in rows if r["role"].lower().startswith(
+        ("producer", "p3 source", "p4 source"))]
     dep = [r for r in rows if r["role"].lower().startswith("dependent")]
     blk = [r for r in rows if r["role"].lower().startswith("blocker")]
-    return prod, dep, blk
+    return src, dep, blk
+
+
+def fam_of(cid, pc):
+    return MN2FAM.get(mnemonic_of(cid, pc), "")
+
+
+def is_p2_mode(cid):
+    """P2 MUX 用例：源在依赖者已驻留之后到达（含 SAME_RD 的 P2 变体）。"""
+    return cid.startswith("INT2_P2_") or "_P2_" in cid
+
+
+def two_operand(cid, rows, ev):
+    """两操作数用例：按用例名 token 检查关系。返回 (ok, note)。"""
+    src, dep, blk = roles(rows)
+    if len(dep) != 1:
+        return False, "dependent 行数=%d" % len(dep)
+    d = ev.get(dep[0]["pc"], {})
+    if "P1" not in d:
+        return False, "dependent 无 P1"
+    notes, ok = [], True
+    # 1) 每个有写回的源：写回间隔 == 它自己的 L
+    for r in src + blk:
+        e = ev.get(r["pc"], {})
+        L = L_OF.get(fam_of(cid, r["pc"]))
+        if "P2" not in e or "P3" not in e:
+            notes.append("%s 无 P2/P3" % mnemonic_of(cid, r["pc"]))
+            ok = False
+            continue
+        if L is not None and e["P3"] - e["P2"] != L:
+            notes.append("%s 写回间隔 %d != L=%d" % (mnemonic_of(cid, r["pc"]), e["P3"] - e["P2"], L))
+            ok = False
+    # 2) GxP3 token：该组源的 P3 == dep.P1
+    for tok in ("G0P3", "G1P3", "G3P3", "P2G0P3", "P2G1P3", "P2G3P3"):
+        if tok in cid:
+            grp = "G" + tok.split("G")[1][0]
+            hit = [r for r in src if ("P3" in r["role"] or r["role"].startswith("Producer"))
+                   and (grp in r["role"])]
+            if not hit:
+                notes.append("找不到 %s 源" % tok)
+                ok = False
+            else:
+                ref = d["P2"] if is_p2_mode(cid) else d["P1"]
+                gotv = ev.get(hit[0]["pc"], {}).get("P3")
+                if gotv != ref:
+                    notes.append("%s 源 P3=%s != dep.%s=%s"
+                                 % (tok, gotv, "P2" if is_p2_mode(cid) else "P1", ref))
+                    ok = False
+    # 3) P4 token：某个源的 P4 == dep.P1
+    if "P4" in cid and not is_p2_mode(cid):
+        hit = [r for r in src if "P4 source" in r["role"]]
+        if not hit:
+            notes.append("找不到 P4 源")
+            ok = False
+        else:
+            for r in hit:
+                if ev.get(r["pc"], {}).get("P4") != d["P1"]:
+                    notes.append("P4 源 P4=%s != dep.P1=%s"
+                                 % (ev.get(r["pc"], {}).get("P4"), d["P1"]))
+                    ok = False
+    # 4) P2_ 前缀：依赖者先在 ISQ 中，应当等
+    if is_p2_mode(cid):
+        if d.get("P2", d["P1"]) - d["P1"] < 1:
+            notes.append("P2 用例但 dep 未等待（P2-P1=%d）" % (d.get("P2", 0) - d["P1"]))
+            ok = False
+    else:
+        if d.get("P2", 0) - d["P1"] != 1:
+            notes.append("dep 未在派发拍就绪（P2-P1=%d）" % (d.get("P2", 0) - d["P1"]))
+            ok = False
+    # 5) blocked
+    if cid.endswith("_blocked"):
+        p4s = [r for r in src if "P4 source" in r["role"]]
+        p3s = [r for r in src if "P3 source" in r["role"]]
+        for r in p4s:                       # 只有 P4 源应当被压住
+            e = ev.get(r["pc"], {})
+            if "P4" in e and "P3" in e and e["P4"] - e["P3"] <= 1:
+                notes.append("P4 源未被压住（P4-P3=%d）" % (e["P4"] - e["P3"]))
+                ok = False
+        # 本类最关键的一条：被压住的提交 == P3 源的写回 == 依赖者的派发
+        for r in p4s + p3s:
+            e = ev.get(r["pc"], {})
+            if e.get("P4" if "P4 source" in r["role"] else "P3") != d["P1"]:
+                notes.append("%s 与 dep.P1=%s 不重合" % (r["role"], d["P1"]))
+                ok = False
+    return ok, "; ".join(notes)
 
 
 def judged(cid):
     rows = C.read_table(C.SRC / (cid + ".tsv"))
-    prod, dep, blk = roles(rows)
-    if len(prod) != 1 or len(dep) != 1:
-        return dict(cid=cid, verdict="解析失败", note="producer=%d dep=%d" % (len(prod), len(dep)))
+    src, dep, blk = roles(rows)
+    if cid.startswith("INT2_"):
+        if len(dep) != 1:
+            return dict(cid=cid, verdict="解析失败", note="dep=%d" % len(dep))
+        tmp0 = C.DST / (cid + ".judge.tsv")
+        C.DST.mkdir(parents=True, exist_ok=True)
+        ev0 = C.measure(C.run(rows, cid, tmp0))
+        tmp0.unlink(missing_ok=True)
+        ok, note = two_operand(cid, rows, ev0)
+        dd = ev0.get(dep[0]["pc"], {})
+        return dict(cid=cid, verdict="通过" if ok else "未通过", L="-",
+                    delta=dd.get("P2", 0) - dd.get("P1", 0) if "P1" in dd else "-",
+                    gap="-", p4p3="-", wait="-", mech="-", note=note)
+    if len(src) != 1 or len(dep) != 1:
+        return dict(cid=cid, verdict="解析失败", note="producer=%d dep=%d" % (len(src), len(dep)))
+    prod = src
     mn = mnemonic_of(cid, prod[0]["pc"])
     L = L_OF.get(MN2FAM.get(mn, ""), None)
     tmp = C.DST / (cid + ".judge.tsv")

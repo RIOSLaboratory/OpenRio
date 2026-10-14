@@ -129,18 +129,27 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 ## Case 7: INT2_P4_G1P3
 
 **Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G1 P3 Bypass
-**Description:** P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2.
+**Description:** P1 source resolution uses Commit CDB for rs1 and G1 Bypass for rs2 in one cycle. The P3
+source is an ALU in G1, not a MUL: for a same-cycle Commit plus P3 capture the younger source must not be
+slower than the committing one, and G1's ALU is what makes that hold.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `mul x6, x3, x4` · P3 source·G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |
-| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
-| `add x20, x7, x6` · Dependent·G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
-
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G1 P3 Bypass` in one source-resolution cycle.
-- **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
-- **T6 (P4 capture, P4 → P1 bypass)**: every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
-
+| `add x6, x3, x4` · P4 source·G0 | IB | dispatch | ALU0 | WB | C |  |  |  |  |
+| `add x5, x1, x2` · P3 source·G1 |  | IB | dispatch | ALU1 | WB | C |  |  |  |
+| `add x20, x6, x5` · Dependent·G0 |  |  |  | IB | dispatch | ALU0 | WB | C |  |
+- **T1 (P4 source, the older source):** it must be the older of the two. Only then can it commit on
+  schedule, and only then can the younger source's writeback be made to land on that commit.
+- **T5 (Source composition):** dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G1 P3 Bypass` in one
+  source-resolution cycle.
+- **T5 (P3 capture, P3 → P1 bypass):** the G1 source uses exact-tag Bypass capture into the new `dispatch`
+  payload; the dependent issues at T6, not in the capture cycle.
+- **T5 (P4 capture, P4 → P1 bypass):** the P4 source uses exact-tag Commit CDB capture and suppresses
+  Condition A for that source.
+- **Why not a MUL:** with a MUL in G1 the younger source writes back later than the older one can be
+  delayed, so the two events never coincide; measurement shows the commit arriving exactly one cycle after
+  the MUL's bypass. The cell this case covers is the *source shape* (G1 P3 Bypass), not the FU, so an ALU
+  in G1 covers it while making the composition realizable.
 ## Case 8: INT2_ARF_G1P3
 
 **Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G1 P3 Bypass
@@ -170,21 +179,26 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
 - **T6 (Immediate source)**: the immediate operand is ready by construction and has no dependency tag.
 
-## Case 10: INT2_P4_G3P3
+## Case 10: INT2_P4_G3P3_blocked
 
-**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G3 Load P3 Bypass
-**Description:** P1 source resolution uses Commit CDB for rs1 and G3 load Bypass for rs2.
+**Dimension:** INT two-operand ready-source composition, commit held · **Equiv:** P4 Commit + G3 Load P3 Bypass
+**Description:** The older `div` holds the commit, so the `add` cannot retire on schedule; it retires in the
+same cycle the younger `ld` writes back, and the dependent captures the Commit CDB and the G3 bypass together.
+Keeping the LOAD is only possible in this held form: with an unheld commit the two events can never meet.
 
-| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `ld x6, 0(x10)` · P3 source·G3 | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |  |
-| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
-| `add x20, x7, x6` · Dependent·G0 |  |  |  |  | IB | dispatch | ALU0 | WB | C |
-
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G3 Load P3 Bypass` in one source-resolution cycle.
-- **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
-- **T6 (P4 capture, P4 → P1 bypass)**: every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
-
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `div x11, x12, x13` · Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |  |
+| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB |  |  | C |  |  |  |
+| `ld x6, 0(x10)` · P3 source·G3 |  |  | IB | dispatch | AGU | L1D | LDA+CDB | WB | C |  |  |
+| `add x20, x7, x6` · Dependent·G0 |  |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |  |
+- **Acceptance (mechanism-based — delta is an output here, not an input):**
+  1. `Blocker.P4 − P3 > 1` on the *P4 source* is the point: its commit is held until the blocker retires.
+  2. `P4 source.P4 == P3 source.P3 == dependent.P1`: the held commit and the P3 writeback land in the same
+     cycle, which is the only way this composition can occur — an older P3 source can never coincide with a
+     commit, because in-order retirement forces the commit past the older source's own writeback.
+  3. `P4 source.P3 − P2 == L` and `P3 source.P3 − P2 == L`: neither writeback was disturbed.
+  4. `dependent.P2 − P1 == 1`: the dependent had both operands in its dispatch cycle.
 ## Case 11: INT2_ARF_G3P3
 
 **Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G3 Load P3 Bypass
@@ -485,34 +499,20 @@ These cases cover the legal shape behind the gray same-P3-source diagonal cells.
 
 ## Case 31: INT2_P4_G1P3_blocked
 
-**Dimension:** INT two-operand ready-source composition · **Equiv:** P4 Commit + G1 P3 Bypass
-**Description:** The P4 source writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so the value stays in the P3 Buffer with no Commit CDB presented. rs2 still arrives from the MUL's G1 P3 bypass, so this case also exercises a *partially* resolvable entry.
+**Dimension:** INT two-operand ready-source composition, commit held · **Equiv:** P4 Commit + G1 P3 Bypass
+**Description:** Same held form as the G3 case, with the P3 source in G1 as a MUL. The older `div` holds the
+commit until the MUL's writeback cycle, and the dependent captures both sources there in one cycle.
 
-| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `div x11, x12, x13` - Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |
-| `mul x6, x3, x4` · P3 source·G1 | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |
-| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB | C |  |  |  |
-| `add x20, x7, x6` · Dependent·G1 |  |  |  |  | IB | dispatch | ALU1 | WB | C |
-
-- **T1 (Blocker enqueued alongside the MUL):** the older `div x11, x12, x13` takes G0 and the MUL takes G1, so the two land
-  in different ISQ entries. G0 is free at T1 because only the MUL is being enqueued there otherwise.
-- **T5 (P4 source WB, on schedule):** the P4 source writes back on the nominal cycle; its result enters the
-  P3 Buffer. The writeback is not delayed — only the commit is.
-- **T6 (Nominal composition, does not happen):** retirement is in order and the older `div` is still in
-  flight, so no Commit CDB is presented for rs1. rs2 is still delivered by the MUL's G1 P3 bypass at T6,
-  which is why the entry becomes *partially* resolvable rather than simply unmatched.
-- **Expected deviation (this is what the case measures):** the dependent cannot complete its source
-  composition; it stalls (Condition A) until the older instruction retires. Its resolution cycle and the
-  path the missing operand finally takes are the measured quantities.
+| Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `div x11, x12, x13` · Blocker·G0 | IB | dispatch | DIV | DIV | DIV | DIV | WB | C |  |  |  |
+| `add x7, x8, x9` · P4 source·G0 |  | IB | dispatch | ALU0 | WB |  |  | C |  |  |  |
+| `mul x6, x3, x4` · P3 source·G1 |  |  | IB | dispatch | MUL | MUL | MUL | WB | C |  |  |
+| `add x20, x7, x6` · Dependent·G0 |  |  |  |  |  |  | IB | dispatch | ALU0 | WB | C |  |
 - **Acceptance (mechanism-based — delta is an output here, not an input):**
-  1. `P4 source.P3 − P2 == L`: its writeback was not disturbed;
-  2. `P4 source.P4 − P3 > 1`: its commit really was held by the older `div`. If it is 1 the blocker
-     retired in time and the case missed its target state;
-  3. `dependent.P2 − P1 == 1` and `dependent.P1 == P4 source.P4`: the dependent dispatched on the held
-     commit and had its operands there;
-  4. rs2 arrives from the MUL's G1 P3 bypass while rs1 comes from the held commit, so the entry resolves
-     as a *partially* sourced one — that is the point of this case.
-
-  **Do not assert a target delta for this class** — with the commit held, the dependent's dispatch is
-  gated on it and delta is an output.
+  1. `P4 source.P4 − P3 > 1` is the point: its commit is held until the blocker retires.
+  2. `P4 source.P4 == P3 source.P3 == dependent.P1`: the held commit and the P3 writeback land in the same
+     cycle, which is the only way this composition can occur — an older P3 source can never coincide with a
+     commit, because in-order retirement forces the commit past the older source's own writeback.
+  3. `P4 source.P3 − P2 == L` and `P3 source.P3 − P2 == L`: neither writeback was disturbed.
+  4. `dependent.P2 − P1 == 1`: the dependent had both operands in its dispatch cycle.
