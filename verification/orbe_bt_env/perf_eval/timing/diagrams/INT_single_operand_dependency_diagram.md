@@ -612,18 +612,13 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 - **Expected deviation (this is what the case measures):** the dependent cannot capture. It stalls
   (Condition A) and resolves only after the producer retires; its resolution cycle and the path it finally
   uses are the measured quantities, not predictions.
-- **Acceptance (mechanism-based — delta is an output here, not an input):**
-  1. `producer.P3 − P2 == L`: the writeback was not disturbed, which is what separates "commit held"
-     from "execution delayed";
-  2. `producer.P4 − P3 > 1`: the commit really was held. If it is 1 the blocker retired in time and the
-     case missed its target state — report that rather than passing it;
-  3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
-     rather than waited;
-  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
-
-  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
-  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
-  the case chooses.
+- **Deferred — the case is kept, not dropped.** Constructing it needs a blocker that retires *after* the
+  producer's writeback, i.e. one slower than the producer. The producer is a DIV with latency four, and
+  every integer functional unit currently sits at four or below (FPU 1, MUL 3, LOAD 3, DIV 4), so no blocker
+  is late enough and the commit is never held: measurement gives `P4 − P3 = 1`.
+  **Current latencies do not support constructing this case; revisit it once the internal (company)
+  operators replace the present ones**, because their latencies differ and an instruction slower than four
+  cycles will exist. Until then this case is neither passing nor failing — it is deferred.
 ## Case 36: LOAD_to_ALU_delta_5_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU

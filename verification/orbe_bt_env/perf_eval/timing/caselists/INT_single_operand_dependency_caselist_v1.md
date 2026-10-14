@@ -357,7 +357,7 @@ skips such rows and points at the frozen file instead of emitting a wrong progra
 | `MUL_to_ALU_delta_5_p4blocked` | 3 | 3 | 2 | 1 | ✓ | 通过 |
 | `LOAD_to_ALU_delta_5_p4blocked` | 3 | 3 | 2 | 1 | ✓ | 通过 |
 | `JALR_to_ALU_delta_3_p4blocked` | 1 | 1 | 3 | 1 | ✓ | 通过 |
-| `DIV_to_ALU_delta_6_p4blocked` | 4 | 4 | **1** | 1 | ✓ | 未通过 |
+| `DIV_to_ALU_delta_6_p4blocked` | 4 | 4 | **1** | 1 | 是 | **推迟**（见下）|
 | `INT2_P4_G1P3_blocked`① | 1 | 1 | 4 | 1 | ✓ | 通过 |
 
 ① 两操作数那条，见另一份 caselist。
@@ -374,3 +374,10 @@ skips such rows and points at the frozen file instead of emitting a wrong progra
 
 ⇒ **7 条 blocked case 中已有 5 条实测通过**；剩下 2 条（DIV 族 + `INT2_P4_P4`）的**唯一**阻塞项是
 **A 形态下的内存来源**（`IB_STIMULUS_METHOD.md` §3.8：前置注入或后门预置）。
+
+**关于 `DIV_to_ALU_delta_6_p4blocked`（保留，不删除）**：
+当前 latency 不支持这个 case 的构造，等未来替换内网算子之后再更新。
+技术上：该 case 需要一个**晚于 DIV（L=4）写回才退休**的阻塞物，即 L≥5；而当前整数类 FU 的延迟为
+FPU 1 / MUL 3 / LOAD 3 / DIV 4，没有任何整数阻塞物够晚（实测 `P4−P3 = 1`，提交未被压住）。
+未来换成公司**内网算子**后延迟会变，必然存在慢于 4 拍的指令，届时该 case 可以构造。
+在此之前它**既不算通过也不算失败**，状态为"推迟"。

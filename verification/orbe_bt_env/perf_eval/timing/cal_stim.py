@@ -9,6 +9,7 @@
 
 输出：$WORK/stimulus_cal/<case>.tsv（标定后的表；原表保持"忠实于图"不动）。
 """
+import os
 import re
 import shutil
 import subprocess
@@ -19,7 +20,9 @@ ENV = Path("/work/home/danielle/workspace/suncheek/model/OpenRio/verification/or
 W = Path("/work/home/danielle/workspace/suncheek/model/perf_eval_work")
 SRC = W / "stimulus"
 DST = W / "stimulus_cal"
-TAG, DUT = "stim", "rtl_v1"
+# 判定 DUT 可用环境变量切换：rtl_v1（D 侧是 cache agent）/ rtl_cache（D 侧是真 OR_Cache）
+TAG = os.environ.get("STIM_TAG", "stim")
+DUT = os.environ.get("STIM_DUT", "rtl_v1")
 ANY_ELF = sorted((W / "elf").glob("*.elf"))[0]
 DRAIN = 60
 ROUNDS = 4
