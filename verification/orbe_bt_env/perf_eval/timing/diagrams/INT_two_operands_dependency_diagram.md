@@ -199,6 +199,11 @@ Keeping the LOAD is only possible in this held form: with an unheld commit the t
      commit, because in-order retirement forces the commit past the older source's own writeback.
   3. `P4 source.P3 − P2 == L` and `P3 source.P3 − P2 == L`: neither writeback was disturbed.
   4. `dependent.P2 − P1 == 1`: the dependent had both operands in its dispatch cycle.
+  5. The dependent could not have been dispatched earlier: while its source is completed but uncommitted the
+     writeback bypass is already gone and there is no commit-to-issue path, so a consumer parked on it would
+     never wake. `p1/dependency_check.sv` raises `slot_missed_wakeup` and `p1/dispatch_logic.sv` (lines 394
+     and 417) keeps it out of an ISQ; it dispatches once the value can come from the Commit CDB, which is why
+     its P1 lands on the commit cycle rather than wherever it was injected.
 ## Case 11: INT2_ARF_G3P3
 
 **Dimension:** INT two-operand ready-source composition · **Equiv:** Already in ARF + G3 Load P3 Bypass
@@ -516,3 +521,8 @@ commit until the MUL's writeback cycle, and the dependent captures both sources 
      commit, because in-order retirement forces the commit past the older source's own writeback.
   3. `P4 source.P3 − P2 == L` and `P3 source.P3 − P2 == L`: neither writeback was disturbed.
   4. `dependent.P2 − P1 == 1`: the dependent had both operands in its dispatch cycle.
+  5. The dependent could not have been dispatched earlier: while its source is completed but uncommitted the
+     writeback bypass is already gone and there is no commit-to-issue path, so a consumer parked on it would
+     never wake. `p1/dependency_check.sv` raises `slot_missed_wakeup` and `p1/dispatch_logic.sv` (lines 394
+     and 417) keeps it out of an ISQ; it dispatches once the value can come from the Commit CDB, which is why
+     its P1 lands on the commit cycle rather than wherever it was injected.

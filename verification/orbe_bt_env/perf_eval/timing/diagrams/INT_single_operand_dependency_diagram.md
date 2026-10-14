@@ -551,11 +551,18 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
      case missed its target state — report that rather than passing it;
   3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
      rather than waited;
-  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit — as a *consequence* of the rule
+     below, not as a rule of its own.
 
-  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
-  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
-  the case chooses.
+  **Do not assert a target delta for this class.** The dependent cannot be dispatched while the producer is
+  *completed but not yet committed*: its writeback bypass is a single-cycle broadcast that has already
+  passed, and there is no commit-to-issue path, so a consumer parked on it could never be woken. The front
+  end therefore refuses to let such a consumer into an ISQ — `p1/dependency_check.sv` raises
+  `slot_missed_wakeup` and `p1/dispatch_logic.sv` (lines 394 and 417) folds it into the dispatch guard.
+  The consumer starts once its value can be taken from the Commit CDB instead, so its delta is whatever the
+  hold makes it, not a number the case chooses. The boundary this predicts — blocked for a dispatch that
+  lands after the producer's writeback and up to its commit, allowed on the writeback cycle itself and
+  before it — is what the injection sweep reproduces.
 ## Case 34: MUL_to_ALU_delta_5_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** MUL_to_ALU
@@ -585,11 +592,18 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
      case missed its target state — report that rather than passing it;
   3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
      rather than waited;
-  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit — as a *consequence* of the rule
+     below, not as a rule of its own.
 
-  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
-  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
-  the case chooses.
+  **Do not assert a target delta for this class.** The dependent cannot be dispatched while the producer is
+  *completed but not yet committed*: its writeback bypass is a single-cycle broadcast that has already
+  passed, and there is no commit-to-issue path, so a consumer parked on it could never be woken. The front
+  end therefore refuses to let such a consumer into an ISQ — `p1/dependency_check.sv` raises
+  `slot_missed_wakeup` and `p1/dispatch_logic.sv` (lines 394 and 417) folds it into the dispatch guard.
+  The consumer starts once its value can be taken from the Commit CDB instead, so its delta is whatever the
+  hold makes it, not a number the case chooses. The boundary this predicts — blocked for a dispatch that
+  lands after the producer's writeback and up to its commit, allowed on the writeback cycle itself and
+  before it — is what the injection sweep reproduces.
 ## Case 35: DIV_to_ALU_delta_6_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -648,11 +662,18 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
      case missed its target state — report that rather than passing it;
   3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
      rather than waited;
-  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit — as a *consequence* of the rule
+     below, not as a rule of its own.
 
-  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
-  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
-  the case chooses.
+  **Do not assert a target delta for this class.** The dependent cannot be dispatched while the producer is
+  *completed but not yet committed*: its writeback bypass is a single-cycle broadcast that has already
+  passed, and there is no commit-to-issue path, so a consumer parked on it could never be woken. The front
+  end therefore refuses to let such a consumer into an ISQ — `p1/dependency_check.sv` raises
+  `slot_missed_wakeup` and `p1/dispatch_logic.sv` (lines 394 and 417) folds it into the dispatch guard.
+  The consumer starts once its value can be taken from the Commit CDB instead, so its delta is whatever the
+  hold makes it, not a number the case chooses. The boundary this predicts — blocked for a dispatch that
+  lands after the producer's writeback and up to its commit, allowed on the writeback cycle itself and
+  before it — is what the injection sweep reproduces.
 ## Case 37: JALR_to_ALU_delta_3_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
@@ -682,8 +703,15 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
      case missed its target state — report that rather than passing it;
   3. `dependent.P2 − P1 == 1`: the dependent had its operands in its dispatch cycle, i.e. it captured
      rather than waited;
-  4. `dependent.P1 == producer.P4`: dispatch followed the held commit.
+  4. `dependent.P1 == producer.P4`: dispatch followed the held commit — as a *consequence* of the rule
+     below, not as a rule of its own.
 
-  **Do not assert a target delta for this class.** Measurement shows that with the commit held the
-  dependent's dispatch is gated on that commit, so its delta is whatever the hold makes it, not a number
-  the case chooses.
+  **Do not assert a target delta for this class.** The dependent cannot be dispatched while the producer is
+  *completed but not yet committed*: its writeback bypass is a single-cycle broadcast that has already
+  passed, and there is no commit-to-issue path, so a consumer parked on it could never be woken. The front
+  end therefore refuses to let such a consumer into an ISQ — `p1/dependency_check.sv` raises
+  `slot_missed_wakeup` and `p1/dispatch_logic.sv` (lines 394 and 417) folds it into the dispatch guard.
+  The consumer starts once its value can be taken from the Commit CDB instead, so its delta is whatever the
+  hold makes it, not a number the case chooses. The boundary this predicts — blocked for a dispatch that
+  lands after the producer's writeback and up to its commit, allowed on the writeback cycle itself and
+  before it — is what the injection sweep reproduces.
