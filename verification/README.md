@@ -1,5 +1,12 @@
 # ORBE Verification Environment
 
+> **Renamed:** this directory used to be `verification/orbe_bt_env/`. The old name
+> came from its BE block-test origin and misrepresents the current scope: this is
+> the single COSIM environment for the core, and the DUT level is selected with
+> `--dut-kind` (`rtl_full` = BE + FE + Cache, the default; `rtl_v1` = BE only;
+> `rtl_fe` / `rtl_cache` = one subsystem replaced by agents). Update any local
+> script that still uses the old path.
+
 Verilator + ISA model COSIM: every instruction the RTL commits is compared, one by one, against the result from the ISA model.
 
 ## Components
@@ -7,13 +14,13 @@ Verilator + ISA model COSIM: every instruction the RTL commits is compared, one 
 | Part | Location | Purpose |
 |---|---|---|
 | RTL | `../src/core/{be,fe,cache}_rtl_v1/` | Design under test |
-| tb | `orbe_bt_env/tb/` | Testbench: agents, interfaces, COSIM comparison |
-| cfg | `orbe_bt_env/cfg/filelist/` | Compile lists and ordering for each DUT kind |
-| dpi | `orbe_bt_env/dpi/` | Bridge from SV to the ISA model, the platform config yaml, and the vendored `IsaApi.h` and `lib_ISA_api.so` |
-| Script | `orbe_bt_env/tools/verilator_cosim.sh` | Build, run and judge in one step |
-| Script | `orbe_bt_env/tools/regress.sh` | Run the 216 cases in batch and summarize the verdicts |
+| tb | `or_cosim/tb/` | Testbench: agents, interfaces, COSIM comparison |
+| cfg | `or_cosim/cfg/filelist/` | Compile lists and ordering for each DUT kind |
+| dpi | `or_cosim/dpi/` | Bridge from SV to the ISA model, the platform config yaml, and the vendored `IsaApi.h` and `lib_ISA_api.so` |
+| Script | `or_cosim/tools/verilator_cosim.sh` | Build, run and judge in one step |
+| Script | `or_cosim/tools/regress.sh` | Run the 216 cases in batch and summarize the verdicts |
 
-By default the build uses the `IsaApi.h` and `lib_ISA_api.so` vendored in `orbe_bt_env/dpi/`. If you have a full ISA model checkout (with `src/libs/` and `build/`), point to it with `export ISA_MODEL_ROOT=<ISA model directory>` and it takes precedence. The script also searches `verification/`, `verification/isa_model/` and `isa_model/` at the repository root automatically.
+By default the build uses the `IsaApi.h` and `lib_ISA_api.so` vendored in `or_cosim/dpi/`. If you have a full ISA model checkout (with `src/libs/` and `build/`), point to it with `export ISA_MODEL_ROOT=<ISA model directory>` and it takes precedence. The script also searches `verification/`, `verification/isa_model/` and `isa_model/` at the repository root automatically.
 
 The `isa_case/` test cases are not checked in. `regress.sh` reads them from the ISA model directory, so `ISA_MODEL_ROOT` must be set before a batch regression.
 
@@ -40,7 +47,7 @@ verilator_cosim.sh run --dut-kind <kind> --tc <case.riscv>
 ## Running (WSL)
 
 ```bash
-cd verification/orbe_bt_env
+cd verification/or_cosim
 tools/verilator_cosim.sh run --tc $ISA_MODEL_ROOT/isa_case/rv64ui/rv64ui-p-add.riscv   # rtl_full by default
 
 # Batch: build once under a tag, then run the 216 cases with the same tag (6 in parallel)
@@ -48,7 +55,7 @@ tools/verilator_cosim.sh build --tag <tag>
 tools/regress.sh rtl_full <tag> 6
 ```
 
-Batch results are in `orbe_bt_env/sim/verilator_<tag>/regress/<kind>/`: `results.txt` holds the per-case verdicts and `summary.txt` the totals.
+Batch results are in `or_cosim/sim/verilator_<tag>/regress/<kind>/`: `results.txt` holds the per-case verdicts and `summary.txt` the totals.
 
 Use `build` to compile without running; use `--no-build` to rerun an existing build.
 
@@ -57,7 +64,7 @@ Use `build` to compile without running; use `--no-build` to rerun an existing bu
 ## Results
 
 ```text
-orbe_bt_env/sim/verilator_<TAG>/log/<kind>/<case-name>_<SEED>/
+or_cosim/sim/verilator_<TAG>/log/<kind>/<case-name>_<SEED>/
 ├── sim.log          Simulation log; check the verdict here
 ├── isa_run.log      ISA model run log
 └── isa_commit.log   Per-instruction commit trace

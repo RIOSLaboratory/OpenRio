@@ -60,7 +60,7 @@ Subdirectories follow the pipeline stages.
 
 Verification is a Verilator build with instruction-level co-simulation against an ISA model. The testbench is self-checking: every instruction the RTL commits is compared, one by one, against the ISA model's result, so a divergence surfaces at the committing instruction.
 
-The environment lives in `verification/orbe_bt_env/`. `tb/` holds the testbench — agents for the frontend, backend, cache and co-simulation, a checker, interfaces and packages; `dpi/` bridges SystemVerilog to the ISA model; `cfg/filelist/` holds the compile lists; `tools/` holds the two driver scripts.
+The environment lives in `verification/or_cosim/` (renamed from `orbe_bt_env/`). `tb/` holds the testbench — agents for the frontend, backend, cache and co-simulation, a checker, interfaces and packages; `dpi/` bridges SystemVerilog to the ISA model; `cfg/filelist/` holds the compile lists; `tools/` holds the two driver scripts.
 
 Five DUT configurations can be built, so a subsystem can be verified in isolation:
 
@@ -72,7 +72,7 @@ Five DUT configurations can be built, so a subsystem can be verified in isolatio
 | `rtl_v1` | BE only; FE and Cache are replaced by agents |
 | `agent` | No RTL — the agents check the environment itself |
 
-A run is judged by scanning its log for mismatches, `%Error`, assertion failures and DPI failures, together with the simulator exit code; a batch regression applies the same rule per case. Logs and summaries are written under `orbe_bt_env/sim/`, which is not checked in.
+A run is judged by scanning its log for mismatches, `%Error`, assertion failures and DPI failures, together with the simulator exit code; a batch regression applies the same rule per case. Logs and summaries are written under `or_cosim/sim/`, which is not checked in.
 
 The acceptance set is 216 cases: `rv64ui` 104, `rv64um` 26, `rv64ua` 38, `rv64uf` 22, `rv64ud` 24, `rv64uc` 2.
 
@@ -82,7 +82,7 @@ The flow is Linux-based; on Windows, use WSL. You need Verilator, a C++ toolchai
 
 ```bash
 git clone --recursive https://github.com/RIOSLaboratory/OpenRio.git
-cd OpenRio/verification/orbe_bt_env
+cd OpenRio/verification/or_cosim
 ```
 
 Run a single case:
