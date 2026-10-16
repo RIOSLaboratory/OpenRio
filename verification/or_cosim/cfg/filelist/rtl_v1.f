@@ -1,4 +1,4 @@
-# Evaluation root is orbe_bt_env/; BE RTL is in src/core/be_rtl_v1/ at the repo root, i.e. ../../src/core/be_rtl_v1/.
+# Evaluation root is or_cosim/; BE RTL is in src/core/be_rtl_v1/ at the repo root, i.e. ../../src/core/be_rtl_v1/.
 #
 # Protocol packages are not listed in this file: exe_subop_pkg and or_be_lsu_protocol_pkg both live in
 # src/core/be_rtl_v1/pkg/ and are compiled by common.f for all configurations (the agent kind compiles no RTL but still needs them).

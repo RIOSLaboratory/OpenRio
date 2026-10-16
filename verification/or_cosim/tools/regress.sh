@@ -8,7 +8,7 @@
 # Exit code is 0 when all PASS, otherwise 1.
 set -u
 
-orbe_bt_env=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+or_cosim=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DUT=${1:-rtl_full}
 TAG=${2:-$(date +%Y%m%d)}
 JOBS=${3:-4}
@@ -18,7 +18,7 @@ LIST=${4:-}
 if [[ -n "${ISA_MODEL_ROOT:-}" ]]; then
   ISA_MODEL_ROOT=$(cd "$ISA_MODEL_ROOT" && pwd)
 else
-  for _cand in "$orbe_bt_env/.." "$orbe_bt_env/../isa_model" "$orbe_bt_env/../../isa_model"; do
+  for _cand in "$or_cosim/.." "$or_cosim/../isa_model" "$or_cosim/../../isa_model"; do
     if [[ -r "$_cand/src/libs/IsaApi.h" ]]; then
       ISA_MODEL_ROOT=$(cd "$_cand" && pwd)
       break
@@ -28,7 +28,7 @@ fi
 [[ -d "${ISA_MODEL_ROOT:-}/isa_case" ]] || { echo "error: isa_case/ not found; put the ISA model under isa_model/ or set ISA_MODEL_ROOT" >&2; exit 1; }
 export ISA_MODEL_ROOT
 
-cd "$orbe_bt_env"
+cd "$or_cosim"
 OUT=sim/verilator_$TAG/regress/$DUT
 mkdir -p "$OUT"
 if [[ -n "$LIST" ]]; then
@@ -64,5 +64,5 @@ sort -o "$OUT/results.txt" "$OUT/results.txt"
 awk -v w=$(( $(date +%s) - start )) '$1=="PASS"{p++} $1=="FAIL"{f++} END{printf "SUMMARY: PASS=%d FAIL=%d TOTAL=%d wall=%ds\n",p,f,NR,w}' \
   "$OUT/results.txt" | tee "$OUT/summary.txt"
 grep '^FAIL' "$OUT/results.txt"
-echo "results: $orbe_bt_env/$OUT/results.txt"
+echo "results: $or_cosim/$OUT/results.txt"
 ! grep -q '^FAIL' "$OUT/results.txt"

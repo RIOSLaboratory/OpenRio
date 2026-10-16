@@ -72,7 +72,7 @@ package or_fe_pkg;
 
   // ---------------- RVC legality follows the platform ISA ----------------
   // only affects the legality decision of compressed encodings; must match isa_model's isa_string
-  // (orbe_bt_env/dpi/rivai_0x80000000_1core_rom.yaml: rv64imafdc_zcb_zifencei_zicsr).
+  // (or_cosim/dpi/rivai_0x80000000_1core_rom.yaml: rv64imafdc_zcb_zifencei_zicsr).
   // requirement: all 12 Zcb instructions supported.
   // RTL (this expander, BE SUBOP_C_*, ALU) implements all 12; the 4 that depend on Zbb / Zba are off by default because
   // the isa_model config does not enable Zbb / Zba; when the model enables Zbb / Zba, just set the corresponding switch to 1.

@@ -1,5 +1,5 @@
 # DUT_KIND=rtl_fe: BE RTL (same as rtl_v1.f) + OR_FE RTL + FE downstream interface.
-# Evaluation root is orbe_bt_env/; OR_FE RTL is in ../../src/core/fe_rtl_v1/.
+# Evaluation root is or_cosim/; OR_FE RTL is in ../../src/core/fe_rtl_v1/.
 -f cfg/filelist/rtl_v1.f
 
 # or_fe_pkg.sv is compiled by rtl_v1.f (the fe_agent kind's glue logic also needs it)

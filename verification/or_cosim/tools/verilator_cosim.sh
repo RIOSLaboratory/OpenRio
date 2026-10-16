@@ -4,10 +4,10 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  orbe_bt_env/tools/verilator_cosim.sh lint [options]
-  orbe_bt_env/tools/verilator_cosim.sh build [options]
-  orbe_bt_env/tools/verilator_cosim.sh run --tc /path/to/test.elf [options]
-  orbe_bt_env/tools/verilator_cosim.sh run /path/to/test.elf [options]
+  or_cosim/tools/verilator_cosim.sh lint [options]
+  or_cosim/tools/verilator_cosim.sh build [options]
+  or_cosim/tools/verilator_cosim.sh run --tc /path/to/test.elf [options]
+  or_cosim/tools/verilator_cosim.sh run /path/to/test.elf [options]
 
 Options:
   --dut-kind <agent|rtl_v1|rtl_fe|rtl_cache|rtl_full>  DUT implementation to compile. Default: rtl_full
@@ -33,9 +33,9 @@ ISA model lookup:
   override the result.
 
 Default logs:
-  orbe_bt_env/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/sim.log
-  orbe_bt_env/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/isa_run.log
-  orbe_bt_env/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/isa_commit.log
+  or_cosim/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/sim.log
+  or_cosim/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/isa_run.log
+  or_cosim/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/isa_commit.log
 USAGE
 }
 
@@ -77,11 +77,11 @@ case "$command" in
 esac
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-orbe_bt_env=$(cd "$script_dir/.." && pwd)
+or_cosim=$(cd "$script_dir/.." && pwd)
 # A full ISA model checkout (src/libs + build) is set via ISA_MODEL_ROOT, or probed upward level by level;
 # if none is found, the IsaApi.h and lib_ISA_api.so shipped with the repo under dpi/ are used.
-default_isa_model_root=$(cd "$orbe_bt_env/.." && pwd)
-for _cand in "$orbe_bt_env/.." "$orbe_bt_env/../isa_model" "$orbe_bt_env/../../isa_model"; do
+default_isa_model_root=$(cd "$or_cosim/.." && pwd)
+for _cand in "$or_cosim/.." "$or_cosim/../isa_model" "$or_cosim/../../isa_model"; do
   if [ -r "$_cand/src/libs/IsaApi.h" ]; then
     default_isa_model_root=$(cd "$_cand" && pwd)
     break
@@ -109,12 +109,12 @@ if [[ -r "$ISA_MODEL_ROOT/src/libs/IsaApi.h" ]]; then
   default_isa_api_inc=$ISA_MODEL_ROOT/src/libs
   default_isa_api_lib=$ISA_MODEL_ROOT/build
 else
-  default_isa_api_inc=$orbe_bt_env/dpi
-  default_isa_api_lib=$orbe_bt_env/dpi
+  default_isa_api_inc=$or_cosim/dpi
+  default_isa_api_lib=$or_cosim/dpi
 fi
 ISA_API_INC=$(abs_path "${ISA_API_INC:-$default_isa_api_inc}")
 ISA_API_LIB=$(abs_path "${ISA_API_LIB:-$default_isa_api_lib}")
-ISA_CFG=${ISA_CFG:-$orbe_bt_env/dpi/rivai_0x80000000_1core_rom.yaml}
+ISA_CFG=${ISA_CFG:-$or_cosim/dpi/rivai_0x80000000_1core_rom.yaml}
 
 VERILATOR_BUILD_ROOT_OVERRIDE=${VERILATOR_BUILD_ROOT:-}
 VERILATOR_LOG_ROOT_OVERRIDE=${VERILATOR_LOG_ROOT:-}
@@ -223,8 +223,8 @@ while (($#)); do
   esac
 done
 
-VERILATOR_BUILD_ROOT=${VERILATOR_BUILD_ROOT_OVERRIDE:-$orbe_bt_env/sim/verilator_${TAG}/build}
-VERILATOR_LOG_ROOT=${VERILATOR_LOG_ROOT_OVERRIDE:-$orbe_bt_env/sim/verilator_${TAG}/log}
+VERILATOR_BUILD_ROOT=${VERILATOR_BUILD_ROOT_OVERRIDE:-$or_cosim/sim/verilator_${TAG}/build}
+VERILATOR_LOG_ROOT=${VERILATOR_LOG_ROOT_OVERRIDE:-$or_cosim/sim/verilator_${TAG}/log}
 OBJ_DIR=${OBJ_DIR_OVERRIDE:-$VERILATOR_BUILD_ROOT/obj_${DUT_KIND}}
 SIM_EXE=${SIM_EXE_OVERRIDE:-$VERILATOR_BUILD_ROOT/be_tb_top_${DUT_KIND}}
 
@@ -292,16 +292,16 @@ sv_inputs=(
 
 check_common_inputs() {
   command -v "$VERILATOR" >/dev/null 2>&1 || die "verilator not found: $VERILATOR"
-  need_file "$orbe_bt_env/cfg/filelist/common.f" "common filelist"
-  need_file "$orbe_bt_env/$rtl_filelist" "RTL filelist"
-  need_file "$orbe_bt_env/cfg/filelist/tb.f" "TB filelist"
-  need_file "$orbe_bt_env/dpi/isa_dpi_pkg.sv" "DPI SV package"
+  need_file "$or_cosim/cfg/filelist/common.f" "common filelist"
+  need_file "$or_cosim/$rtl_filelist" "RTL filelist"
+  need_file "$or_cosim/cfg/filelist/tb.f" "TB filelist"
+  need_file "$or_cosim/dpi/isa_dpi_pkg.sv" "DPI SV package"
 }
 
 check_dpi_inputs() {
   need_file "$ISA_API_INC/IsaApi.h" "IsaApi.h"
   need_file "$ISA_API_LIB/lib_ISA_api.so" "lib_ISA_api.so"
-  need_file "$orbe_bt_env/dpi/isa_dpi_wrapper.cc" "DPI C++ wrapper"
+  need_file "$or_cosim/dpi/isa_dpi_wrapper.cc" "DPI C++ wrapper"
   if ! grep -q "IsaApiDecodeMetadata" "$ISA_API_INC/IsaApi.h"; then
     die "IsaApi.h at $ISA_API_INC lacks IsaApiDecodeMetadata; set ISA_API_INC/ISA_API_LIB to the matching parent ISA model build"
   fi
@@ -319,7 +319,7 @@ print_config() {
 run_lint() {
   check_common_inputs
   print_config
-  cd "$orbe_bt_env"
+  cd "$or_cosim"
   "$VERILATOR" --lint-only --timing -sv --top-module be_tb_top \
     --timescale 1ns/1ps \
     "${warning_flags[@]}" \
@@ -332,7 +332,7 @@ run_build() {
   check_dpi_inputs
   mkdir -p "$VERILATOR_BUILD_ROOT" "$OBJ_DIR"
   print_config
-  cd "$orbe_bt_env"
+  cd "$or_cosim"
   "$VERILATOR" --binary --timing -sv --top-module be_tb_top \
     --timescale 1ns/1ps \
     --Mdir "$OBJ_DIR" \
