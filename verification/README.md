@@ -9,6 +9,20 @@
 
 Verilator + ISA model COSIM: every instruction the RTL commits is compared, one by one, against the result from the ISA model.
 
+## Requirements
+
+| Component | Minimum | Needed by | Notes |
+|---|---|---|---|
+| Verilator | **5.0** (tested: 5.050) | build | the flow passes `--timing`; the 4.038 shipped by Ubuntu 22.04's apt is too old |
+| glibc | **2.38** (e.g. Ubuntu 24.04 LTS) | environment **B** only | the vendored `dpi/lib_ISA_api.so` was built against this ABI |
+| C++ compiler | C++20 capable (gcc >= 11) | environment **A** only | builds the ISA model |
+| CMake | 3.22 | environment **A** only | builds the ISA model |
+| zlib | system default | both | `lib_ISA_api.so` links `-lz` |
+| ripgrep (`rg`) | optional | run | without it the log judging degrades to the exit code |
+| `riscv64-unknown-elf-objdump` | optional | run | only used to write `<case>.dump` |
+
+Tested: Ubuntu 24.04 LTS + Verilator 5.050 (environment B), and Ubuntu 22.04 + Verilator 5.050 with a locally built ISA model (environment A).
+
 ## Components
 
 | Part | Location | Purpose |
@@ -20,9 +34,21 @@ Verilator + ISA model COSIM: every instruction the RTL commits is compared, one 
 | Script | `or_cosim/tools/verilator_cosim.sh` | Build, run and judge in one step |
 | Script | `or_cosim/tools/regress.sh` | Run the 216 cases in batch and summarize the verdicts |
 
-By default the build uses the `IsaApi.h` and `lib_ISA_api.so` vendored in `or_cosim/dpi/`. If you have a full ISA model checkout (with `src/libs/` and `build/`), point to it with `export ISA_MODEL_ROOT=<ISA model directory>` and it takes precedence. The script also searches `verification/`, `verification/isa_model/` and `isa_model/` at the repository root automatically.
+## Build environments
 
-The `isa_case/` test cases are not checked in. `regress.sh` reads them from the ISA model directory, so `ISA_MODEL_ROOT` must be set before a batch regression.
+The ISA model itself is not part of this repository — only its API (`dpi/IsaApi.h`) and a prebuilt library. There are two ways to provide that library; pick one.
+
+| | **A. Full ISA model checkout** | **B. Vendored prebuilt library** (default) |
+|---|---|---|
+| Setup | `export ISA_MODEL_ROOT=<model dir>` with `src/libs/` and `build/` | nothing |
+| Library used | `$ISA_MODEL_ROOT/build/lib_ISA_api.so`, built on your machine | `or_cosim/dpi/lib_ISA_api.so` |
+| Extra requirement | CMake >= 3.22 and a C++20 compiler | glibc >= 2.38 |
+| `isa_case/` for `regress.sh` | comes with the model checkout | not included |
+| Typical use | you have the model source, or your system predates glibc 2.38 | you only want to run the environment |
+
+`ISA_MODEL_ROOT` always takes precedence over the vendored pair. The script also probes `verification/`, `verification/isa_model/` and `isa_model/` at the repository root. `ISA_API_INC` / `ISA_API_LIB` override the result for unusual layouts — they must point at the build that produced the matching `IsaApi.h`.
+
+`isa_case/` is not checked in, and `regress.sh` reads the cases from `$ISA_MODEL_ROOT/isa_case`, so a batch regression needs `ISA_MODEL_ROOT` even in environment B.
 
 ## Flow
 
@@ -59,7 +85,7 @@ Batch results are in `or_cosim/sim/verilator_<tag>/regress/<kind>/`: `results.tx
 
 Use `build` to compile without running; use `--no-build` to rerun an existing build.
 
-`rg` (ripgrep) is required: the script uses it to search the log for failure keywords. Without it that step is skipped and the verdict relies on the exit code alone.
+`rg` (ripgrep) is optional but recommended: the script uses it to search the log for failure keywords. Without it that step is skipped and the verdict relies on the exit code alone.
 
 ## Results
 
