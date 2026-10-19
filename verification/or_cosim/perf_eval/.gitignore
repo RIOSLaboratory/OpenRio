@@ -1,0 +1,9 @@
+# perf_eval 的运行产物（.S / .elf / .dump / 日志）按约定放在仓库外的构建树里，
+# 见 README §2。下面的规则只是安全网，防止误把二进制提交进来。
+build/
+*.elf
+*.dump
+
+# Python 缓存
+__pycache__/
+*.pyc
