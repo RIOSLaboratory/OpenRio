@@ -24,7 +24,8 @@ Options:
 
 Environment overrides:
   VERILATOR, JOBS, ISA_MODEL_ROOT, ISA_API_INC, ISA_API_LIB, ISA_CFG,
-  VERILATOR_BUILD_ROOT, VERILATOR_LOG_ROOT, OBJ_DIR, SIM_EXE, OBJDUMP.
+  VERILATOR_BUILD_ROOT, VERILATOR_LOG_ROOT, OBJ_DIR, SIM_EXE, OBJDUMP,
+  TRACE, TRACE_DEPTH.
 
 ISA model lookup:
   A full ISA model checkout (src/libs and build) under ISA_MODEL_ROOT, or found
@@ -36,6 +37,14 @@ Default logs:
   or_cosim/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/sim.log
   or_cosim/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/isa_run.log
   or_cosim/sim/verilator_<TAG>/log/<DUT_KIND>/<elf-name>_<SEED>/isa_commit.log
+
+Waveform dump (TRACE=1 for VCD, TRACE=fst for FST; default 0 = off):
+  build and run must use the same TRACE, because --trace/--trace-fst is a Verilator build
+  option.  The dump lands next to the case logs, named after the ELF (<elf-name>.vcd/.fst);
+  TRACE_DEPTH is the $dumpvars level (0 = the whole hierarchy below the top).
+  For VCS/Verdi FSDB instead, define VCS_FSDB on the VCS command line; Verilator never sees
+  the $fsdb* tasks (they are not standard and are a hard error there), so the two paths are
+  independent and neither affects a normal run.
 USAGE
 }
 
@@ -102,6 +111,11 @@ NO_BUILD=${NO_BUILD:-0}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 4)}
 VERILATOR=${VERILATOR:-verilator}
 OBJDUMP=${OBJDUMP:-riscv64-unknown-elf-objdump}
+
+# Waveform dump: 0 = off (default, no dump code is compiled at all), 1 = VCD, fst = FST.
+# TRACE_DEPTH is the $dumpvars level handed to the tb as WAVE_DEPTH (0 = whole hierarchy below the top).
+TRACE=${TRACE:-0}
+TRACE_DEPTH=${TRACE_DEPTH:-0}
 
 # Relative paths are resolved against the caller's current directory and made absolute: at build time make runs inside the obj directory, so relative -I/-L/rpath would break.
 ISA_MODEL_ROOT=$(abs_path "${ISA_MODEL_ROOT:-$default_isa_model_root}")
@@ -271,6 +285,18 @@ base_defines=(
   $dut_define
 )
 
+# Opt-in waveform dump. With TRACE=0 (default) neither a flag nor a macro is added, so the build is
+# identical to before and the dump block in be_tb_top is not even parsed.
+trace_flags=()
+if [[ "$TRACE" != 0 ]]; then
+  case "$TRACE" in
+    1) trace_flags=(--trace) ;;
+    fst) trace_flags=(--trace-fst) ;;
+    *) die "TRACE must be 0, 1 or fst (got: $TRACE)" ;;
+  esac
+  base_defines+=( -DWAVE_DUMP "-DWAVE_DEPTH=$TRACE_DEPTH" )
+fi
+
 warning_flags=(
   -Wno-fatal
   -Wno-DECLFILENAME
@@ -314,6 +340,7 @@ print_config() {
   echo "[VERILATOR_COSIM] sim_exe=$SIM_EXE"
   echo "[VERILATOR_COSIM] isa_api_inc=$ISA_API_INC"
   echo "[VERILATOR_COSIM] isa_api_lib=$ISA_API_LIB"
+  echo "[VERILATOR_COSIM] trace=$TRACE"
 }
 
 run_lint() {
@@ -340,10 +367,12 @@ run_build() {
     -j "$JOBS" \
     "${warning_flags[@]}" \
     "${base_defines[@]}" \
+    "${trace_flags[@]}" \
     -CFLAGS "-std=c++17 -I$ISA_API_INC" \
     -LDFLAGS "-L$ISA_API_LIB -l_ISA_api -Wl,-rpath,$ISA_API_LIB" \
     "${sv_inputs[@]}" \
     dpi/isa_dpi_wrapper.cc
+  echo "[VERILATOR_COSIM] build OK: $SIM_EXE"
 }
 
 run_case() {
@@ -355,6 +384,7 @@ run_case() {
   local sim_log
   local run_log
   local commit_log
+  local wave_file=""
   local status
   local extra_args=()
   local sim_args=()
@@ -399,6 +429,16 @@ run_case() {
     "${extra_args[@]}"
   )
 
+  # The dump file lands next to the case's logs (sim/ is not checked in), named after the ELF.
+  if [[ "$TRACE" != 0 ]]; then
+    if [[ "$TRACE" == fst ]]; then
+      wave_file="$case_dir/${elf_name}.fst"
+    else
+      wave_file="$case_dir/${elf_name}.vcd"
+    fi
+    sim_args+=( "+WAVE_FILE=$wave_file" )
+  fi
+
   echo "[VERILATOR_COSIM] log_dir=$case_dir"
   set +e
   LD_LIBRARY_PATH="$ISA_API_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
@@ -409,6 +449,9 @@ run_case() {
   echo "[VERILATOR_COSIM] sim_log=$sim_log"
   echo "[VERILATOR_COSIM] isa_run_log=$run_log"
   echo "[VERILATOR_COSIM] isa_commit_log=$commit_log"
+  if [[ -n "$wave_file" ]]; then
+    echo "[VERILATOR_COSIM] wave_file=$wave_file"
+  fi
   if command -v rg >/dev/null 2>&1; then
     rg -i "\[COSIM\]|\[BE\]\[COSIM\]|MISMATCH|%Error|Assertion failed|DPI_EXIT_RESULT|REPORTER_SUMMARY" "$sim_log" || true
     # [FE_EQUIV]/[CACHE_EQUIV] summary lines themselves carry "mismatch=<n>": exclude summary lines first, then search for failure keywords;

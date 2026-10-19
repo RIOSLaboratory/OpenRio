@@ -734,6 +734,39 @@ module be_tb_top;
   initial $fatal(1, "[TB] unsupported DUT_KIND: expected rtl_v1, rtl_fe, rtl_cache, rtl_full or agent");
 `endif
 
+  // ---------------------------------------------------------------------------
+  // Waveform dump. Debug only: with neither macro defined nothing here is compiled, so a normal
+  // run is unchanged. Two independent paths, because the two simulators do not share a dump API:
+  //
+  //   WAVE_DUMP  -- defined by tools/verilator_cosim.sh when TRACE=1 (VCD) or TRACE=fst (FST).
+  //                 Uses the standard $dumpfile/$dumpvars, so any VCD/FST reader -- Verdi included --
+  //                 can open the result. The script forwards the target file as +WAVE_FILE; WAVE_DEPTH
+  //                 (default 0 = the whole hierarchy below the top) is the $dumpvars level.
+  //   VCS_FSDB   -- define with +define+VCS_FSDB on a VCS command line (together with the Verdi PLI
+  //                 options) to get FSDB instead. It must not share WAVE_DUMP: `$fsdbDumpfile`/
+  //                 ``$fsdbDumpvars`` are not standard tasks and Verilator rejects them outright
+  //                 ("Unsupported or unknown PLI call"), which is exactly why they sit behind their own macro.
+  // ---------------------------------------------------------------------------
+`ifdef WAVE_DUMP
+`ifndef WAVE_DEPTH
+  `define WAVE_DEPTH 0
+`endif
+  string wave_file;
+  initial begin : wave_dump
+    if (!$value$plusargs("WAVE_FILE=%s", wave_file)) wave_file = "be_tb_top.vcd";
+    $dumpfile(wave_file);
+    $dumpvars(`WAVE_DEPTH, be_tb_top);
+  end
+`endif
+
+`ifdef VCS_FSDB
+  string fsdb_file;
+  initial begin : fsdb_dump
+    if (!$value$plusargs("FSDB_FILE=%s", fsdb_file)) fsdb_file = "be_tb_top.fsdb";
+    $fsdbDumpfile(fsdb_file);
+    $fsdbDumpvars(0, be_tb_top);
+  end
+`endif
 
   initial begin : clock_generator
     clk = 1'b0;
