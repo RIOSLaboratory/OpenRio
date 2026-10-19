@@ -372,6 +372,7 @@ run_build() {
     -LDFLAGS "-L$ISA_API_LIB -l_ISA_api -Wl,-rpath,$ISA_API_LIB" \
     "${sv_inputs[@]}" \
     dpi/isa_dpi_wrapper.cc
+  echo "[VERILATOR_COSIM] build OK: $SIM_EXE"
 }
 
 run_case() {
