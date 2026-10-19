@@ -1,0 +1,41 @@
+# =============================================================================
+# perf_eval case 模板 —— 这不是生成出来的 case，而是 gen_cases.py 的渲染输入。
+#
+# 占位符：
+#   CASE_ID     case 标识，如 ALU_to_ALU_delta_2（仅用于注释）
+#   CASE_BODY   被测的指令序列（producer + 若干 filler + consumer）
+#
+# 约定：
+#   * .option norvc —— 每条指令都是 4 字节，PC 与指令序号 1:1 对应，
+#     且相邻两条可落在同一个 IB bundle 里。caselist 的 delta_0
+#     "same-bundle slot0 -> slot1" 类 case 依赖这一点。
+#   * 输入寄存器   : x1..x4   （此处设定，case 不得改写）
+#   * producer/临时: x5..x12
+#   * 退出码保留   : x28, x29, x31 —— case 不得触碰
+#   * 退出方式     : 向 `tohost` 写 1（riscv-tests 的 pass 约定）；
+#                    `tohost` 由 templates/link.ld 定义。
+#   * 退出后不得再退休任何指令。收尾用自旋 `1: j 1b`，**不要加 wfi**：
+#     退出由 tohost 存储触发，参考模型在 tohost 处停止；带 wfi 的自旋会被 RTL 反复
+#     退休，产生参考模型没有的提交，比较器随即报 PC_MISMATCH（在 rtl_full 上实测）。
+# =============================================================================
+
+.option norvc
+.section .text
+.globl _start
+
+_start:
+    # ---- setup：确定性的输入值 ------------------------------------------
+    addi x1, zero, 1
+    addi x2, zero, 2
+    addi x3, zero, 3
+    addi x4, zero, 4
+
+    # ---- case body（{CASE_ID}）------------------------------------------
+{CASE_BODY}
+
+    # ---- exit：HTIF tohost = 1 ------------------------------------------
+pass:
+    addi x28, zero, 1
+    la   x29, tohost
+    sd   x28, 0(x29)
+1:  j    1b
