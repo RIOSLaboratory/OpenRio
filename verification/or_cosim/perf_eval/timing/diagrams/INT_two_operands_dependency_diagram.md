@@ -57,8 +57,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x8, x1, x2` · P3 source·G1 |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x8 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x8<br>**INT_tag_mapping** clear busy |  |  |
 | `add x20, x8, x6` · Dependent·G0 |  |  |  |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[0] tag(x6), ready<br>capture Bypass[1] tag(x8), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T11 (Source composition)**: dependent P1 resolves rs1 as `G1 P3 Bypass` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
-- **T11 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T12, not in the capture cycle.
+- **T11 (Source composition):** dependent P1 resolves rs1 as `G1 P3 Bypass` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
+- **T11 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T12, not in the capture cycle.
 
 ## Case 2: INT2_G3P3_G0P3
 
@@ -71,8 +71,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x1, x2` · P3 source·G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |
 | `add x20, x7, x5` · Dependent·G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[3] tag(x7), ready<br>capture Bypass[0] tag(x5), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T5 (Source composition)**: dependent P1 resolves rs1 as `G3 Load P3 Bypass` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
-- **T5 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T6, not in the capture cycle.
+- **T5 (Source composition):** dependent P1 resolves rs1 as `G3 Load P3 Bypass` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
+- **T5 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T6, not in the capture cycle.
 
 ## Case 3: INT2_P4_G0P3
 
@@ -85,9 +85,9 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x1, x2` · P3 source·G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x20, x6, x5` · Dependent·G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x6), ready<br>capture Bypass[0] tag(x5), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |  |
 
-- **T5 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
-- **T5 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T6, not in the capture cycle.
-- **T5 (P4 capture, P4 → P1 bypass)**: every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
+- **T5 (Source composition):** dependent P1 resolves rs1 as `P4 Commit` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
+- **T5 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T6, not in the capture cycle.
+- **T5 (P4 capture, P4 → P1 bypass):** every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
 
 ## Case 4: INT2_ARF_G0P3
 
@@ -100,9 +100,9 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x3, x4` · P3 source·G0 |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |
 | `add x20, x10, x5` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x10<br>capture Bypass[0] tag(x5), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `Already in ARF` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
-- **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
-- **T6 (ARF source, no bypass)**: the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `Already in ARF` and rs2 as `G0 P3 Bypass` in one source-resolution cycle.
+- **T6 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
+- **T6 (ARF source, no bypass):** the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
 
 ## Case 5: INT2_G0P3_IMM
 
@@ -114,9 +114,9 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x1, x2` · P3 source·G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `addi x20, x5, 16` · Dependent·G0 |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[0] tag(x5), ready<br>use IMM<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute addi | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |  |  |
 
-- **T4 (Source composition)**: dependent P1 resolves rs1 as `G0 P3 Bypass` and rs2 as `IMM` in one source-resolution cycle.
-- **T4 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T5, not in the capture cycle.
-- **T4 (Immediate source)**: the immediate operand is ready by construction and has no dependency tag.
+- **T4 (Source composition):** dependent P1 resolves rs1 as `G0 P3 Bypass` and rs2 as `IMM` in one source-resolution cycle.
+- **T4 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T5, not in the capture cycle.
+- **T4 (Immediate source):** the immediate operand is ready by construction and has no dependency tag.
 
 ## Case 6: INT2_G3P3_G1P3
 
@@ -129,8 +129,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `ld x7, 0(x8)` · P3 source·G3 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x7 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x7<br>**INT_tag_mapping** clear busy |  |  |
 | `add x20, x7, x6` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[1] tag(x6), ready<br>capture Bypass[3] tag(x7), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `G3 Load P3 Bypass` and rs2 as `G1 P3 Bypass` in one source-resolution cycle.
-- **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `G3 Load P3 Bypass` and rs2 as `G1 P3 Bypass` in one source-resolution cycle.
+- **T6 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
 
 ## Case 7: INT2_P4_G1P3
 
@@ -167,9 +167,9 @@ slower than the committing one, and G1's ALU is what makes that hold.
 | `mul x6, x3, x4` · P3 source·G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x6 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |
 | `add x20, x10, x6` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x10<br>capture Bypass[1] tag(x6), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `Already in ARF` and rs2 as `G1 P3 Bypass` in one source-resolution cycle.
-- **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
-- **T6 (ARF source, no bypass)**: the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `Already in ARF` and rs2 as `G1 P3 Bypass` in one source-resolution cycle.
+- **T6 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
+- **T6 (ARF source, no bypass):** the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
 
 ## Case 9: INT2_G1P3_IMM
 
@@ -181,9 +181,9 @@ slower than the committing one, and G1's ALU is what makes that hold.
 | `mul x6, x3, x4` · P3 source·G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x6 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |
 | `addi x20, x6, 16` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[1] tag(x6), ready<br>use IMM<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute addi | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `G1 P3 Bypass` and rs2 as `IMM` in one source-resolution cycle.
-- **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
-- **T6 (Immediate source)**: the immediate operand is ready by construction and has no dependency tag.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `G1 P3 Bypass` and rs2 as `IMM` in one source-resolution cycle.
+- **T6 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
+- **T6 (Immediate source):** the immediate operand is ready by construction and has no dependency tag.
 
 ## Case 10: INT2_P4_G3P3_blocked
 
@@ -222,9 +222,9 @@ meet. The LOAD is injected late enough that its P3 lands on the held commit (T12
 | `ld x6, 0(x10)` · P3 source·G3 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x6 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |
 | `add x20, x11, x6` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x11<br>capture Bypass[3] tag(x6), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `Already in ARF` and rs2 as `G3 Load P3 Bypass` in one source-resolution cycle.
-- **T6 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
-- **T6 (ARF source, no bypass)**: the ARF source committed at T5, so it is readable from ARF at T6; `INT_tag_mapping` is not busy for that operand.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `Already in ARF` and rs2 as `G3 Load P3 Bypass` in one source-resolution cycle.
+- **T6 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T7, not in the capture cycle.
+- **T6 (ARF source, no bypass):** the ARF source committed at T5, so it is readable from ARF at T6; `INT_tag_mapping` is not busy for that operand.
 
 ## Case 12: INT2_G3P3_IMM
 
@@ -236,9 +236,9 @@ meet. The LOAD is injected late enough that its P3 lands on the held commit (T12
 | `ld x6, 0(x10)` · P3 source·G3 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x6 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |
 | `addi x20, x6, 16` · Dependent·G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[3] tag(x6), ready<br>use IMM<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute addi | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T5 (Source composition)**: dependent P1 resolves rs1 as `G3 Load P3 Bypass` and rs2 as `IMM` in one source-resolution cycle.
-- **T5 (P3 capture, P3 → P1 bypass)**: every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T6, not in the capture cycle.
-- **T5 (Immediate source)**: the immediate operand is ready by construction and has no dependency tag.
+- **T5 (Source composition):** dependent P1 resolves rs1 as `G3 Load P3 Bypass` and rs2 as `IMM` in one source-resolution cycle.
+- **T5 (P3 capture, P3 → P1 bypass):** every P3 source uses exact-tag Bypass capture into the new `dispatch` payload; the dependent issues at T6, not in the capture cycle.
+- **T5 (Immediate source):** the immediate operand is ready by construction and has no dependency tag.
 
 ## Case 13: INT2_P4_P4
 
@@ -251,8 +251,8 @@ meet. The LOAD is injected late enough that its P3 lands on the held commit (T12
 | `add x6, x3, x4` · P4 source·G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x6 | `[ ALU1 ]`<br>execute add | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `add x20, x5, x6` · Dependent·G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x5), ready<br>capture Commit CDB tag(x6), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |  |
 
-- **T5 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `P4 Commit` in one source-resolution cycle.
-- **T5 (P4 capture, P4 → P1 bypass)**: every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
+- **T5 (Source composition):** dependent P1 resolves rs1 as `P4 Commit` and rs2 as `P4 Commit` in one source-resolution cycle.
+- **T5 (P4 capture, P4 → P1 bypass):** every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
 
 ## Case 14: INT2_ARF_P4
 
@@ -265,9 +265,9 @@ meet. The LOAD is injected late enough that its P3 lands on the held commit (T12
 | `add x6, x3, x4` · P4 source·G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x20, x10, x6` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x10<br>capture Commit CDB tag(x6), ready<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `Already in ARF` and rs2 as `P4 Commit` in one source-resolution cycle.
-- **T6 (P4 capture, P4 → P1 bypass)**: every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
-- **T6 (ARF source, no bypass)**: the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `Already in ARF` and rs2 as `P4 Commit` in one source-resolution cycle.
+- **T6 (P4 capture, P4 → P1 bypass):** every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
+- **T6 (ARF source, no bypass):** the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
 
 ## Case 15: INT2_P4_IMM
 
@@ -279,9 +279,9 @@ meet. The LOAD is injected late enough that its P3 lands on the held commit (T12
 | `add x5, x1, x2` · P4 source·G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `addi x20, x5, 16` · Dependent·G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x5), ready<br>use IMM<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute addi | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |  |
 
-- **T5 (Source composition)**: dependent P1 resolves rs1 as `P4 Commit` and rs2 as `IMM` in one source-resolution cycle.
-- **T5 (P4 capture, P4 → P1 bypass)**: every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
-- **T5 (Immediate source)**: the immediate operand is ready by construction and has no dependency tag.
+- **T5 (Source composition):** dependent P1 resolves rs1 as `P4 Commit` and rs2 as `IMM` in one source-resolution cycle.
+- **T5 (P4 capture, P4 → P1 bypass):** every P4 source uses exact-tag Commit CDB capture and suppresses Condition A for that source.
+- **T5 (Immediate source):** the immediate operand is ready by construction and has no dependency tag.
 
 ## Case 16: INT2_ARF_ARF
 
@@ -294,8 +294,8 @@ meet. The LOAD is injected late enough that its P3 lands on the held commit (T12
 | `add x11, x3, x4` · ARF source·G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x11 | `[ ALU1 ]`<br>execute add | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x11<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `add x20, x10, x11` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x10<br>read **INT_ARF** x11<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `Already in ARF` and rs2 as `Already in ARF` in one source-resolution cycle.
-- **T6 (ARF source, no bypass)**: the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `Already in ARF` and rs2 as `Already in ARF` in one source-resolution cycle.
+- **T6 (ARF source, no bypass):** the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
 
 ## Case 17: INT2_ARF_IMM
 
@@ -307,9 +307,9 @@ meet. The LOAD is injected late enough that its P3 lands on the held commit (T12
 | `add x10, x1, x2` · ARF source·G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x10 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x10<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `addi x20, x10, 16` · Dependent·G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x10<br>use IMM<br>write **ISQ_Group0**<br>rename x20 | `[ ALU0 ]`<br>execute addi | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x20<br>**INT_tag_mapping** clear busy |
 
-- **T6 (Source composition)**: dependent P1 resolves rs1 as `Already in ARF` and rs2 as `IMM` in one source-resolution cycle.
-- **T6 (ARF source, no bypass)**: the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
-- **T6 (Immediate source)**: the immediate operand is ready by construction and has no dependency tag.
+- **T6 (Source composition):** dependent P1 resolves rs1 as `Already in ARF` and rs2 as `IMM` in one source-resolution cycle.
+- **T6 (ARF source, no bypass):** the ARF source has already committed before dependent P1, so `INT_tag_mapping` is not busy for that operand.
+- **T6 (Immediate source):** the immediate operand is ready by construction and has no dependency tag.
 
 ## P2 MUX Resident-Entry Cases
 

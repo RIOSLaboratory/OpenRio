@@ -235,6 +235,12 @@ add x6, x5, x3
 ```
 
 Direct D-cache hit, no ISB / WB merging (the only path this caselist enumerates).
+`L = 2` counts from `[ISQ_FIRE]` to the cycle in which the LSU makes the result
+visible to BE (`lsu_be_bypass_valid`), so it is anchored on the BE–LSU boundary
+and not on the LSU's internal `E1…E3` split. Re-confirm the number against the
+frozen `openrios/work/or-be-draft/interfaces/BE_LSU_interface.md` before treating
+it as final: the abandoned three-cycle value came from an older behavioral model
+of this same boundary.
 
 | Case | G | Instructions | Fillers after each | Behavior |
 |:---|:---|:---|:---|:---|

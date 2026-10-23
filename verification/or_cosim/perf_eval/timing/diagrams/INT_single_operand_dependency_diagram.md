@@ -93,9 +93,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x3` - Dependent-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>overlay tag(x5)<br>rename x6 | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU1 ]`<br>**ISQ_Group1** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T2 (Rename overlay):** the dependent is accepted in the same bundle and stores the producer's freshly allocated tag as its `wait_tag`, so its ISQ wait is armed with no dispatch-side capture.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the producer's P3 bypass matches the stored `wait_tag` and feeds the FU input directly; the dependent issues in the same cycle if the selected FU is free.
 
 ## Case 2: ALU_to_ALU_delta_1 (wait_for_p3)
 
@@ -107,9 +106,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `sub x5, x3, x4` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute sub | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x7` - Dependent-G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |  |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T3 (Wait-tag dispatch):** the dependent dispatches before the producer's P3, so the value does not exist yet and it can only record `wait_tag` — the wakeup has to come from the resident-entry path, not from dispatch-time capture.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the producer's P3 bypass matches the stored `wait_tag` on the very next cycle and feeds the FU input directly; the dependent issues in the same cycle if the selected FU is free.
 
 ## Case 3: ALU_to_ALU_delta_2 (p3_capture)
 
@@ -121,9 +119,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[0] tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |  |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
-- **T5 (Issue):** the dependent issues one cycle after ready payload construction.
+- **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 lands exactly on the producer's P3, so the bypass is written straight into a *ready* ISQ payload — the resident-wait path is skipped entirely, and the dependent issues on the following cycle without ever parking on a tag.
 
 ## Case 4: ALU_to_ALU_delta_3 (p4_capture)
 
@@ -135,9 +131,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
-- **T6 (Issue):** the dependent issues one cycle after ready payload construction.
+- **T5 (P4 capture, P4 → P1 bypass):** the producer's P3 has already passed, so the only remaining value source is the Commit CDB at P4; capturing there is also what keeps the dependent out of the completed-but-uncommitted stall — it leaves P1 with a ready payload instead of a `wait_tag`.
 
 ## Case 5: ALU_to_ALU_delta_4 (arf_read)
 
@@ -149,9 +143,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `add x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x5<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
-- **T7 (Issue):** the dependent issues one cycle after ready payload construction.
+- **T6 (ARF read, no bypass):** both bypass windows are shut — the producer committed at T5 and `INT_tag_mapping` cleared the entry — so the source is no longer a producer tag at all; the dependent reads `INT_ARF` at P1 as an ordinary architected operand and issues without any wakeup.
 
 ## Case 6: MUL_to_ALU_delta_0 (overlay)
 
@@ -163,9 +155,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x5, x1, x2` - Producer-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x5 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>overlay tag(x5)<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[1] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[1] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[1] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[1] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T2 (Rename overlay):** the dependent is accepted in the same bundle and stores the producer's freshly allocated tag as its `wait_tag`, so its ISQ wait is armed with no dispatch-side capture.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the MUL's P3 bypass matches the stored `wait_tag` and feeds the FU input directly; the three internal MUL steps do not matter to the consumer, only the tag on the last one.
 
 ## Case 7: MUL_to_ALU_delta_1 (wait_for_p3)
 
@@ -177,9 +168,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x5, x3, x4` - Producer-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x5 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x7, x5, x8` - Dependent-G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x7 | `[ ISQ_Group0 ]`<br>wait for Bypass[1] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[1] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[1] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x7<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T3 (Wait-tag dispatch):** the dependent dispatches three cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks in the ISQ for T3–T5.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the bypass matches the parked tag and wakes the entry in the cycle the MUL result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 
 ## Case 8: MUL_to_ALU_delta_2 (wait_for_p3)
 
@@ -191,9 +181,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x5, x1, x2` - Producer-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x5 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[1] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[1] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T4 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T4 (Wait-tag dispatch):** two cycles before the producer's P3 — still a `wait_tag` dispatch, since a dispatch capture needs the value to be on the bypass in that same cycle.
+- **T6 (Resident wakeup, P3 → P2 bypass):** identical mechanism to `delta_1`; only the park length (T4–T5 instead of T3–T5) differs, which is exactly why the two cases share one label.
 
 ## Case 9: MUL_to_ALU_delta_3 (wait_for_p3)
 
@@ -205,9 +194,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x5, x1, x2` - Producer-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x5 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[1] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T5 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T6 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
+- **T5 (Wait-tag dispatch):** the last `wait_for_p3` case — dispatched one cycle before P3, so the entry parks for a single cycle. One cycle later it would land on the bypass and become `p3_capture`.
+- **T6 (Resident wakeup, P3 → P2 bypass):** the parked entry wakes on the tag match and issues in that cycle.
 
 ## Case 10: MUL_to_ALU_delta_4 (p3_capture)
 
@@ -219,9 +207,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x5, x1, x2` - Producer-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x5 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[1] tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T6 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
-- **T7 (Issue):** the dependent issues one cycle after ready payload construction.
+- **T6 (P3 capture, P3 → P1 bypass):** the dependent's P1 lands exactly on the producer's P3, so the bypass is written straight into a *ready* ISQ payload — the resident-wait path is skipped entirely, and the dependent issues on the following cycle without ever parking on a tag.
 
 ## Case 11: MUL_to_ALU_delta_5 (p4_capture)
 
@@ -233,9 +219,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x5, x1, x2` - Producer-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x5 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T7 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
-- **T8 (Issue):** the dependent issues one cycle after ready payload construction.
+- **T7 (P4 capture, P4 → P1 bypass):** the producer's P3 has already passed, so the only remaining value source is the Commit CDB at P4; capturing there is also what keeps the dependent out of the completed-but-uncommitted stall — it leaves P1 with a ready payload instead of a `wait_tag`.
 
 ## Case 12: MUL_to_ALU_delta_6 (arf_read)
 
@@ -247,9 +231,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `mul x5, x1, x2` - Producer-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>rename x5 | `[ MUL ]`<br>execute mul step 1/3 | `[ MUL ]`<br>execute mul step 2/3 | `[ MUL ]`<br>execute mul step 3/3 | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x5<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T6, P4 at T7, and ARF-ready at T8.
-- **T8 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
-- **T9 (Issue):** the dependent issues one cycle after ready payload construction.
+- **T8 (ARF read, no bypass):** both bypass windows are shut — the producer committed at T7 and `INT_tag_mapping` cleared the entry — so the source is no longer a producer tag at all; the dependent reads `INT_ARF` at P1 as an ordinary architected operand and issues without any wakeup.
 
 ## Case 13: DIV_to_ALU_delta_0 (overlay)
 
@@ -261,10 +243,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>overlay tag(x5)<br>rename x6 | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU1 ]`<br>**ISQ_Group1** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T2 (Rename overlay):** the dependent is accepted in the same bundle and stores the producer's freshly allocated tag as its `wait_tag`, so its ISQ wait is armed with no dispatch-side capture.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the internal steps of the producer only decide *when* that cycle is, never *whether* the match happens.
 ## Case 14: DIV_to_ALU_delta_1 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -275,10 +255,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x3, x4` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x7, x5, x8` - Dependent-G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x7 | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x7<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T3 (Wait-tag dispatch):** the dependent dispatches 8 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T3 to T10.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts. This is the deepest park in the family; nothing scales with its length — only the tag on the last cycle matters.
 ## Case 15: DIV_to_ALU_delta_2 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -289,10 +267,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T4 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T4 (Wait-tag dispatch):** the dependent dispatches 7 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T4 to T10.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 16: DIV_to_ALU_delta_3 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -303,10 +279,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T5 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T5 (Wait-tag dispatch):** the dependent dispatches 6 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T5 to T10.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 17: DIV_to_ALU_delta_4 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -317,10 +291,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T6 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T6 (Wait-tag dispatch):** the dependent dispatches 5 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T6 to T10.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 18: DIV_to_ALU_delta_5 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -331,10 +303,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T7 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T7 (Wait-tag dispatch):** the dependent dispatches 4 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T7 to T10.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 19: DIV_to_ALU_delta_6 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -345,10 +315,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T8 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T8 (Wait-tag dispatch):** the dependent dispatches 3 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T8 to T10.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 20: DIV_to_ALU_delta_7 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -359,10 +327,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T9 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T9 (Wait-tag dispatch):** the dependent dispatches 2 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T9 to T10.
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 21: DIV_to_ALU_delta_8 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -373,10 +339,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T10 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T11 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T10 (Wait-tag dispatch):** the dependent dispatches 1 cycle before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks for that single cycle (T10).
+- **T11 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts. The shortest park on this path: one cycle later the dispatch would land on the bypass and the case would be `p3_capture`.
 ## Case 22: DIV_to_ALU_delta_9 (p3_capture)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -387,10 +351,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[0] tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T11 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
-- **T12 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T11 (P3 capture, P3 → P1 bypass):** the dependent's P1 lands exactly on the producer's P3, so the bypass is written straight into a *ready* ISQ payload — the resident-wait path is skipped entirely, and the dependent issues on the following cycle without ever parking on a tag.
 ## Case 23: DIV_to_ALU_delta_10 (p4_capture)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -401,10 +362,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T12 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
-- **T13 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T12 (P4 capture, P4 → P1 bypass):** the producer's P3 has already passed, so the only remaining value source is the Commit CDB at P4; capturing there is also what keeps the dependent out of the completed-but-uncommitted stall — it leaves P1 with a ready payload instead of a `wait_tag`.
 ## Case 24: DIV_to_ALU_delta_11 (arf_read)
 
 **Dimension:** INT single-operand dependency | **Equiv:** DIV_to_ALU
@@ -415,10 +373,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `div x5, x1, x2` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ DIV ]`<br>divide step 1/8 | `[ DIV ]`<br>divide step 2/8 | `[ DIV ]`<br>divide step 3/8 | `[ DIV ]`<br>divide step 4/8 | `[ DIV ]`<br>divide step 5/8 | `[ DIV ]`<br>divide step 6/8 | `[ DIV ]`<br>divide step 7/8 | `[ DIV ]`<br>divide step 8/8 | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  |  |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x5<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T11, P4 at T12, and ARF-ready at T13.
-- **T13 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
-- **T14 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T13 (ARF read, no bypass):** both bypass windows are shut — the producer committed at T12 and `INT_tag_mapping` cleared the entry — so the source is no longer a producer tag at all; the dependent reads `INT_ARF` at P1 as an ordinary architected operand and issues without any wakeup.
 ## Case 25: LOAD_to_ALU_delta_0 (overlay)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
@@ -429,10 +384,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `ld x5, 0(x1)` - Producer-G3 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x5 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>overlay tag(x5)<br>rename x6 | `[ ISQ_Group0 ]`<br>wait for Bypass[3] tag(x5) | `[ ISQ_Group0 ]`<br>wait for Bypass[3] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[3] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T5, P4 at T6, and ARF-ready at T7.
-- **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **T5 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T2 (Rename overlay):** the dependent is accepted in the same bundle and stores the producer's freshly allocated tag as its `wait_tag`, so its ISQ wait is armed with no dispatch-side capture.
+- **T5 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the internal steps of the producer only decide *when* that cycle is, never *whether* the match happens.
 ## Case 26: LOAD_to_ALU_delta_1 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
@@ -443,10 +396,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `lw x5, 8(x2)` - Producer-G3 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x5 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x7, x5, x8` - Dependent-G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x7 | `[ ISQ_Group0 ]`<br>wait for Bypass[3] tag(x5) | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[3] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x7<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T5, P4 at T6, and ARF-ready at T7.
-- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T5 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T3 (Wait-tag dispatch):** the dependent dispatches 2 cycles before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks from T3 to T4.
+- **T5 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 27: LOAD_to_ALU_delta_2 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
@@ -457,10 +408,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `ld x5, 0(x1)` - Producer-G3 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x5 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[3] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T5, P4 at T6, and ARF-ready at T7.
-- **T4 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T5 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T4 (Wait-tag dispatch):** the dependent dispatches 1 cycle before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks for that single cycle (T4).
+- **T5 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 28: LOAD_to_ALU_delta_3 (p3_capture)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
@@ -471,10 +420,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `ld x5, 0(x1)` - Producer-G3 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x5 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[3] tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T5, P4 at T6, and ARF-ready at T7.
-- **T5 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
-- **T6 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T5 (P3 capture, P3 → P1 bypass):** the dependent's P1 lands exactly on the producer's P3, so the bypass is written straight into a *ready* ISQ payload — the resident-wait path is skipped entirely, and the dependent issues on the following cycle without ever parking on a tag.
 ## Case 29: LOAD_to_ALU_delta_4 (p4_capture)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
@@ -485,10 +431,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `ld x5, 0(x1)` - Producer-G3 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x5 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T5, P4 at T6, and ARF-ready at T7.
-- **T6 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
-- **T7 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T6 (P4 capture, P4 → P1 bypass):** the producer's P3 has already passed, so the only remaining value source is the Commit CDB at P4; capturing there is also what keeps the dependent out of the completed-but-uncommitted stall — it leaves P1 with a ready payload instead of a `wait_tag`.
 ## Case 30: LOAD_to_ALU_delta_5 (arf_read)
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
@@ -499,10 +442,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `ld x5, 0(x1)` - Producer-G3 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group3**<br>rename x5 | `[ AGU ]`<br>compute address | `[ L1D ]`<br>access **L1D**, hit | `[ WB ]`<br>drive Bypass[3] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x5<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T5, P4 at T6, and ARF-ready at T7.
-- **T7 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
-- **T8 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T7 (ARF read, no bypass):** both bypass windows are shut — the producer committed at T6 and `INT_tag_mapping` cleared the entry — so the source is no longer a producer tag at all; the dependent reads `INT_ARF` at P1 as an ordinary architected operand and issues without any wakeup.
 ## Case 31: JALR_to_ALU_delta_0 (overlay)
 
 **Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
@@ -513,10 +453,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `jalr x5, 0(x10)` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ BRU ]`<br>compute link | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x6, x5, x3` - Dependent-G1 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group1**<br>overlay tag(x5)<br>rename x6 | `[ ISQ_Group1 ]`<br>wait for Bypass[0] tag(x5) | `[ ALU1 ]`<br>**ISQ_Group1** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[1] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T2 (Rename overlay):** dependent is accepted in the same dispatch bundle and carries the newly allocated producer tag.
-- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T2 (Rename overlay):** the dependent is accepted in the same bundle and stores the producer's freshly allocated tag as its `wait_tag`, so its ISQ wait is armed with no dispatch-side capture.
+- **T4 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the internal steps of the producer only decide *when* that cycle is, never *whether* the match happens.
 ## Case 32: JALR_to_ALU_delta_1 (wait_for_p3)
 
 **Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
@@ -527,10 +465,8 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `jalr x5, 0(x10)` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ BRU ]`<br>compute link | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |
 | `add x7, x5, x8` - Dependent-G0 |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x7 | `[ ALU0 ]`<br>**ISQ_Group0** capture Bypass[0] tag(x5)<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x7<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T3 (Wait-tag dispatch):** dependent enters dispatch before producer P3 and waits resident in ISQ until the P3 forwarding match.
-- **T4 (Resident wakeup, P3 → P2 bypass):** the P3 bypass satisfies the stored `wait_tag` and feeds the FU input directly; if the selected FU is free, the dependent issues in that cycle.
-
+- **T3 (Wait-tag dispatch):** the dependent dispatches 1 cycle before the producer's P3, so the value cannot exist yet and it only records `wait_tag`; it then parks for that single cycle (T3).
+- **T4 (Resident wakeup, P3 → P2 bypass):** the bypass matches the stored tag and wakes the entry in the cycle the result appears; the park length is a consequence of `delta`, not something the wakeup logic counts.
 ## Case 33: JALR_to_ALU_delta_2 (p3_capture)
 
 **Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
@@ -541,10 +477,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `jalr x5, 0(x10)` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ BRU ]`<br>compute link | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Bypass[0] tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 sees the producer's P3 bypass and captures the data into a new ready ISQ payload.
-- **T5 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T4 (P3 capture, P3 → P1 bypass):** the dependent's P1 lands exactly on the producer's P3, so the bypass is written straight into a *ready* ISQ payload — the resident-wait path is skipped entirely, and the dependent issues on the following cycle without ever parking on a tag.
 ## Case 34: JALR_to_ALU_delta_3 (p4_capture)
 
 **Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
@@ -555,10 +488,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `jalr x5, 0(x10)` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ BRU ]`<br>compute link | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>capture Commit CDB tag(x5), ready<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T5 (P4 capture, P4 → P1 bypass):** the dependent's P1 captures the Commit CDB data through the P4 → P1 path; this also suppresses the completed-in-Buffer stall path.
-- **T6 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T5 (P4 capture, P4 → P1 bypass):** the producer's P3 has already passed, so the only remaining value source is the Commit CDB at P4; capturing there is also what keeps the dependent out of the completed-but-uncommitted stall — it leaves P1 with a ready payload instead of a `wait_tag`.
 ## Case 35: JALR_to_ALU_delta_4 (arf_read)
 
 **Dimension:** INT single-operand dependency | **Equiv:** JALR_to_ALU
@@ -569,10 +499,7 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 | `jalr x5, 0(x10)` - Producer-G0 | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>write **ISQ_Group0**<br>rename x5 | `[ BRU ]`<br>compute link | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x5<br>**INT_tag_mapping** clear busy |  |  |  |  |
 | `add x6, x5, x3` - Dependent-G0 |  |  |  |  | `[ IB ]`<br>enqueue instruction | `[ dispatch ]`<br>allocate **scoreboard** entry<br>read **INT_ARF** x5<br>write **ISQ_Group0**<br>rename x6 | `[ ALU0 ]`<br>execute add | `[ WB ]`<br>drive Bypass[0] tag+data<br>**scoreboard** set exec_done<br>**Buffer** write result | `[ C ]`<br>commit<br>**INT_ARF** write x6<br>**INT_tag_mapping** clear busy |
 
-- **T2 (Producer dispatch):** producer enters its group-local ISQ; normal boundaries are P3 at T4, P4 at T5, and ARF-ready at T6.
-- **T6 (ARF read, no bypass):** the producer has committed and its mapping is no longer busy, so the dependent reads architectural data from ARF at P1.
-- **T7 (Issue):** the dependent issues one cycle after ready payload construction.
-
+- **T6 (ARF read, no bypass):** both bypass windows are shut — the producer committed at T5 and `INT_tag_mapping` cleared the entry — so the source is no longer a producer tag at all; the dependent reads `INT_ARF` at P1 as an ordinary architected operand and issues without any wakeup.
 ## Case 36: ALU_to_ALU_delta_3_p4blocked (p4_capture, commit held)
 
 **Dimension:** INT single-operand dependency | **Equiv:** ALU_to_ALU
@@ -693,6 +620,10 @@ If a resident entry matches a P3 source in P2 but the selected FU cannot issue i
 
 **Dimension:** INT single-operand dependency | **Equiv:** LOAD_to_ALU
 **Description:** The producer writes back on the nominal cycle but cannot commit, because an older instruction is still in flight and retirement is in order, so its result stays in the Buffer. The dependent therefore finds no Commit CDB at its nominal P1 and must stall instead of capturing from P4.
+
+> **Status: retest pending.** The schedule below is the nominal P4-capture timing. The earlier `delta_5`
+> form of this case passed; the `delta_4` form has not reproduced the target state yet, so it must be
+> re-measured before it counts as passing. See `INT_single_operand_dependency_caselist_v1.md` §P4-blocked.
 
 | Instruction | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 | T12 | T13 | T14 | T15 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|

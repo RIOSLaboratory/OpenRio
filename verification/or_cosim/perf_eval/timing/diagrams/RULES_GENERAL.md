@@ -261,8 +261,8 @@ does in that cycle. This table is normative for the OR BE figures.
 | P2 MUL | `[ MUL ]` | — | `execute mul step n/3` |
 | P2 DIV | `[ DIV ]` | — | `divide step n/8` |
 | P2 BRU | `[ BRU ]` | — | `resolve control`, `compute link` |
-| P2 AGU | `[ AGU ]` | — | `compute address` |
-| P2 L1D | `[ L1D ]` | — | `access **L1D**, hit` / `miss` |
+| P2 AGU † | `[ AGU ]` | — | `compute address` |
+| P2 L1D † | `[ L1D ]` | — | `access **L1D**, hit` / `miss` |
 | P3 | `[ WB ]` | `hold` when the P3 arbiter loses | `drive Bypass[g] tag+data`, `**scoreboard** set exec_done`, `**Buffer** write result`; loser: state `hold`, `drive Bypass[g] tag+data, blocked`, `(older ... has priority)` |
 | P3 hold | `[ Buffer ]` | `hold` | `wait for commit` |
 | P4 | `[ C ]` | — | `commit`, `**INT_ARF** write rd`, `**INT_tag_mapping** clear busy`; commit loser: state `hold`, `wait for commit slot, blocked` |
@@ -300,6 +300,21 @@ Notes:
   bypass payload.
 - `Bypass[g]`, `P3 bypass` and `Commit CDB` are buses, not blocks: keep them
   plain, not bold.
+- † `[ AGU ]` and `[ L1D ]` name cycles **inside the external LSU**, not
+  BE-owned P2 stages: `BE_LSU_interface.md` §2 states that the address is
+  computed by the AGU inside the LSU. They are borrowed so that a LOAD producer
+  row stays readable. The BE-side boundary for G3 is the `g3_lsu_iface` issue
+  handshake plus the LSU result return, and neither owns a cell of its own. Do
+  **not** treat `AGU` / `L1D` as BE submodules when the owner names are checked
+  against the HAS.
+- A G3 producer's `[ WB ]` assumes that the three result events land in the
+  **same cycle** on the direct-hit path: the bypass copy
+  (`lsu_be_bypass_valid`), the result data (`lsu_be_writeback_pld`) and the
+  completion (`lsu_be_rob_done_valid`). The interface explicitly allows
+  `rob_done` to arrive later than the data, and `latency_table.py` anchors `L`
+  on the bypass only — so a late `rob_done` would move `C` and invalidate every
+  P4 column of the figure. That situation is **out of scope** for this case set:
+  state the assumption when it matters, do not model the late case.
 
 ## G7. Open items
 
