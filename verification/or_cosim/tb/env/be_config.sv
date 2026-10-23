@@ -10,6 +10,7 @@ class be_config;
   int unsigned cache_store_done_delay_cycles;
   int unsigned reporter_error_fatal_threshold;
   bit cosim_enable;
+  bit cosim_ob_log;
   int unsigned cosim_level;
   string cosim_backend;
   int unsigned cosim_reference_rob_size;
@@ -28,6 +29,7 @@ class be_config;
     // To see later behavior, lift it with +ERROR_LIMIT=0. The agent kind has 216 cases with zero errors, unaffected.
     reporter_error_fatal_threshold = 1;
     cosim_enable = 1'b0;
+    cosim_ob_log = 1'b1;
     cosim_level = 1;
     cosim_backend = "isa_step";
     cosim_reference_rob_size = 16;
@@ -82,6 +84,7 @@ class be_config;
         reporter_error_fatal_threshold = value;
     end
     if ($value$plusargs("COSIM_ENABLE=%d", value)) cosim_enable = (value != 0);
+    if ($value$plusargs("COSIM_OB_LOG=%d", value)) cosim_ob_log = (value != 0);
     if ($value$plusargs("COSIM_LEVEL=%d", value)) cosim_level = value;
     if ($value$plusargs("COSIM_BACKEND=%s", value_string)) cosim_backend = value_string;
     if ($value$plusargs("COSIM_REFERENCE_ROB_SIZE=%d", value)) begin

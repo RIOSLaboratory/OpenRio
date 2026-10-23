@@ -1433,7 +1433,8 @@ class be_agent;
         //    cycle_count, group, rob_idx, model_rd_valid, model_rd_we,
         //    model_rd_fp, model_rd_idx, model_rd_value,
         //    model_recovery_kind, model_redirect_pc));
-        cfg.print_be(1, $sformatf(
+        if (cfg.cosim_ob_log)
+          cfg.print_be(1, $sformatf(
             "[BE][COSIM_OB] cycle=%0d group=%0d pc=0x%08h rob=%0d rd_we=%0d rd_fp=%0d rd_idx=%0d result=0x%016h recovery_kind=%0d redirect_pc=0x%016h",
             cycle_count, group, ob_vif.commit_pc[group], rob_idx, ob_cosim_vif.commit_rd_write_enable[group],
             ob_cosim_vif.commit_rd_is_fp[group], ob_cosim_vif.commit_rd_idx[group], ob_cosim_vif.commit_result[group],

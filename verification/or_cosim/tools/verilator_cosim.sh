@@ -18,6 +18,11 @@ Options:
   --verbosity <1|2|3>           Testbench print level. Default: 3
   --cosim-enable <0|1>          +COSIM_ENABLE. Default: 1
   --cosim-backend <name>        +COSIM_BACKEND. Default: isa_step
+  --isa-log <all|commit|none>   ISA model log volume. all = run+commit (default),
+                                commit = commit only, none = off. Long benchmarks
+                                (Embench) should use none or commit.
+  --cosim-ob-log <0|1>          Per-commit [BE][COSIM_OB] lines in sim.log.
+                                Default: 1; set 0 for long benchmarks.
   --plusargs '<args>'           Extra simulator plusargs, split on shell whitespace.
   --no-build                    For run, use the existing executable.
   -h, --help                    Show this help.
@@ -25,7 +30,7 @@ Options:
 Environment overrides:
   VERILATOR, JOBS, ISA_MODEL_ROOT, ISA_API_INC, ISA_API_LIB, ISA_CFG,
   VERILATOR_BUILD_ROOT, VERILATOR_LOG_ROOT, OBJ_DIR, SIM_EXE, OBJDUMP,
-  TRACE, TRACE_DEPTH.
+  TRACE, TRACE_DEPTH, ISA_LOG, COSIM_OB_LOG.
 
 ISA model lookup:
   A full ISA model checkout (src/libs and build) under ISA_MODEL_ROOT, or found
@@ -106,6 +111,8 @@ SIM_TIMEOUT=${SIM_TIMEOUT:-2000000}
 VERBOSITY=${VERBOSITY:-3}
 COSIM_ENABLE=${COSIM_ENABLE:-1}
 COSIM_BACKEND=${COSIM_BACKEND:-isa_step}
+ISA_LOG=${ISA_LOG:-all}
+COSIM_OB_LOG=${COSIM_OB_LOG:-1}
 PLUSARGS=${PLUSARGS:-}
 NO_BUILD=${NO_BUILD:-0}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 4)}
@@ -209,6 +216,24 @@ while (($#)); do
       COSIM_BACKEND="${1#*=}"
       shift
       ;;
+    --isa-log)
+      [[ $# -ge 2 ]] || die "--isa-log requires a value"
+      ISA_LOG="$2"
+      shift 2
+      ;;
+    --isa-log=*)
+      ISA_LOG="${1#*=}"
+      shift
+      ;;
+    --cosim-ob-log)
+      [[ $# -ge 2 ]] || die "--cosim-ob-log requires a value"
+      COSIM_OB_LOG="$2"
+      shift 2
+      ;;
+    --cosim-ob-log=*)
+      COSIM_OB_LOG="${1#*=}"
+      shift
+      ;;
     --plusargs)
       [[ $# -ge 2 ]] || die "--plusargs requires a value"
       PLUSARGS="$2"
@@ -236,6 +261,15 @@ while (($#)); do
       ;;
   esac
 done
+
+case "$ISA_LOG" in
+  all|commit|none) ;;
+  *) die "invalid ISA_LOG '$ISA_LOG' (expected all|commit|none)" ;;
+esac
+case "$COSIM_OB_LOG" in
+  0|1) ;;
+  *) die "invalid COSIM_OB_LOG '$COSIM_OB_LOG' (expected 0 or 1)" ;;
+esac
 
 VERILATOR_BUILD_ROOT=${VERILATOR_BUILD_ROOT_OVERRIDE:-$or_cosim/sim/verilator_${TAG}/build}
 VERILATOR_LOG_ROOT=${VERILATOR_LOG_ROOT_OVERRIDE:-$or_cosim/sim/verilator_${TAG}/log}
@@ -276,7 +310,7 @@ esac
 #
 #   SYNTHESIS               -- RTL wraps its built-in assertions in `ifndef SYNTHESIS (alu_simple /
 #                              csr_unit / div_simple / mul_simple / g3_lsu_iface /
-#                              CompletionScoreboard, six places). Passing it = these assertions are not compiled.
+#                              scoreboard, six places). Passing it = these assertions are not compiled.
 #   ORBE_EXTERNAL_MNEMONICS -- be_agent / cosim_pkg look up mnemonic names via an external table.
 #   $dut_define             -- ORBE_DUT_RTL_V1 or ORBE_DUT_AGENT, dispatching between the two DUT kinds.
 base_defines=(
@@ -334,7 +368,7 @@ check_dpi_inputs() {
 }
 
 print_config() {
-  echo "[VERILATOR_COSIM] command=$command dut=$DUT_KIND tag=$TAG seed=$SEED cosim=$COSIM_ENABLE backend=$COSIM_BACKEND"
+  echo "[VERILATOR_COSIM] command=$command dut=$DUT_KIND tag=$TAG seed=$SEED cosim=$COSIM_ENABLE backend=$COSIM_BACKEND isa_log=$ISA_LOG cosim_ob_log=$COSIM_OB_LOG"
   echo "[VERILATOR_COSIM] jobs=$JOBS"
   echo "[VERILATOR_COSIM] obj_dir=$OBJ_DIR"
   echo "[VERILATOR_COSIM] sim_exe=$SIM_EXE"
@@ -422,12 +456,16 @@ run_case() {
     +VERBOSITY="$VERBOSITY"
     +COSIM_ENABLE="$COSIM_ENABLE"
     +COSIM_BACKEND="$COSIM_BACKEND"
+    +COSIM_OB_LOG="$COSIM_OB_LOG"
     +ISA_CFG="$isa_cfg_abs"
     +ISA_ELF="$tc_abs"
-    +ISA_RUN_LOG="$run_log"
-    +ISA_COMMIT_LOG="$commit_log"
-    "${extra_args[@]}"
   )
+  case "$ISA_LOG" in
+    all)    sim_args+=( "+ISA_RUN_LOG=$run_log" "+ISA_COMMIT_LOG=$commit_log" ) ;;
+    commit) sim_args+=( "+ISA_COMMIT_LOG=$commit_log" ) ;;
+    none)   ;;
+  esac
+  sim_args+=( "${extra_args[@]}" )
 
   # The dump file lands next to the case's logs (sim/ is not checked in), named after the ELF.
   if [[ "$TRACE" != 0 ]]; then
@@ -447,8 +485,8 @@ run_case() {
   set -e
 
   echo "[VERILATOR_COSIM] sim_log=$sim_log"
-  echo "[VERILATOR_COSIM] isa_run_log=$run_log"
-  echo "[VERILATOR_COSIM] isa_commit_log=$commit_log"
+  [[ "$ISA_LOG" == "none"   ]] || echo "[VERILATOR_COSIM] isa_run_log=$run_log"
+  [[ "$ISA_LOG" == "commit" ]] || [[ "$ISA_LOG" == "none" ]] || echo "[VERILATOR_COSIM] isa_commit_log=$commit_log"
   if [[ -n "$wave_file" ]]; then
     echo "[VERILATOR_COSIM] wave_file=$wave_file"
   fi

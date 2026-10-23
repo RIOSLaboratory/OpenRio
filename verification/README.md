@@ -32,7 +32,8 @@ Tested: Ubuntu 24.04 LTS + Verilator 5.050 (environment B), and Ubuntu 22.04 + V
 | cfg | `or_cosim/cfg/filelist/` | Compile lists and ordering for each DUT kind |
 | dpi | `or_cosim/dpi/` | Bridge from SV to the ISA model, the platform config yaml, and the vendored `IsaApi.h` and `lib_ISA_api.so` |
 | Script | `or_cosim/tools/verilator_cosim.sh` | Build, run and judge in one step |
-| Script | `or_cosim/tools/regress.sh` | Run the 216 cases in batch and summarize the verdicts |
+| Script | `or_cosim/tools/regress.sh` | Run the 239 cases (`cfg/cases/cases_239.list`) in batch and summarize the verdicts |
+| Script | `or_cosim/tools/pack_verif_src.sh` | Pack this environment + the RTL sources into a single tarball — see `or_cosim/tools/README.md` |
 
 ## Build environments
 
@@ -49,6 +50,19 @@ The ISA model itself is not part of this repository — only its API (`dpi/IsaAp
 `ISA_MODEL_ROOT` always takes precedence over the vendored pair. The script also probes `verification/`, `verification/isa_model/` and `isa_model/` at the repository root. `ISA_API_INC` / `ISA_API_LIB` override the result for unusual layouts — they must point at the build that produced the matching `IsaApi.h`.
 
 `isa_case/` is not checked in, and `regress.sh` reads the cases from `$ISA_MODEL_ROOT/isa_case`, so a batch regression needs `ISA_MODEL_ROOT` even in environment B.
+
+## Packaging the sources
+
+`or_cosim/tools/pack_verif_src.sh` collects this environment plus the three RTL trees into one `.tar.gz` for handing to another machine:
+
+```bash
+cd verification/or_cosim
+tools/pack_verif_src.sh --out ~ --tag $(date +%Y%m%d)
+```
+
+It packs `verification/or_cosim/` and `src/core/{be,fe,cache}_rtl_v1/`, preserving the repository layout so `cfg/filelist/*.f` keeps resolving `../../src/core/...`. Build products (`sim/`), waveforms, logs, Verdi droppings and `perf_eval/` are excluded; `MANIFEST.txt` and `README_PACKAGE.md` are generated inside the archive. The ISA model, `isa_case/` and any prebuilt `lib_ISA_api.so` are **not** included — a packaged tree cannot run on its own.
+
+Full usage, options and troubleshooting: `or_cosim/tools/README.md`.
 
 ## Flow
 
@@ -76,12 +90,13 @@ verilator_cosim.sh run --dut-kind <kind> --tc <case.riscv>
 cd verification/or_cosim
 tools/verilator_cosim.sh run --tc $ISA_MODEL_ROOT/isa_case/rv64ui/rv64ui-p-add.riscv   # rtl_full by default
 
-# Batch: build once under a tag, then run the 216 cases with the same tag (6 in parallel)
+# Batch: build once under a tag, then run the 239 cases with the same tag (6 in parallel)
 tools/verilator_cosim.sh build --tag <tag>
 tools/regress.sh rtl_full <tag> 6
 ```
 
-Batch results are in `or_cosim/sim/verilator_<tag>/regress/<kind>/`: `results.txt` holds the per-case verdicts and `summary.txt` the totals.
+Batch results are in `or_cosim/sim/verilator_<tag>/regress/<kind>/<list-name>/`:
+`results.txt` holds the per-case verdicts and `summary.txt` the totals.
 
 Use `build` to compile without running; use `--no-build` to rerun an existing build.
 
@@ -107,8 +122,28 @@ Two sources differ between the RTL and the ISA model by nature, not by bug; the 
 | `mcycle` / `cycle` reads | The CSR read result is replaced by the value the COSIM reference reads for that instruction; `minstret` / `instret` are still compared | `[COSIM][CNT_SYNC]` | `+COSIM_CNT_SYNC=0` |
 | HTIF system calls (e.g. `printf` through `tohost` / `fromhost`) | The testbench acts as the host on the DUT side: loads of host-written words (`fromhost`, the syscall's return slot) wait until they are the oldest instruction and return the reference value | `[HTIF_SYNC]` | `+COSIM_HTIF_SYNC=0` |
 
-Benchmarks that time themselves or print results (for example Embench) need both; the 216 ISA cases touch neither.
+Benchmarks that time themselves or print results (for example Embench) need both; the 239 ISA cases touch neither.
 
 ## Acceptance scope
 
-216 cases: `rv64ui` 104, `rv64um` 26, `rv64ua` 38, `rv64uf` 22, `rv64ud` 24, `rv64uc` 2.
+239 ISA cases, frozen in `or_cosim/cfg/cases/cases_239.list`:
+
+| Group | Count |
+|---|---|
+| `rv64ui` | 104 |
+| `rv64um` | 26 |
+| `rv64ua` | 38 |
+| `rv64uf` | 22 |
+| `rv64ud` | 24 |
+| `rv64uc` | 2 |
+| `rv64mi` | 16 |
+| `rv64si` | 7 |
+| **Total** | **239** |
+
+Embench-IoT adds 19 `orbe-baremetal` benchmarks, listed in
+`or_cosim/cfg/cases/cases_embench.list`. They are long-running (0.8M–4.0M
+retired instructions per iteration; the packaged ELFs run a warm loop, so a run
+is roughly 2× that), so they use `SIM_TIMEOUT=20000000`, `ISA_LOG=none` and
+`COSIM_OB_LOG=0`; the verdict is still `is_good=1`, because each benchmark
+self-checks through `verify_benchmark()` and reports the result via its HTIF
+exit code.
