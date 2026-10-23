@@ -15,7 +15,7 @@ import or_be_types_pkg::*;
 //                                (flush_tag, head0_tag, head1_tag)
 // (5) data structure           : payload only -- inst_pc(64)
 //
-// pc_write[s] is the same cycle and the same slot as the CompletionScoreboard
+// pc_write[s] is the same cycle and the same slot as the scoreboard
 // alloc[s]: only an instruction that was accepted and given self_tag[s] writes
 // its inst_pc, which keeps PC_File[tag] on the SCB lifetime.  A tag therefore
 // needs no clearing -- the next allocation of that tag overwrites the entry

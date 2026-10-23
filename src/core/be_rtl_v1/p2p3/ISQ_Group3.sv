@@ -132,7 +132,7 @@ module ISQ_Group3 (
     // It is not the inverse of isq_free_for_dispatch -- that bit includes the
     // same-cycle issue (`!isq_valid ∨ issue`) and is 1 in the issue cycle,
     // whereas this bit is still 1 in the issue cycle and only clears at the
-    // edge.  CompletionScoreboard wants exactly the semantics that
+    // edge.  scoreboard wants exactly the semantics that
     // **include the issue cycle**: it uses this bit to tell "the store is
     // still in this queue" from "already in the LSU", and the issue cycle
     // must still count as "in this queue", otherwise that cycle's

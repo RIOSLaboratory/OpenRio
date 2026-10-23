@@ -39,7 +39,7 @@ import or_be_types_pkg::*;
 // port.  A cycle's accepted set holds at most one instruction that touches the
 // FP register file (dispatch_logic blocks a second FP candidate, so slot1
 // produces no consumer when both are FP), and the double-FP-commit block keeps
-// the retire pair down to one FP writer per cycle (CompletionScoreboard).
+// the retire pair down to one FP writer per cycle (scoreboard).
 // The per-slot / per-lane inputs below are therefore *candidates* that fold
 // into a single port, not two independent ports.
 //

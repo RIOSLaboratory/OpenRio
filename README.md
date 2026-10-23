@@ -18,7 +18,7 @@ The ICache is 16 KiB, 128 sets × 4 ways, VIPT with 32-byte lines; the L1BTB (25
 
 The backend executes out of order across P0–P4. An 8-entry IB buffers frontend instructions; P1 fully decodes, resolves dependencies, renames and dispatches up to two per cycle into four execution groups — G0 (ALU0/BRU, CSR, DIV), G1 (ALU1, MUL), G2 (FPU), G3 (LSU). Each group owns a single-entry issue queue and one writeback lane; wakeup is tag-based over four bypass lanes.
 
-Renaming records producers only — one `{busy, tag}` map per register class — so there is no physical register file; architectural values live in `INT_ARF` / `FP_ARF`. A 16-entry in-flight window holds control state, result data and PC in the `CompletionScoreboard`, `Buffer` and `PC_File`. Two instructions commit in order per cycle, and every recovery event becomes a single global flush at that boundary.
+Renaming records producers only — one `{busy, tag}` map per register class — so there is no physical register file; architectural values live in `INT_ARF` / `FP_ARF`. A 16-entry in-flight window holds control state, result data and PC in the `scoreboard`, `Buffer` and `PC_File`. Two instructions commit in order per cycle, and every recovery event becomes a single global flush at that boundary.
 
 ![OR backend architecture](Appendix/OR_BE_ARCHITECTURE_VIEW.svg)
 
@@ -46,7 +46,7 @@ Subdirectories follow the pipeline stages.
 |---|---|
 | `p1/` | `IB`, `decode`, `dependency_check`, `dispatch_logic`, `INT_ARF` / `FP_ARF`, `INT_tag_mapping` / `FP_tag_mapping`, `FP_read_address_mux`, `p1_ISQ_input_mux` |
 | `p2p3/` | `ISQ_Group0`–`ISQ_Group3`, `p3_arbiter_G0` / `p3_arbiter_G1`, `FU_input_mux` |
-| `p4/` | `CompletionScoreboard`, `Buffer`, `PC_File`, `flush_model`, `SerialInstructionTracker`, `system_instruction_handler` |
+| `p4/` | `scoreboard`, `Buffer`, `PC_File`, `flush_model`, `SerialInstructionTracker`, `system_instruction_handler` |
 | `fu/` | `alu_simple`, `mul_simple`, `div_simple`, `csr_unit`, `fpu_simple` |
 | `lsu/` | `g3_lsu_iface` — G3's interface to the cache subsystem |
 | `pkg/` | `exe_subop_pkg`, `or_be_types_pkg` with its static checks, `fe_be_protocol_pkg`, `or_be_lsu_protocol_pkg`, `or_be_config_pkg` |

@@ -695,7 +695,7 @@ module be_tb_top;
   assign dc_mem_vif.rtl_done_tag = dc_done_p.tag;
   assign dc_mem_vif.rtl_exc_vld  = dc_exc_v;
   assign dc_mem_vif.rtl_exc_tag  = dc_exc_p.tag;
-  assign dc_mem_vif.rob_head_tag = u_backend.u_CompletionScoreboard.head0_tag;
+  assign dc_mem_vif.rob_head_tag = u_backend.u_scoreboard.head0_tag;
 
   final begin
     if (cache_agent_h != null) cache_agent_h.dside_report();

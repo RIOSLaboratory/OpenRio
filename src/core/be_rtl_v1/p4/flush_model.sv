@@ -18,7 +18,7 @@ import or_be_types_pkg::*;
 // No clock, no reset, no state: every output is a function of this cycle's
 // flush announce and of the two combinational recovery read ports.
 //
-// The retire decision belongs to the CompletionScoreboard; this module only
+// The retire decision belongs to the scoreboard; this module only
 // translates an already-decided flush into a recovery target and broadcasts it.
 // global_flush_late is generated here and nowhere else -- one net, never
 // aliased for a consumer.  Buffer and FE are not on that broadcast list, and
@@ -31,7 +31,7 @@ import or_be_types_pkg::*;
 // forwarded on nor turned into a landing value here.
 module flush_model (
     // ------------------------------------------------------------------
-    // in-event: flush (announce, from CompletionScoreboard)
+    // in-event: flush (announce, from scoreboard)
     // ------------------------------------------------------------------
     input  logic [RECOVERY_KIND_W-1:0] recovery_kind,
     input  logic                       flush_valid,
@@ -40,7 +40,7 @@ module flush_model (
     // ------------------------------------------------------------------
     // in-event: combinational read data
     // ------------------------------------------------------------------
-    // SCB[flush_tag] recovery read port (CompletionScoreboard (4))
+    // SCB[flush_tag] recovery read port (scoreboard (4))
     input  logic [XLEN-1:0]            mispredict_target_pc,
     input  logic [EXCP_CAUSE_W-1:0]    exception_cause,
     input  logic [XLEN-1:0]            exception_tval,

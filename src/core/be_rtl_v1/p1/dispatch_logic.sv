@@ -25,7 +25,7 @@ import exe_subop_pkg::*;
 // this cycle's new fire; nothing about the flush is remembered here.
 //
 // Classification is never re-derived.  Every subop set comes from the frozen
-// exe_subop_pkg, and the three bits that leave for CompletionScoreboard are
+// exe_subop_pkg, and the three bits that leave for scoreboard are
 // pure functions of exe_subop taken straight from it:
 //
 //     is_fence_i[s] = (exe_subop[s] == SUBOP_FENCEI)
@@ -82,7 +82,7 @@ module dispatch_logic (
     input  rm_e                     frm,
 
     // ------------------------------------------------------------------
-    // in-event: broadcast -- CompletionScoreboard, cycle-start values
+    // in-event: broadcast -- scoreboard, cycle-start values
     // ------------------------------------------------------------------
     input  logic                    can_alloc_1,
     input  logic                    can_alloc_2,
@@ -134,7 +134,7 @@ module dispatch_logic (
     output rm_e                     effective_rm          [ISSUE_WIDTH],
 
     // ------------------------------------------------------------------
-    // out: combinational reads -- CompletionScoreboard's alloc batch, written
+    // out: combinational reads -- scoreboard's alloc batch, written
     // with accept[s] into entry[alloc_self_tag[s]].  Not gated by accept here:
     // the SCB writes them only in the alloc cycle.
     // ------------------------------------------------------------------
@@ -165,7 +165,7 @@ module dispatch_logic (
     //
     // The four ISQ groups.  or_be_types_pkg carries no separate group count
     // because there is none to carry: group g completes on lane g
-    // and Buffer / CompletionScoreboard already index the four lanes
+    // and Buffer / scoreboard already index the four lanes
     // with g, so NUM_LANES *is* this multiplicity.
     //
     // ISQ_GROUP_W is the width of a group id (G0..G3).  It is not FU_GROUP_W:
@@ -452,7 +452,7 @@ module dispatch_logic (
     end
 
     // ------------------------------------------------------------------
-    // out: the CompletionScoreboard alloc trio.  All three are pure
+    // out: the scoreboard alloc trio.  All three are pure
     // functions of exe_subop, so they are exported from here instead of
     // travelling a second time through the IB payload (the same precedent
     // as for FU_Group).

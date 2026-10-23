@@ -6,7 +6,7 @@ import or_be_lsu_protocol_pkg::*;
 import or_be_types_pkg::*;
 /* verilator lint_on IMPORTSTAR */
 
-// g3_lsu_iface -- the boundary bridge between ISQ_Group3 / CompletionScoreboard
+// g3_lsu_iface -- the boundary bridge between ISQ_Group3 / scoreboard
 // and the LSU proper.
 //
 // It does exactly these four things and nothing else:
@@ -28,7 +28,7 @@ import or_be_types_pkg::*;
 // here and the top level fans the same net out to lsu_if (that is what
 // "pass-through" means).  Likewise the SCB header read address is
 // `self_tag`, i.e. the issue tag: the top level drives
-// CompletionScoreboard.st_br_resolve_tag from the same ISQ_Group3 output, and
+// scoreboard.st_br_resolve_tag from the same ISQ_Group3 output, and
 // only the selected bit comes back on `st_br_resolve`.
 module g3_lsu_iface (
     input  logic                        clk,
@@ -304,7 +304,7 @@ module g3_lsu_iface (
     // ------------------------------------------------------------------
     // **A wakeup before issue should never happen.**
     //
-    // CompletionScoreboard delivers the authorization by where the store is:
+    // scoreboard delivers the authorization by where the store is:
     // still in ISQ_Group3 -> set entry_st_br_resolve to 1 in place (the bridge
     // reads it combinationally in the issue cycle); already in the LSU -> send
     // the pulse. The two paths are mutually exclusive, so the pulse's target

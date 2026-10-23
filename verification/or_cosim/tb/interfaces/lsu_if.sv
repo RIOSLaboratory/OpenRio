@@ -153,7 +153,7 @@ interface or_be_lsu_if (input logic clk);
   //                verification environment, removed in S6, so it does not hold up as a reason.
   //
   // **The conclusion holds again now, and is delivered by the implementation** (the 2026-08-26 SCB rework):
-  // CompletionScoreboard dispatches the authorization by where the store is -- while still in ISQ_Group3 it
+  // scoreboard dispatches the authorization by where the store is -- while still in ISQ_Group3 it
   // sets entry_st_br_resolve to 1 in place (the bridge reads it combinationally in the issue cycle); once in the LSU it sends
   // a pulse. The two paths are mutually exclusive; pre-issue wakeup no longer occurs.
   // A $error assertion in g3_lsu_iface guards this.

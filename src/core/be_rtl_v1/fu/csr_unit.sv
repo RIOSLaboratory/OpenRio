@@ -120,7 +120,7 @@ module csr_unit (
     output logic [FFLAGS_W-1:0]      req_fpu_fflags,
 
     // Layer 2, csr_sideband -- G0 only, and this is the FU that drives it
-    // non-zero.  It bypasses the CompletionScoreboard entirely and goes
+    // non-zero.  It bypasses the scoreboard entirely and goes
     // straight to system_instruction_handler.
     output logic                     req_is_csr,
     output logic                     req_csr_write_enable,
