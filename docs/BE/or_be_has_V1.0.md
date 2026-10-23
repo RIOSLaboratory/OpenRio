@@ -44,7 +44,7 @@ Architectural state advances only at the commit point: register values, CSRs and
 - P1 cannot read `Buffer` by tag and only sees the head0 / head1 data committing in the current cycle: a source whose producer has finished execution but not yet committed, and which is neither committing nor on a bypass lane in the current cycle, cannot dispatch until the producer commits (missed-wakeup stall)
 - Up to 2 in-order commits per cycle; all recovery events are resolved at the commit boundary
 - Serializing instructions (CSR, xRET, SFENCE.VMA, FENCE / FENCE.I, atomics) dispatch only in slot0 and only when the window is empty, and block all subsequent dispatch while in flight
-- Store memory writes are non-speculative: a store may be sent to the LSU early, but is authorized only after all older instructions that may flush are safely resolved. Authorization obtained at allocation or while resident in `ISQ_Group3` is carried with the issue; authorization obtained after the store has been sent to the LSU is delivered by store wakeup
+- Store memory writes are non-speculative: a store may be sent to the LSU early, but is authorized only after all older instructions that may flush are safely resolved. Authorization obtained at allocation or while resident in `ISQ_Group3` is carried with the issue; authorization obtained after the store has been sent to the LSU is delivered by store wakeup. A store's `rob_done` may be earlier than its wakeup: it means the request can no longer fault and is safely parked in the LSU, not that the memory write has completed
 - ISA is RV64IMAFDC + Zcb with M/S/U privilege levels; `satp.MODE` is writable as Bare/Sv39/Sv48 (WARL). The backend only holds this state; address translation is done by the external memory side
 - Branch outcomes update the frontend predictor directly after BRU execution, without waiting for commit
 
@@ -88,7 +88,7 @@ Architectural state advances only at the commit point: register values, CSRs and
 | P0 | Frontend boundary | Accept frontend instructions into IB and return ready to the frontend | `IB` (→ [6.2](#62-ib-and-decode)) |
 | P1 | Decode / rename / dispatch | Decode the two head instructions, resolve source operands, allocate tags and rename, decide admission and target group, write into ISQ | `decode`, `dependency_check`, `dispatch_logic`, `INT_tag_mapping` / `FP_tag_mapping`, `INT_ARF` / `FP_ARF`, `isq_payload_assembly` (→ [6.2](#62-ib-and-decode), [6.3](#63-rename-and-dispatch)) |
 | P2 | Issue / execute | Each group's ISQ waits for operands to be ready and issues to an FU in the group; G3 issues to the external LSU | `ISQ_Group0`–`ISQ_Group3`, FUs, `g3_lsu_iface` (→ [6.4](#64-issue-queues), [6.5](#65-execution-units)) |
-| P3 | Writeback / bypass | Arbitrate completion requests within a group; each group's lane writes `scoreboard` / `Buffer` and broadcasts bypass at the same time | `p3_arbiter_G0` / `p3_arbiter_G1`; G2 and G3 drive their lanes directly (→ [6.6](#66-writeback-arbitration)) |
+| P3 | Writeback / bypass | Arbitrate completion requests within a group; each group's lane writes `scoreboard` / `Buffer` and broadcasts bypass. G0–G2 drive all three in the same cycle; G3's terminal (`rob_done` / `exception`), writeback data and bypass are independent events | `p3_arbiter_G0` / `p3_arbiter_G1`; G2 and G3 drive their lanes directly (→ [6.6](#66-writeback-arbitration)) |
 | P4 | Commit / recovery | Commit in order to update architectural state, or select a recovery event at the commit boundary and broadcast flush | `scoreboard`, `Buffer`, `PC_File`, `flush_model`, `SerialInstructionTracker`, `system_instruction_handler` (→ [6.7](#67-completion-and-commit), [6.8](#68-system-instructions-and-serialization)) |
 
 P1 holds no instruction state: accepted instructions enter the ISQ and the in-flight window, and unaccepted ones stay in IB. Speculation extends up to P4; no stage before P4 changes architectural state.
@@ -105,7 +105,7 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 - State: none.
 - External boundary:
   - Frontend: instruction input `fe_valid` / `fe_instr_pld` and `fe_ready`; redirect (`redirect_valid` / `redirect_pc` / `redirect_kind`, plus `frontend_icache_invalidate` for FENCE.I); predictor update `predictor_update_*`.
-  - LSU: issue (`be_lsu_issue_valid` / `be_lsu_issue_pld` and `lsu_be_issue_ready`); tagless `be_lsu_store_wakeup_valid`; final writeback (`lsu_be_done_*`, `lsu_be_exception_*`) and load-side `lsu_be_bypass_*`; result-channel acknowledgement `be_lsu_entry_ready`; `global_flush_late`.
+  - LSU: issue (`be_lsu_issue_valid` / `be_lsu_issue_pld` and `lsu_be_issue_ready`); tagless `be_lsu_store_wakeup_valid`; read-side writeback (`lsu_be_writeback_*`), terminal `lsu_be_rob_done_*` and `lsu_be_exception_*`, load-side `lsu_be_bypass_*`; writeback-channel acknowledgement `be_lsu_writeback_ready`; `global_flush_late`.
   - Interrupt levels `mip_meip` / `mip_mtip` / `mip_msip`.
 
 ### 6.2 IB and Decode
@@ -213,17 +213,18 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 
 - Responsibility: bridge between G3 and the external LSU.
   - Converts `ISQ_Group3` issues into LSU issues and records in-flight requests by tag; the `FU_ready` given to `ISQ_Group3` requires that the tag is not in flight and that the LSU asserts `lsu_be_issue_ready`.
-  - Store authorization: at issue, reads the `scoreboard` authorization bit `st_br_resolve` (valid for plain stores only) and sends it with the LSU issue; for stores already sent to the LSU, converts the tagged `store_wakeup_valid` into the tagless `be_lsu_store_wakeup_valid` on the LSU boundary. If the wakeup arrives before the target store has been sent to the LSU, the authorization is held pending and delivered in the cycle that store issues; this is a fallback path and unreachable in normal operation. At most one authorization is pending at a time.
-  - Merges the LSU load-side bypass and final writeback (done / exception) into lane 3's completion and bypass; `be_lsu_entry_ready` is always 1 except in reset and flush cycles.
-  - On flush, clears all bridge state and discards final results arriving in that cycle.
-- State: per-tag in-flight, authorization-pending, load-complete and done flags, plus staged load data.
+  - Store authorization: at issue, reads the `scoreboard` authorization bit `st_br_resolve` (valid for plain stores only) and sends it with the LSU issue; for stores already sent to the LSU, converts the tagged `store_wakeup_valid` into the tagless `be_lsu_store_wakeup_valid` on the LSU boundary. If the wakeup arrives before the target store has been sent to the LSU, the authorization is held pending and delivered in the cycle that store issues; this is a fallback path and unreachable in normal operation. At most one authorization is pending at a time. A plain store's `rob_done` may arrive before its wakeup, so the bridge tracks “issued but not yet woken” separately from “in flight”, and the wakeup target check uses the former.
+  - Splits the LSU result side into three independent events: `lsu_be_writeback_*` (read-side data, forwarded to `Buffer` lane 3), `lsu_be_rob_done_*` / `lsu_be_exception_*` (terminal events, merged into lane 3's `Result_valid` for `scoreboard` through a 2-entry terminal queue), and `lsu_be_bypass_*` (lane 3 bypass). `be_lsu_writeback_ready` is always 1 except in reset and flush cycles.
+  - A same-cycle `rob_done` and `exception` collision is absorbed by the terminal queue (exception first); the LSU completion source is single-ported, so a sustained two-terminal-events-per-cycle stream is not supported.
+  - On flush, clears all bridge state, including the terminal queue, and discards events arriving in that cycle.
+- State: per-tag in-flight / awaiting-wakeup / authorization-pending flags; a 2-entry terminal event queue.
 - Upstream/downstream: `ISQ_Group3`, `scoreboard` → `g3_lsu_iface` ↔ external LSU; `g3_lsu_iface` → lane 3.
 
 ### 6.6 Writeback Arbitration
 
 **`p3_arbiter_G0` / `p3_arbiter_G1`** ([p3_arbiter_G0.md](../modules/p2p3/p3_arbiter_G0.md), [p3_arbiter_G1.md](../modules/p2p3/p3_arbiter_G1.md))
 
-- Responsibility: stateless fixed-priority arbitration. Each cycle it selects one completion request in the group as the group lane's writeback and bypass; bypass is valid only if the winner has no exception. The winner gets a grant and losers get a hold; losers keep their requests and stop accepting new issues. `p3_arbiter_G0` also sends the winning CSR result to `system_instruction_handler` as the CSR sideband. The arbiter only forwards the winner's fields; fields that are always 0 within the group are driven by the FUs themselves. G2 and G3 each have a single source and drive their lanes directly without an arbiter.
+- Responsibility: stateless fixed-priority arbitration. Each cycle it selects one completion request in the group as the group lane's writeback and bypass; bypass is valid only if the winner has no exception. The winner gets a grant and losers get a hold; losers keep their requests and stop accepting new issues. `p3_arbiter_G0` also sends the winning CSR result to `system_instruction_handler` as the CSR sideband. The arbiter only forwards the winner's fields; fields that are always 0 within the group are driven by the FUs themselves. G2 and G3 each have a single source and drive their lanes directly without an arbiter. For G3, lane 3's terminal event (`rob_done` / `exception`), writeback data and bypass are three independent events; they are not required to coincide.
 - State: none.
 - Upstream/downstream: in-group FUs → arbiter → lane writeback (`scoreboard` records events, `Buffer` stores data) and lane bypass (four ISQs, `dependency_check`, `isq_payload_assembly`).
 
@@ -233,9 +234,9 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 
 - Responsibility: the retirement-side resolution hub, managing the 16-entry circular in-flight window.
   - At dispatch, allocates by `accept` and records the destination register plus store, atomic, FENCE.I and `may_flush` attributes.
-  - At writeback, records execution completion, along with exception, mispredict and xRET events and the corresponding cause / tval / target PC / fflags; writebacks in a flush cycle are not recorded.
+  - At writeback, records execution completion, along with exception, mispredict and xRET events and the corresponding cause / tval / target PC / fflags; writebacks in a flush cycle are not recorded. For G3, the completion source is the LSU terminal event (`rob_done` / `exception`); a store's `rob_done` means “can no longer fault”, not “written to memory”, and may arrive before its wakeup.
   - Each cycle resolves from the head: commits 0–2 instructions in order, and may select one recovery event in the same cycle for `flush_model`. Resolution happens only when head0 has finished execution. Recovery priority is head0 exception > interrupt > head0 xRET, FENCE.I or mispredict. Exceptions and interrupts do not commit head0; xRET, FENCE.I and mispredict commit head0 and recover in the same cycle. On an interrupt, if head0 is a completed, exception-free store / atomic, head0 is committed first and the interrupt is taken at head1 (requires head1 valid); otherwise the interrupt is taken at head0. head1 is evaluated only after head0 commits normally (a head1 exception recovers at head1; FENCE.I or mispredict commits head1 and recovers in the same cycle). When both write an FP destination register, only head0 commits. On recovery, tail rolls back to the post-commit head.
-  - Store authorization: a plain store is authorized once all older instructions that may flush are safely resolved. If the prefix is already all safe at allocation, the authorization bit is recorded directly; otherwise the oldest unauthorized store is authorized when the condition is met, there is no recovery in the cycle, and the store has no writeback in that cycle: if it is still resident in `ISQ_Group3`, the authorization bit is recorded in place and read by `g3_lsu_iface` at issue; if already sent to the LSU, `g3_lsu_iface` is notified with `store_wakeup_valid` (tagged).
+  - Store authorization: a plain store is authorized once all older instructions that may flush are safely resolved. If the prefix is already all safe at allocation, the authorization bit is recorded directly; otherwise the oldest unauthorized store is authorized when the condition is met, and there is no recovery in the cycle: if it is still resident in `ISQ_Group3`, the authorization bit is recorded in place and read by `g3_lsu_iface` at issue; if already sent to the LSU, `g3_lsu_iface` is notified with `store_wakeup_valid` (tagged). The store's `rob_done` may be earlier than or coincide with this authorization; they are independent.
   - Interrupts are not taken while there is still an authorized but uncommitted store.
 - State: head / tail pointers; per-entry execution-complete, authorized, wakeup-sent, attributes and event records.
 - Upstream/downstream: P1 modules such as `dispatch_logic` (allocation), `ISQ_Group3` (`self_tag`, `isq_occupied`), lane writeback, `system_instruction_handler` (`interrupt_pending`) → `scoreboard` → commit events (`INT_ARF` / `FP_ARF`, tag_mapping, `SerialInstructionTracker`, `system_instruction_handler`, `dependency_check`, and the `Buffer` read address), `flush_model` and `PC_File` (`flush_tag`), `g3_lsu_iface`; window capacity, tail and valid / exec_done bitmaps → `dispatch_logic`, `dependency_check`.
@@ -244,7 +245,7 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 
 - Responsibility: 16×64-bit result storage, written by tag from the 4 lanes and read by the head0 / head1 tags as commit data. Not connected to flush; window validity is determined by `scoreboard`.
 - State: per-entry result data.
-- Upstream/downstream: lane writeback → `Buffer` → commit data (ARF, `isq_payload_assembly`).
+- Upstream/downstream: lane writeback → `Buffer` → commit data (ARF, `isq_payload_assembly`). Lane 3's write is driven by the LSU writeback channel, independently of lane 3's terminal event.
 
 **`PC_File`** ([PC_File.md](../modules/p4/PC_File.md))
 
