@@ -6,7 +6,7 @@ import or_be_types_pkg::*;
 import exe_subop_pkg::*;
 /* verilator lint_on IMPORTSTAR */
 
-// CompletionScoreboard -- the single retire authority.
+// scoreboard -- the single retire authority.
 //
 // (1) per-entry state          : valid is NOT stored.  FREE / non-FREE is
 //                                compressed into the 5-bit {loopbit,index}
@@ -54,7 +54,7 @@ import exe_subop_pkg::*;
 // st_br_resolve_tag, the commit-side destination trio carries the commit_
 // prefix and the recovery read port the recovery_ prefix, while the alloc and
 // writeback batches keep their bare names.  No name is left ambiguous.
-module CompletionScoreboard (
+module scoreboard (
     input  logic                            clk,
     input  logic                            rst_n,
 

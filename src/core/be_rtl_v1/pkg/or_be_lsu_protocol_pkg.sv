@@ -78,7 +78,7 @@ package or_be_lsu_protocol_pkg;
         // <TODO> Nobody performs that comparison yet: the TB-side consumer
         // still computes the class itself and does not read this field.
         logic              is_store;
-        // Same-cycle snapshot of CompletionScoreboard.st_br_resolve, passed in
+        // Same-cycle snapshot of scoreboard.st_br_resolve, passed in
         // unchanged; the LSU judges whether it is relevant to this request
         // (only store-side requests look at it).
         logic              st_br_resolve;

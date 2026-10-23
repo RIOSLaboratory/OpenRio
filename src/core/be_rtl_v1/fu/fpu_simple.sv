@@ -1864,7 +1864,7 @@ module fpu_simple (
     // Output register
     //
     // The *whole* completion_common is registered, not just the valid: it
-    // feeds Buffer's write port and CompletionScoreboard's event batch, both
+    // feeds Buffer's write port and scoreboard's event batch, both
     // timed writes, so a combinational path from issue through this FU into
     // the SCB's criteria is not acceptable.
     //
@@ -1898,7 +1898,7 @@ module fpu_simple (
     end
 
     // Lane 2 is driven directly -- G2 has no arbiter, so the ports carry
-    // the bare completion_common names, matching CompletionScoreboard's frozen
+    // the bare completion_common names, matching scoreboard's frozen
     // writeback inputs verbatim.  No req_ prefix: that belongs to G0/G1.
     assign Result_valid         = wb_payload.result_valid;
     assign tag_out              = wb_payload.tag_out;

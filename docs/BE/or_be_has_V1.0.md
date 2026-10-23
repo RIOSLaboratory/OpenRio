@@ -39,7 +39,7 @@ Architectural state advances only at the commit point: register values, CSRs and
 - Up to 2 in-order dispatches per cycle: slot1 can be dispatched only if slot0 is accepted
 - Four execution groups, one writeback lane per group: G0 ALU0/BRU, CSR, DIV; G1 ALU1, MUL; G2 FPU; G3 LSU
 - One single-entry issue queue per group, with tag-based wakeup over four bypass lanes
-- 16-entry in-flight window; the tag is the window index. Control state, result data and instruction PC are held by `CompletionScoreboard`, `Buffer` and `PC_File` respectively
+- 16-entry in-flight window; the tag is the window index. Control state, result data and instruction PC are held by `scoreboard`, `Buffer` and `PC_File` respectively
 - Renaming records producers only: one `{busy, tag}` map table each for INT and FP, no physical register file; architectural values live only in `INT_ARF` / `FP_ARF`
 - P1 cannot read `Buffer` by tag and only sees the head0 / head1 data committing in the current cycle: a source whose producer has finished execution but not yet committed, and which is neither committing nor on a bypass lane in the current cycle, cannot dispatch until the producer commits (missed-wakeup stall)
 - Up to 2 in-order commits per cycle; all recovery events are resolved at the commit boundary
@@ -56,7 +56,7 @@ Architectural state advances only at the commit point: register values, CSRs and
 | `FLEN` | 64 | Floating-point datapath width |
 | `ISSUE_WIDTH` | 2 | Dispatch width per cycle, also the commit width |
 | `NUM_LANES` | 4 | Number of execution groups, also the number of writeback / bypass lanes |
-| `ROB_DEPTH` | 16 | In-flight window entries (`CompletionScoreboard` / `Buffer` / `PC_File`) |
+| `ROB_DEPTH` | 16 | In-flight window entries (`scoreboard` / `Buffer` / `PC_File`) |
 | `TAG_W` | 4 | In-flight instruction tag width |
 | `IB_DEPTH` | 8 | `IB` entries |
 | `NUM_GPR` / `NUM_FPR` | 32 / 32 | INT / FP architectural registers |
@@ -88,8 +88,8 @@ Architectural state advances only at the commit point: register values, CSRs and
 | P0 | Frontend boundary | Accept frontend instructions into IB and return ready to the frontend | `IB` (→ [6.2](#62-ib-and-decode)) |
 | P1 | Decode / rename / dispatch | Decode the two head instructions, resolve source operands, allocate tags and rename, decide admission and target group, write into ISQ | `decode`, `dependency_check`, `dispatch_logic`, `INT_tag_mapping` / `FP_tag_mapping`, `INT_ARF` / `FP_ARF`, `isq_payload_assembly` (→ [6.2](#62-ib-and-decode), [6.3](#63-rename-and-dispatch)) |
 | P2 | Issue / execute | Each group's ISQ waits for operands to be ready and issues to an FU in the group; G3 issues to the external LSU | `ISQ_Group0`–`ISQ_Group3`, FUs, `g3_lsu_iface` (→ [6.4](#64-issue-queues), [6.5](#65-execution-units)) |
-| P3 | Writeback / bypass | Arbitrate completion requests within a group; each group's lane writes `CompletionScoreboard` / `Buffer` and broadcasts bypass at the same time | `p3_arbiter_G0` / `p3_arbiter_G1`; G2 and G3 drive their lanes directly (→ [6.6](#66-writeback-arbitration)) |
-| P4 | Commit / recovery | Commit in order to update architectural state, or select a recovery event at the commit boundary and broadcast flush | `CompletionScoreboard`, `Buffer`, `PC_File`, `flush_model`, `SerialInstructionTracker`, `system_instruction_handler` (→ [6.7](#67-completion-and-commit), [6.8](#68-system-instructions-and-serialization)) |
+| P3 | Writeback / bypass | Arbitrate completion requests within a group; each group's lane writes `scoreboard` / `Buffer` and broadcasts bypass at the same time | `p3_arbiter_G0` / `p3_arbiter_G1`; G2 and G3 drive their lanes directly (→ [6.6](#66-writeback-arbitration)) |
+| P4 | Commit / recovery | Commit in order to update architectural state, or select a recovery event at the commit boundary and broadcast flush | `scoreboard`, `Buffer`, `PC_File`, `flush_model`, `SerialInstructionTracker`, `system_instruction_handler` (→ [6.7](#67-completion-and-commit), [6.8](#68-system-instructions-and-serialization)) |
 
 P1 holds no instruction state: accepted instructions enter the ISQ and the in-flight window, and unaccepted ones stay in IB. Speculation extends up to P4; no stage before P4 changes architectural state.
 
@@ -114,21 +114,21 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 
 - Responsibility: 8-entry in-order instruction FIFO. The frontend writes up to 2 per cycle (slot1 enqueues only if slot0 enqueues in the same cycle). `fe_ready` is given from the free space counting same-cycle dequeues, and is 0 in a flush cycle. The two head entries are exposed combinationally to P1 and dequeued by `ib_dequeue`; `global_flush_late` empties it.
 - State: read/write pointers and a per-entry instruction payload (294 bit, containing PC, raw encoding, frontend-expanded encoding, RVC-illegal flag, register indices and source/destination attributes `opnd`, prediction information and fetch exception).
-- Upstream/downstream: frontend → `IB` → `decode`, `dependency_check` (head valid bits, register indices, `is_fp_opcode`), read addresses of ARF and tag_mapping (FP via `FP_read_address_mux`), `isq_payload_assembly`, `PC_File` (PC write), `CompletionScoreboard` (destination register).
+- Upstream/downstream: frontend → `IB` → `decode`, `dependency_check` (head valid bits, register indices, `is_fp_opcode`), read addresses of ARF and tag_mapping (FP via `FP_read_address_mux`), `isq_payload_assembly`, `PC_File` (PC write), `scoreboard` (destination register).
 
 **`decode`** ([decode.md](../modules/p1/decode.md))
 
 - Responsibility: purely combinational full decode. From the encoding already expanded by the frontend (compressed instructions additionally use the raw encoding to determine the sub-operation), it produces `exe_subop`, immediate, `mem_funct3`, serializing / store / FP attributes, CSR address and write intent, and static rounding mode. Unsupported encodings, disabled extensions, reserved rm, RVC-illegal reported by the frontend and fetch exceptions are all uniformly marked illegal; in that case all other decode fields are 0, and the instruction is rerouted to G0 to retire as an exception. The output `decoded_info_t` is 112 bit and contains no register indices or source/destination attributes; these come from the IB head `opnd`. When illegal, `backend_top` clears only the source/destination use bits and FP attributes; register indices are not gated.
 - State: none.
-- Upstream/downstream: `IB` → `decode` → `dependency_check` (serializing attribute), `dispatch_logic`, `isq_payload_assembly`, `CompletionScoreboard` (store attribute), and the `opnd_g` gating in `backend_top`.
+- Upstream/downstream: `IB` → `decode` → `dependency_check` (serializing attribute), `dispatch_logic`, `isq_payload_assembly`, `scoreboard` (store attribute), and the `opnd_g` gating in `backend_top`.
 
 ### 6.3 Rename and Dispatch
 
 **`dependency_check`** ([dependency_check.md](../modules/p1/dependency_check.md))
 
-- Responsibility: purely combinational dependency resolution. Allocates consecutive `self_tag`s for the two slots starting at the `CompletionScoreboard` tail and gives `rd_write_enable` (integer x0 is not written). Using tag_mapping, it decides for each source whether it is ready (data from ARF, same-cycle commit or same-cycle bypass) or must wait for a producer tag, and handles same-cycle slot0→slot1 RAW. If the producer has finished execution but not yet committed, it reports a missed wakeup. rs3 is always treated as an FP source.
+- Responsibility: purely combinational dependency resolution. Allocates consecutive `self_tag`s for the two slots starting at the `scoreboard` tail and gives `rd_write_enable` (integer x0 is not written). Using tag_mapping, it decides for each source whether it is ready (data from ARF, same-cycle commit or same-cycle bypass) or must wait for a producer tag, and handles same-cycle slot0→slot1 RAW. If the producer has finished execution but not yet committed, it reports a missed wakeup. rs3 is always treated as an FP source.
 - State: none.
-- Upstream/downstream: `IB` (head valid bits, register indices, `is_fp_opcode`), `opnd_g` (source/destination attributes), `decode` (serializing attribute), tag_mapping, `CompletionScoreboard` (tail, valid / exec_done bitmaps), bypass, commit → `dependency_check` → `dispatch_logic` (forwarded slot valid bits, serializing bits and `is_fp_opcode`, plus `slot_missed_wakeup`, `self_tag[0]`), `isq_payload_assembly` (`rsX_ready`, `rsX_wait_tag`, `rs_data_sel_t`), and the allocation fields of tag_mapping, `CompletionScoreboard` and `PC_File` (`self_tag`, `rd_write_enable`).
+- Upstream/downstream: `IB` (head valid bits, register indices, `is_fp_opcode`), `opnd_g` (source/destination attributes), `decode` (serializing attribute), tag_mapping, `scoreboard` (tail, valid / exec_done bitmaps), bypass, commit → `dependency_check` → `dispatch_logic` (forwarded slot valid bits, serializing bits and `is_fp_opcode`, plus `slot_missed_wakeup`, `self_tag[0]`), `isq_payload_assembly` (`rsX_ready`, `rsX_wait_tag`, `rs_data_sel_t`), and the allocation fields of tag_mapping, `scoreboard` and `PC_File` (`self_tag`, `rd_write_enable`).
 
 **`dispatch_logic`** ([dispatch_logic.md](../modules/p1/dispatch_logic.md))
 
@@ -138,7 +138,7 @@ Each sub-module lists only its responsibility, the state it holds and its main u
   - Admission conditions: slot valid, sub-operation routable (not unsupported), window has capacity, target ISQ free, no serializing instruction in flight, window empty for a serializing instruction, no missed wakeup, not a flush cycle.
   - slot1 additionally requires: slot0 accepted, at least 2 free window entries, the two go to different groups, not both FP-opcode instructions (judged by `is_fp_opcode` without illegal gating), neither is a serializing instruction.
 - State: none.
-- Upstream/downstream: `dependency_check` (slot valid bits, serializing bits, `is_fp_opcode`, `slot_missed_wakeup`, `self_tag[0]`), `decode` (`exe_subop`, `full_decode`, FP attributes), `CompletionScoreboard` (capacity, window empty), ISQ free signals, `SerialInstructionTracker`, `system_instruction_handler` (`fs_enabled`, `frm`) → `dispatch_logic` → `accept` (i.e. `IB`'s `ib_dequeue`, which also drives allocation in `CompletionScoreboard`, `PC_File` and tag_mapping), ISQ write enables and payload selection, in-group FU index `slot_FU_Group`, `serial_set`, `effective_rm`, and allocation attributes `is_fence_i`, `may_flush`, `is_atomic`.
+- Upstream/downstream: `dependency_check` (slot valid bits, serializing bits, `is_fp_opcode`, `slot_missed_wakeup`, `self_tag[0]`), `decode` (`exe_subop`, `full_decode`, FP attributes), `scoreboard` (capacity, window empty), ISQ free signals, `SerialInstructionTracker`, `system_instruction_handler` (`fs_enabled`, `frm`) → `dispatch_logic` → `accept` (i.e. `IB`'s `ib_dequeue`, which also drives allocation in `scoreboard`, `PC_File` and tag_mapping), ISQ write enables and payload selection, in-group FU index `slot_FU_Group`, `serial_set`, `effective_rm`, and allocation attributes `is_fence_i`, `may_flush`, `is_atomic`.
 
 **`INT_tag_mapping` / `FP_tag_mapping`** ([INT_tag_mapping.md](../modules/p1/INT_tag_mapping.md), [FP_tag_mapping.md](../modules/p1/FP_tag_mapping.md))
 
@@ -150,7 +150,7 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 
 - Responsibility: 32×64-bit architectural register values, written only by commit. Combinational read with no read/write bypass; values committing in the same cycle are provided to P1 separately by the commit datapath. INT reads of x0 are always 0; FP read addresses come from `FP_read_address_mux`.
 - State: register values.
-- Upstream/downstream: commit (`CompletionScoreboard` + `Buffer`) → ARF → `isq_payload_assembly`.
+- Upstream/downstream: commit (`scoreboard` + `Buffer`) → ARF → `isq_payload_assembly`.
 
 **`isq_payload_assembly`** ([isq_payload_assembly.md](../modules/top/isq_payload_assembly.md))
 
@@ -166,7 +166,7 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 - Per-group differences:
   - G0 selects ALU0/BRU, CSR or DIV by in-group FU index; G1 selects ALU1 or MUL.
   - G2 has 3 sources (rs3 is always an FP source; the INT / FP origin of rs1 / rs2 is chosen in P1 by `rs*_is_fp`).
-  - G3 issues to `g3_lsu_iface`, whose `FU_ready` is given by `g3_lsu_iface`; it also reports the resident instruction's `self_tag` and occupancy bit `isq_occupied` to `CompletionScoreboard` for store authorization.
+  - G3 issues to `g3_lsu_iface`, whose `FU_ready` is given by `g3_lsu_iface`; it also reports the resident instruction's `self_tag` and occupancy bit `isq_occupied` to `scoreboard` for store authorization.
 - State: one instruction payload, valid bit and per-source ready state.
 - Upstream/downstream: `dispatch_logic` / `isq_payload_assembly` → ISQ → in-group FUs; bypass → ISQ; `isq_free_for_dispatch` → `dispatch_logic`.
 
@@ -213,11 +213,11 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 
 - Responsibility: bridge between G3 and the external LSU.
   - Converts `ISQ_Group3` issues into LSU issues and records in-flight requests by tag; the `FU_ready` given to `ISQ_Group3` requires that the tag is not in flight and that the LSU asserts `lsu_be_issue_ready`.
-  - Store authorization: at issue, reads the `CompletionScoreboard` authorization bit `st_br_resolve` (valid for plain stores only) and sends it with the LSU issue; for stores already sent to the LSU, converts the tagged `store_wakeup_valid` into the tagless `be_lsu_store_wakeup_valid` on the LSU boundary. If the wakeup arrives before the target store has been sent to the LSU, the authorization is held pending and delivered in the cycle that store issues; this is a fallback path and unreachable in normal operation. At most one authorization is pending at a time.
+  - Store authorization: at issue, reads the `scoreboard` authorization bit `st_br_resolve` (valid for plain stores only) and sends it with the LSU issue; for stores already sent to the LSU, converts the tagged `store_wakeup_valid` into the tagless `be_lsu_store_wakeup_valid` on the LSU boundary. If the wakeup arrives before the target store has been sent to the LSU, the authorization is held pending and delivered in the cycle that store issues; this is a fallback path and unreachable in normal operation. At most one authorization is pending at a time.
   - Merges the LSU load-side bypass and final writeback (done / exception) into lane 3's completion and bypass; `be_lsu_entry_ready` is always 1 except in reset and flush cycles.
   - On flush, clears all bridge state and discards final results arriving in that cycle.
 - State: per-tag in-flight, authorization-pending, load-complete and done flags, plus staged load data.
-- Upstream/downstream: `ISQ_Group3`, `CompletionScoreboard` → `g3_lsu_iface` ↔ external LSU; `g3_lsu_iface` → lane 3.
+- Upstream/downstream: `ISQ_Group3`, `scoreboard` → `g3_lsu_iface` ↔ external LSU; `g3_lsu_iface` → lane 3.
 
 ### 6.6 Writeback Arbitration
 
@@ -225,11 +225,11 @@ Each sub-module lists only its responsibility, the state it holds and its main u
 
 - Responsibility: stateless fixed-priority arbitration. Each cycle it selects one completion request in the group as the group lane's writeback and bypass; bypass is valid only if the winner has no exception. The winner gets a grant and losers get a hold; losers keep their requests and stop accepting new issues. `p3_arbiter_G0` also sends the winning CSR result to `system_instruction_handler` as the CSR sideband. The arbiter only forwards the winner's fields; fields that are always 0 within the group are driven by the FUs themselves. G2 and G3 each have a single source and drive their lanes directly without an arbiter.
 - State: none.
-- Upstream/downstream: in-group FUs → arbiter → lane writeback (`CompletionScoreboard` records events, `Buffer` stores data) and lane bypass (four ISQs, `dependency_check`, `isq_payload_assembly`).
+- Upstream/downstream: in-group FUs → arbiter → lane writeback (`scoreboard` records events, `Buffer` stores data) and lane bypass (four ISQs, `dependency_check`, `isq_payload_assembly`).
 
 ### 6.7 Completion and Commit
 
-**`CompletionScoreboard`** ([CompletionScoreboard.md](../modules/p4/CompletionScoreboard.md))
+**`scoreboard`** ([scoreboard.md](../modules/p4/scoreboard.md))
 
 - Responsibility: the retirement-side resolution hub, managing the 16-entry circular in-flight window.
   - At dispatch, allocates by `accept` and records the destination register plus store, atomic, FENCE.I and `may_flush` attributes.
@@ -238,25 +238,25 @@ Each sub-module lists only its responsibility, the state it holds and its main u
   - Store authorization: a plain store is authorized once all older instructions that may flush are safely resolved. If the prefix is already all safe at allocation, the authorization bit is recorded directly; otherwise the oldest unauthorized store is authorized when the condition is met, there is no recovery in the cycle, and the store has no writeback in that cycle: if it is still resident in `ISQ_Group3`, the authorization bit is recorded in place and read by `g3_lsu_iface` at issue; if already sent to the LSU, `g3_lsu_iface` is notified with `store_wakeup_valid` (tagged).
   - Interrupts are not taken while there is still an authorized but uncommitted store.
 - State: head / tail pointers; per-entry execution-complete, authorized, wakeup-sent, attributes and event records.
-- Upstream/downstream: P1 modules such as `dispatch_logic` (allocation), `ISQ_Group3` (`self_tag`, `isq_occupied`), lane writeback, `system_instruction_handler` (`interrupt_pending`) → `CompletionScoreboard` → commit events (`INT_ARF` / `FP_ARF`, tag_mapping, `SerialInstructionTracker`, `system_instruction_handler`, `dependency_check`, and the `Buffer` read address), `flush_model` and `PC_File` (`flush_tag`), `g3_lsu_iface`; window capacity, tail and valid / exec_done bitmaps → `dispatch_logic`, `dependency_check`.
+- Upstream/downstream: P1 modules such as `dispatch_logic` (allocation), `ISQ_Group3` (`self_tag`, `isq_occupied`), lane writeback, `system_instruction_handler` (`interrupt_pending`) → `scoreboard` → commit events (`INT_ARF` / `FP_ARF`, tag_mapping, `SerialInstructionTracker`, `system_instruction_handler`, `dependency_check`, and the `Buffer` read address), `flush_model` and `PC_File` (`flush_tag`), `g3_lsu_iface`; window capacity, tail and valid / exec_done bitmaps → `dispatch_logic`, `dependency_check`.
 
 **`Buffer`** ([Buffer.md](../modules/p4/Buffer.md))
 
-- Responsibility: 16×64-bit result storage, written by tag from the 4 lanes and read by the head0 / head1 tags as commit data. Not connected to flush; window validity is determined by `CompletionScoreboard`.
+- Responsibility: 16×64-bit result storage, written by tag from the 4 lanes and read by the head0 / head1 tags as commit data. Not connected to flush; window validity is determined by `scoreboard`.
 - State: per-entry result data.
 - Upstream/downstream: lane writeback → `Buffer` → commit data (ARF, `isq_payload_assembly`).
 
 **`PC_File`** ([PC_File.md](../modules/p4/PC_File.md))
 
-- Responsibility: 16×64-bit instruction PC storage, written by `self_tag` at dispatch. One recovery read port (indexed by `CompletionScoreboard`'s `flush_tag`) feeds `flush_model` as the base for EPC and FENCE.I.
+- Responsibility: 16×64-bit instruction PC storage, written by `self_tag` at dispatch. One recovery read port (indexed by `scoreboard`'s `flush_tag`) feeds `flush_model` as the base for EPC and FENCE.I.
 - State: per-entry instruction PC.
-- Upstream/downstream: `IB` / `accept` (write), `CompletionScoreboard` (`flush_tag`) → `PC_File` → `flush_model`.
+- Upstream/downstream: `IB` / `accept` (write), `scoreboard` (`flush_tag`) → `PC_File` → `flush_model`.
 
 **`flush_model`** ([flush_model.md](../modules/p4/flush_model.md))
 
 - Responsibility: stateless recovery exit. There are six `recovery_kind`s: MISPREDICT, EXCEPTION, MRET, INTERRUPT, FENCE_I, SRET (encodings 0–5, 6–7 reserved), all of which redirect the frontend. The redirect PC is selected by `recovery_kind`: mispredict target, `mepc`, `sepc`, the next instruction after FENCE.I (PC + 4), or the trap vector (queried from `system_instruction_handler` with cause and interrupt flag). In the same cycle it issues `global_flush_late`, the frontend redirect (plus icache invalidation for FENCE.I), and the trap / xRET state-write packet `trap_state_write` to `system_instruction_handler` (EXCEPTION, INTERRUPT, MRET, SRET).
 - State: none.
-- Upstream/downstream: `CompletionScoreboard`, `PC_File`, `system_instruction_handler` → `flush_model` → frontend, `system_instruction_handler`, and the backend-wide flush broadcast.
+- Upstream/downstream: `scoreboard`, `PC_File`, `system_instruction_handler` → `flush_model` → frontend, `system_instruction_handler`, and the backend-wide flush broadcast.
 
 ### 6.8 System Instructions and Serialization
 
@@ -275,4 +275,4 @@ Each sub-module lists only its responsibility, the state it holds and its main u
   - Accumulates fflags at commit. FS is set to Dirty when a retiring instruction writes an FP destination register or has non-zero fflags; CSR instructions writing `fflags` / `frm` / `fcsr` also set Dirty at commit.
   - Provides CSR read ports, the current privilege level, `mstatus.TVM/TW/TSR`, FP control (`frm`, `fs_enabled`), `mepc` / `sepc`, the trap vector, and the interrupt request `interrupt_pending` with interrupt cause.
 - State: all architectural CSRs, the current privilege level, one staged CSR write.
-- Upstream/downstream: `p3_arbiter_G0` (CSR sideband), commit, `flush_model`, `mip_*` → `system_instruction_handler` → `csr_unit`, ALU0/BRU, `dispatch_logic`, `CompletionScoreboard`, `flush_model`.
+- Upstream/downstream: `p3_arbiter_G0` (CSR sideband), commit, `flush_model`, `mip_*` → `system_instruction_handler` → `csr_unit`, ALU0/BRU, `dispatch_logic`, `scoreboard`, `flush_model`.

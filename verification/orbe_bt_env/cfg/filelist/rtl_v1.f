@@ -54,6 +54,6 @@
 ../../src/core/be_rtl_v1/p4/SerialInstructionTracker.sv
 ../../src/core/be_rtl_v1/p4/flush_model.sv
 ../../src/core/be_rtl_v1/p4/system_instruction_handler.sv
-../../src/core/be_rtl_v1/p4/CompletionScoreboard.sv
+../../src/core/be_rtl_v1/p4/scoreboard.sv
 
 ../../src/core/be_rtl_v1/top/backend_top.sv

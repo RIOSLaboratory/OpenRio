@@ -21,7 +21,7 @@ import or_be_types_pkg::*;
 //     read-side zero forcing.
 //   * **One write port, not two.**  The commit bus is 1 write port
 //     over two commit lanes; the commit side blocks a double-FP retire
-//     (CompletionScoreboard), so at most one of write_req[k] can
+//     (scoreboard), so at most one of write_req[k] can
 //     be asserted in a cycle and the single port never has to arbitrate.  The
 //     lane-0-first priority below is therefore a don't-care tie-break kept only
 //     so the port is fully specified.

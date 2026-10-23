@@ -60,7 +60,7 @@ module FU_input_mux (
     //                                                    b in {0..3}
     //
     // At most one bit of hit is set, and this module does not create that
-    // invariant -- it consumes it.  CompletionScoreboard's writeback
+    // invariant -- it consumes it.  scoreboard's writeback
     // constraint makes the four valid tag_out belong to four different
     // in-flight tags, and the top level wires bypass_tag[b] straight to tag_out[b].
     // ------------------------------------------------------------------

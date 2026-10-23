@@ -15,12 +15,12 @@ import fe_be_protocol_pkg::*;
 //   glue#1  field extraction of head_IB_Payload[s]
 //           IB outputs a whole ib_payload_t, while dependency_check / dispatch_logic /
 //           INT_ARF / INT_tag_mapping / FP_tag_mapping / FP_read_address_mux /
-//           CompletionScoreboard / PC_File take loose fields.
+//           scoreboard / PC_File take loose fields.
 //           Also produces the gated opnd (ib_opnd_g, feeds isq_payload_assembly).
 //   glue#2  aggregation of the four completion lanes
 //           lane0 = p3_arbiter_G0, lane1 = p3_arbiter_G1, lane2 = fpu_simple
 //           direct, lane3 = g3_lsu_iface. **Each group of arrays is aggregated once**, then fanned out to
-//           Buffer / CompletionScoreboard / dependency_check / the four ISQ_Groups /
+//           Buffer / scoreboard / dependency_check / the four ISQ_Groups /
 //           isq_payload_assembly -- aggregating twice separately could misalign the b of bypass_data[b] and
 //           bypass_valid[b]/bypass_tag[b], and no tool can catch that misalignment.
 //   glue#3  each FU's completion request aggregated by **in-group requester number** to the arbiter
@@ -538,7 +538,7 @@ module backend_top (
     // glue#1 · head field extraction
     //
     // The eight edges "IB -> dependency_check / dispatch_logic / FP_read_address_mux /
-    // INT_ARF / INT_tag_mapping / FP_tag_mapping / CompletionScoreboard /
+    // INT_ARF / INT_tag_mapping / FP_tag_mapping / scoreboard /
     // PC_File" take loose fields.
     //
     // RVC expansion and Operand_Extract are in FE:
@@ -611,7 +611,7 @@ module backend_top (
     //   lane3 = g3_lsu_iface
     //
     // **Each group of arrays is aggregated only here, once**, then purely fanned out to Buffer /
-    // CompletionScoreboard / dependency_check / the four ISQ_Groups /
+    // scoreboard / dependency_check / the four ISQ_Groups /
     // isq_payload_assembly. Aggregated only once, the b of bypass_data[b] and
     // bypass_valid[b]/bypass_tag[b] is naturally the same.
     //
@@ -1203,7 +1203,7 @@ module backend_top (
         .self_tag              (isq3_self_tag),
         .exe_subop             (isq3_exe_subop),
         .isq_free_for_dispatch (isq3_isq_free_for_dispatch),
-        // The value of "ISQ_Group3 -> CompletionScoreboard  isq_occupied".
+        // The value of "ISQ_Group3 -> scoreboard  isq_occupied".
         // Same source and same cycle as self_tag, forming the "address + address valid" halves of the st_br_resolve read port.
         .isq_occupied          (isq3_occupied)
     );
@@ -1553,8 +1553,8 @@ module backend_top (
         .imm_valid                 (isq3_imm_valid),
         .imm_data                  (isq3_imm_data),
         .is_store                  (isq3_is_store),
-        // The value half of "CompletionScoreboard -> g3_lsu_iface  st_br_resolve_by_tag";
-        // for the address half see CompletionScoreboard's st_br_resolve_tag.
+        // The value half of "scoreboard -> g3_lsu_iface  st_br_resolve_by_tag";
+        // for the address half see scoreboard's st_br_resolve_tag.
         .st_br_resolve             (scb_st_br_resolve),
         .store_wakeup_valid        (scb_store_wakeup_valid),
         .store_wakeup_tag          (scb_store_wakeup_tag),
@@ -1695,7 +1695,7 @@ module backend_top (
         .mstatus_tsr            (sih_mstatus_tsr)
     );
 
-    CompletionScoreboard u_CompletionScoreboard (
+    scoreboard u_scoreboard (
         .clk                           (clk),
         .rst_n                         (rst_n),
         .accept                        (alloc_valid),
