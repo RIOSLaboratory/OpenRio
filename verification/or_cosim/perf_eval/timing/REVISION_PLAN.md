@@ -1,5 +1,8 @@
 # 材料修订方案：caselist 与 timing diagram（INT 单操作数依赖）
 
+> **2026-10-22 更新**：内网算子数据 `latency_bench/result.md` 已取代本方案的 DIV/LOAD 值
+> （DIV 4→8, LOAD 3→2）。本文件保留为历史记录；当前值以 `latency_table.py` 为准。
+
 **状态**：**已执行**（2026-10-09）。caselist 与 diagram 均已按本方案改完，提交 `fabff86`；
 阶段对照表（§3#2）与 golden 锚点（§3#3）已补。
 **依据**：`perf_eval/latency_bench/Latency_Report.md`（102 例实测，三个自检点全中）

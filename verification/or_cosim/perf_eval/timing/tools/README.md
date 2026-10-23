@@ -163,7 +163,11 @@ MUL 是 3，别混。
 2. `family()` 期望**大写**助记符（它解析日志里的 `inst_mnemonic=`）。传小写会静默落进
    默认的 `ALU`、L=1，把 MUL/DIV 判成脏。本轮我就在 `re_audit.py` 里踩过一次。
 
-## JALR 作 producer：结论是**凑不出来**（附证据与复现脚本）
+## JALR 作 producer：`rtl_v1` 下的失败尝试（已作废，见下方更正）
+
+> **2026-10-22 更正**：本节的“凑不出来”只适用于 `rtl_v1` / `fe_agent`（`pred_taken` 硬编码为 0）。
+> 基线换成 `rtl_full` 后，BTB 命中即可构造，见下方“更正”小节；K-Map 的
+> “JAL/JALR with rd != x0: register-result producer exists” 注记是正确的。
 
 K-Map 要求的是"JALR 作 producer，consumer 任意"。为此先修掉了当初挂死的根因：
 **跳转目标寄存器未初始化**导致跳到地址 0。修法是让 target = JALR 的下一条指令

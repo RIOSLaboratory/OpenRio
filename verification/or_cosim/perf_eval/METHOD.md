@@ -73,7 +73,7 @@ delta = dependent first P1/DSP attempt cycle - producer first P1/DSP attempt cyc
 | JALR（link；需同 PC 预热）| **1** | **2** | **3** | **4** | **0..4** |
 
 > **JALR 不进入本 caselist 的枚举。** 原因不是排布技巧，而是结构性的：`p4/flush_model.sv`
-> 注明 retire 决定属于 CompletionScoreboard，JALR 的控制决定在**退休时**才通过
+> 注明 retire 决定属于 scoreboard，JALR 的控制决定在**退休时**才通过
 > `global_flush_late` 生效，而该信号门控了 tag mapping 的 alloc 与各 ISQ group 的
 > `issue_valid` / `bypass_capture`。因此落在链路值可见窗口内的消费者必须在 JALR 退休前派发，
 > 而那样派发的指令全是投机，会被冲刷**作废**——"落在窗口内"与"能存活"互斥。

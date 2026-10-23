@@ -69,6 +69,10 @@ def parse_caselist(path):
         cid = cells[0].strip("`")
         skeleton = cells[cols[0]].strip("`")
         instrs = [p.strip() for p in re.split(r";|->", skeleton) if p.strip()]
+        # The caselist also contains a measured-results table whose rows start the
+        # same way; its "instruction" cell is a number, not a program. Ignore it.
+        if len(instrs) < 2:
+            continue
         fill_txt = cells[cols[1]].strip()
         # A row may carry a filler-type marker after the numbers, for example
         # "0 / 4 branch" or "1 / 5 chained". This generator only knows how to emit
@@ -76,7 +80,10 @@ def parse_caselist(path):
         # than rendered wrongly: the hand-calibrated file in calibrated_cases/ is the
         # one that gets run.
         marked = re.search(r"[A-Za-z]", fill_txt)
-        if marked:
+        # Non-numeric recipes (`n/a`, an em dash, `?`) are stageinject-only rows;
+        # the ELF generator cannot render them and must skip rather than crash.
+        numeric = re.fullmatch(r"\s*\d+(\s*/\s*\d+)*\s*", fill_txt)
+        if marked or (fill_txt != "?" and numeric is None):
             out.append((cid, instrs, None))
             continue
         fillers = [int(x) for x in re.split(r"/", fill_txt)] if fill_txt != "?" else []

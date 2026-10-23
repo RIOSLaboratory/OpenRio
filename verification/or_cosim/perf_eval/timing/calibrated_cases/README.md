@@ -1,5 +1,9 @@
 # 手工标定的用例（冻结）
 
+> **2026-10-22 范围变更**：汇编 `.S` 用例已退出 timing diagram 流程。当前
+> diagram/caselist 采用 IB stimulus 注入，不再以 `.S` 的标定结果作为 diagram 依据。
+> 本目录仅保留为历史 RTL 回归资产，不随 `latency_table.py` 的内网 latency 变更而重标定。
+
 本目录存放**人工标定**出来的用例源文件。`gen_cases.py` 不会写入这里，`run_perf.sh`
 默认也不再重新生成（需要显式 `--regen`）。
 

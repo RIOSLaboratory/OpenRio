@@ -13,8 +13,9 @@ Normative timing source:
 pending promotion to spec/or-be/
 ```
 
-Golden RTL anchor for the producer latencies in this file: OpenRio **`589ca8f`**
-(`--dut-kind rtl_full`). Measurement report: `../../latency_bench/Latency_Report.md`.
+Golden timing source for the producer latencies in this file:
+`../../latency_bench/result.md` (intranet operator measurements). Behavioral-RTL
+measurements remain in `Latency_Report.md` for history only.
 
 This caselist covers the source-ready composition of one dependent instruction with two operands. The P1 MUX cases cover operands captured while constructing a new ISQ payload. The P2 MUX cases cover an already-resident ISQ entry receiving current-cycle forwarding at FU-input time. It does not enumerate producer opcode latency variants inside the same POI; those are covered by `INT_single_operand_dependency_caselist.md`.
 
@@ -32,26 +33,26 @@ Current INT result timing boundaries:
 |---|---:|---:|---:|
 | ALU/BRU result | 2 | 3 | 4 |
 | MUL result | 4 | 5 | 6 |
-| DIV/REM result | **5** | **6** | **7** |
-| LOAD hit result | **4** | **5** | **6** |
+| DIV/REM result | **9** | **10** | **11** |
+| LOAD hit result | **3** | **4** | **5** |
 
-> **Revision (2026-10): producer latencies are now the measured values**
-> (`../../latency_bench/Latency_Report.md`, OpenRio `589ca8f`, `--dut-kind rtl_full`).
+> **Revision (2026-10-22): producer latencies follow the intranet operator data**
+> (`../../latency_bench/result.md`). The behavioral-RTL values in `Latency_Report.md` are
+> superseded for DIV and LOAD.
 >
 > | Producer | was | now | effect |
 > |---|---:|---:|---|
 > | ALU/BRU result (also the JALR link) | 2/3/4 | **2/3/4** | unchanged |
 > | MUL result | 4/5/6 | **4/5/6** | unchanged |
-> | DIV/REM result | 9/10/11 | **5/6/7** | `L` 8 → 4 |
-> | LOAD hit result | 3/4/5 → 4/5/6 | **4/5/6** | `L` 2 → 3 (previous revision) |
+> | DIV/REM result | 5/6/7 | **9/10/11** | `L` 4 → 8 |
+> | LOAD hit result | 4/5/6 | **3/4/5** | `L` 3 → 2 |
 >
-> LOAD wording follows Cache HAS `V1.0 rev.1`: E1 AGU, E2 L1 D cache, E3 load-data arbiter
-> together with the CDB FIFO, three cycles being the earliest case.
+> LOAD timing follows the intranet operator: E1 AGU, E2 L1 D cache; `L = 2`.
 
 Total case count:
 
 ```text
-P1 MUX 17 cases + P2 MUX 7 cases + same-RD fanout 6 cases = 30 cases
+P1 MUX 17 cases + P2 MUX 7 cases + same-RD fanout 6 cases = 31 cases
 ```
 
 For any mixed-source P3 case, issue the producers at different P1 cycles as needed so their P3 publications align in the same dependent source-resolution cycle. For example, a G1 MUL producer must be issued two cycles earlier than a G0 ALU producer if both results should appear at P3 in the same cycle.
@@ -61,6 +62,10 @@ The three same-bypass diagonal cells are excluded because they are gray `don't e
 **Same-group dispatch.** Separately from the P3-lane rule above, the ISQ holds one entry per group, so **two instructions of the same group cannot be dispatched in the same cycle**. A dependent that would otherwise share its group's dispatch cycle with the producer that supplies the source is routed to the other ALU group, and the figures show it as `Dependent-G1`. This is the same routing choice the single-operand `delta_0` rows make.
 
 ## Filler and Program Construction
+
+> **Legacy (2026-10-22):** the `.S`/filler construction below is no longer part of the
+> timing-diagram flow. Diagrams and caselists use IB stimulus injection; the frozen `.S`
+> recipes are retained only as historical RTL regression assets.
 
 A case is a program snippet, not a cycle diagram: the dispatch gaps the figures show
 have to be filled with real instructions. The pipeline dispatches up to two
@@ -97,8 +102,8 @@ groups, which is what the figures already require.
   are held by producers: the load uses `G3` and the `fadd.s` uses `G2`, so neither can steal a
   producer's writeback. Those two fillers do not advance the stream one cycle each, so the count
   had to be measured; the rows also need the FS enable for the `fadd.s`. Every notation other
-  than a plain number is a measured recipe, and such rows are frozen under `../calibrated_cases/`
-  because `gen_cases.py` cannot render them.
+  than a plain number is a historical measured recipe kept under `../calibrated_cases/`; it is not
+  part of the diagram flow and `gen_cases.py` cannot render it.
 - **Count**: `Fillers` lists, in program order, how many fillers follow each case
   instruction, so the last entry always follows the last producer.
 - **Slot order within a cycle**: a case instruction must be the **first** of the two
@@ -132,17 +137,17 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 
 | Case | Source 1 Ready | Source 2 Ready | Instructions | Fillers after each | Timing Setup | Expected Behavior |
 |:---|:---|:---|:---|:---|:---|:---|
-| `INT2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | `0ld+1fp / 0ld+3fp` | The G0 side is a **DIV**, not an ALU, and it dispatches one cycle **before** the MUL so the two P3 publications coincide. Fillers must stay off lanes 0 and 1. See the note below; measured `div.P3 = mul.P3 = dep.P1`. | Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle. |
+| `INT2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `div x6, x3, x4; mul x8, x1, x2 -> add x20, x8, x6` | `n/a (IB stimulus)` | The G0 side is a **DIV**, not an ALU, and it dispatches **five cycles before** the MUL so the two P3 publications coincide. Under IB stimulus inject DIV at T11, MUL at T16, dependent at T20; no fillers. See the note below. | Dependent captures rs1 from G1 Bypass and rs2 from G0 Bypass in the same source-ready cycle. |
 | `INT2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | 3 / 3 | Issue load one cycle before G0 ALU producer so both P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G0 Bypass. |
 | `INT2_P4_G0P3` | P4 Commit | G0 P3 Bypass | `add x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 1 / 3 | Arrange older `x6` producer to commit in the same cycle that `x5` producer publishes at G0 P3. | P1 source resolution uses Commit CDB for rs1 and G0 Bypass for rs2. |
 | `INT2_ARF_G0P3` | Already in ARF | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | 3 / 3 | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G0 producer for `x5` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G0 Bypass. |
 | `INT2_G0P3_IMM` | G0 P3 Bypass | IMM | `add x5, x1, x2 -> addi x20, x5, 16` | 3 | G0 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G0 Bypass; rs2 is immediate and has no dependency tag. |
-| `INT2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `ld x7, 0(x8); mul x6, x3, x4 -> add x20, x7, x6` | 0 / 4 branch | Issue `mul` one cycle before load so G1 and G3 P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass. |
+| `INT2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | `0 / 4 branch` | Issue `mul` one cycle before load so G1 and G3 P3 publications align. | Dependent captures rs1 from G3 load Bypass and rs2 from G1 Bypass. |
 | `INT2_P4_G1P3` | P4 Commit | G1 P3 Bypass | `add x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | n/a | P4 source is the **older** source so it commits on schedule; the G1 source is an **ALU**, so its writeback lands on that commit cycle | P1 resolves rs1 from the Commit CDB and rs2 from the G1 bypass in one cycle; the dependent issues one cycle later. A MUL cannot be used here: it is slower than the committing source, so the two events never meet (see the class rules below) |
-| `INT2_P4_G1P3_blocked` | P4 Commit (held) | G1 P3 Bypass | `div x11, x12, x13 (blocker) ; add x7, x8, x9 ; mul x6, x3, x4 ; add x20, x7, x6` | n/a | the older `div` holds the commit until the MUL's writeback cycle | same held form as the G3 case, with the P3 source in G1 as a MUL; the dependent dispatches on the held commit and captures both sources there |
+| `INT2_P4_G1P3_blocked` | P4 Commit (held) | G1 P3 Bypass | `div x11, x12, x5 (blocker) ; add x7, x8, x9 ; mul x6, x3, x4 ; add x20, x7, x6` | n/a | the older `div` (L=8) holds the commit to T12; inject the MUL so its P3 lands at T12 | same held form as the G3 case, with the P3 source in G1 as a MUL; the dependent dispatches on the held commit and captures both sources there |
 | `INT2_ARF_G1P3` | Already in ARF | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | 0 / 4 branch | Producer for `x10` is issued early enough to commit before the dependent reaches P1; G1 producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G1 Bypass. |
 | `INT2_G1P3_IMM` | G1 P3 Bypass | IMM | `mul x6, x3, x4 -> addi x20, x6, 16` | 5 branch | G1 producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G1 Bypass; rs2 is immediate and has no dependency tag. |
-| `INT2_P4_G3P3_blocked` | P4 Commit (held) | G3 Load P3 Bypass | `div x11, x12, x13 (blocker) ; add x7, x8, x9 ; ld x6, 0(x10) ; add x20, x7, x6` | n/a | the older `div` holds the commit until the load's writeback cycle | the held commit and the load writeback coincide, and the dependent dispatches there with both operands. This is the only form in which the LOAD can be kept: an older P3 source can never coincide with a commit, because in-order retirement forces the commit past the older source's own writeback |
+| `INT2_P4_G3P3_blocked` | P4 Commit (held) | G3 Load P3 Bypass | `div x11, x12, x5 (blocker) ; add x7, x8, x9 ; ld x6, 0(x10) ; add x20, x7, x6` | n/a | the older `div` (L=8) holds the commit to T12; inject the LOAD so its P3 lands at T12 | the held commit and the load writeback coincide, and the dependent dispatches there with both operands. This is the only form in which the LOAD can be kept: an older P3 source can never coincide with a commit, because in-order retirement forces the commit past the older source's own writeback |
 | `INT2_ARF_G3P3` | Already in ARF | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | 0 / 7 | Producer for `x11` is issued early enough to commit before the dependent reaches P1; load producer for `x6` reaches P3 in the dependent source-ready cycle. | rs1 reads ARF; rs2 captures G3 load Bypass. |
 | `INT2_G3P3_IMM` | G3 Load P3 Bypass | IMM | `ld x6, 0(x10) -> addi x20, x6, 16` | 7 | Load producer reaches P3 when dependent immediate-form instruction resolves sources. | rs1 captures G3 load Bypass; rs2 is immediate and has no dependency tag. |
 | `INT2_P4_P4` | P4 Commit | P4 Commit | `add x5, x1, x2; add x6, x3, x4 -> add x20, x5, x6` | 0 / 5 | Arrange the two older producers as P4 head0/head1 commits in the dependent source-resolution cycle. | P1 source resolution captures both operands from the two Commit CDB lanes. |
@@ -191,13 +196,13 @@ Without the `IMM` column, the K-map would only cover R-type two-register consume
 > chain or a branch all end up stealing a producer's writeback. Branches are worst here
 > because a BRU op is in the fixed `G0` group and collides with the `G0` producer directly.
 >
-> The only lane-safe fillers are `ld` on `G3` and `fadd.s` on `G2`, and those advance the
-> stream roughly two cycles per filler, so the counts had to be measured. What makes the row
-> work is the **choice of the G0 producer**: a DIV has a `P3` delta of five against an ALU's
-> two, so it must dispatch one cycle *before* the MUL, and with that spacing the two
-> publications land together while both writebacks stay clean. Order matters: with the MUL
-> first, no spacing produced a clean coincidence. Measured `div.P1=15 P3=20` on lane 0,
-> `mul.P1=16 P3=20` on lane 1, `dep.P1=20`.
+> The only lane-safe fillers are `ld` on `G3` and `fadd.s` on `G2`; those are legacy for the
+> ELF path. Under IB stimulus the row is direct: inject DIV at T11, MUL at T16, dependent at
+> T20. What makes the row work is the **choice of the G0 producer**: a DIV has a `P3` delta of
+> nine against a MUL's four, so it must dispatch **five cycles before** the MUL, and with that
+> spacing the two publications land together while both writebacks stay clean. Order matters:
+> with the MUL first, no spacing produced a clean coincidence. Expected `div.P1=11 P3=20` on
+> lane 0, `mul.P1=16 P3=20` on lane 1, `dep.P1=20`; recalibrate with stageinject.
 
 ## P2 MUX Case List
 
@@ -208,7 +213,7 @@ In every P2 case below, the dependent instruction is already resident in its gro
 | `INT2_P2_G1P3_G0P3` | G1 P3 Bypass | G0 P3 Bypass | `mul x6, x3, x4; add x5, x1, x2 -> add x20, x6, x5` | 3 / 0 | Dispatch dependent early with wait tags for both operands. Issue `mul` two cycles before `add` so G1 and G0 results publish at P3 together while the dependent is resident. | P2 FU-input mux selects rs1 from G1 Bypass and rs2 from G0 Bypass; the resident entry can issue in that cycle if the selected FU is free. |
 | `INT2_P2_G3P3_G0P3` | G3 Load P3 Bypass | G0 P3 Bypass | `ld x7, 0(x8); add x5, x1, x2 -> add x20, x7, x5` | 3 / 0 | Dispatch dependent early with wait tags; issue the load one cycle before the G0 ALU producer so both P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G0 Bypass. |
 | `INT2_P2_ISQ_STORED_G0P3` | Stored Ready at dispatch | G0 P3 Bypass | `add x10, x1, x2; add x5, x3, x4 -> add x20, x10, x5` | 7 / 0 | Resolve and store `x10` in the dependent ISQ entry earlier; keep rs2 waiting until `x5` reaches G0 P3. | P2 mux uses stored `entry.rs1_data` and current G0 Bypass data. |
-| `INT2_P2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `ld x7, 0(x8); mul x6, x3, x4 -> add x20, x7, x6` | 0 / 3 | Dispatch dependent early; issue `mul` one cycle before load so G1 and G3 P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G1 Bypass. |
+| `INT2_P2_G3P3_G1P3` | G3 Load P3 Bypass | G1 P3 Bypass | `mul x6, x3, x4; ld x7, 0(x8) -> add x20, x7, x6` | 0 / 3 | Dispatch dependent early; issue `mul` one cycle before load so G1 and G3 P3 publications align. | P2 mux selects rs1 from G3 load Bypass and rs2 from G1 Bypass. |
 | `INT2_P2_ISQ_STORED_G1P3` | Stored Ready at dispatch | G1 P3 Bypass | `add x10, x1, x2; mul x6, x3, x4 -> add x20, x10, x6` | 0 / 2 branch | Resolve and store `x10` in the dependent entry earlier; keep rs2 waiting for the G1 producer. | P2 mux uses stored `entry.rs1_data` and current G1 Bypass data. |
 | `INT2_P2_ISQ_STORED_G3P3` | Stored Ready at dispatch | G3 Load P3 Bypass | `add x11, x1, x2; ld x6, 0(x10) -> add x20, x11, x6` | 3 / 3 | Resolve and store `x11` in the dependent entry earlier; keep rs2 waiting for the load producer. | P2 mux uses stored `entry.rs1_data` and current G3 load Bypass data. |
 | `INT2_P2_ISQ_STORED_ISQ_STORED` | Stored Ready at dispatch | Stored Ready at dispatch | `add x10, x1, x2; add x11, x3, x4 -> add x20, x10, x11` | 0 / 7 | Resolve both sources before the observed P2 issue cycle; the dependent entry is resident with both `rs_ready` bits set. | P2 mux selects both operands from stored `entry.rs_data`; no current-cycle forwarding is needed. |

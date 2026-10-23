@@ -4,7 +4,7 @@
 > 作为 timing diagram / caselist 性能符合性验证的**激励投递方式**。
 > 本文只讲方法与落地，不改动任何 case 的推导结论。
 
-状态：**方法已论证，实现待迁移**（当前流水线仍走 .S → .ELF）。
+状态：**timing diagram / caselist 已采用 IB 激励注入**；`.S → .ELF` 路径仅保留为历史回归基线，不再作为 diagram 的主投递形式。
 
 ---
 
