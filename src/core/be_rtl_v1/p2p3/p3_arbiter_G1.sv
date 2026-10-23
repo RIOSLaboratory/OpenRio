@@ -37,7 +37,7 @@ import or_be_types_pkg::*;
 //
 // Naming follows the de-duplication rule: the candidate side
 // carries the `req_` prefix and the winner side keeps the bare names, which are
-// the verbatim writeback input names of CompletionScoreboard (Result_valid,
+// the verbatim writeback input names of scoreboard (Result_valid,
 // tag_out, mispredict_flag, mispredict_target_pc, exception_flag,
 // exception_cause, exception_tval, is_mret, fpu_fflags) and of Buffer
 // (Result_valid, tag_out, result_data).  The exec_done out-event is

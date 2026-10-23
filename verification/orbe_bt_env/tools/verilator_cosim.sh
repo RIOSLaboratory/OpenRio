@@ -262,7 +262,7 @@ esac
 #
 #   SYNTHESIS               -- RTL wraps its built-in assertions in `ifndef SYNTHESIS (alu_simple /
 #                              csr_unit / div_simple / mul_simple / g3_lsu_iface /
-#                              CompletionScoreboard, six places). Passing it = these assertions are not compiled.
+#                              scoreboard, six places). Passing it = these assertions are not compiled.
 #   ORBE_EXTERNAL_MNEMONICS -- be_agent / cosim_pkg look up mnemonic names via an external table.
 #   $dut_define             -- ORBE_DUT_RTL_V1 or ORBE_DUT_AGENT, dispatching between the two DUT kinds.
 base_defines=(

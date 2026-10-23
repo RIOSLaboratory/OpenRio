@@ -547,7 +547,7 @@ package exe_subop_pkg;
         return is_g3_store_subop(s) || is_g3_amo_subop(s) || is_g3_sc_subop(s);
     endfunction
 
-    // Used by CompletionScoreboard's early plain-store wakeup scan.  A zero
+    // Used by scoreboard's early plain-store wakeup scan.  A zero
     // means this instruction class cannot later create an architectural flush;
     // all other classes are conservatively treated as unresolved until their
     // terminal normal completion has been observed.

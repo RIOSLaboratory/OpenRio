@@ -62,7 +62,7 @@ module dependency_check (
     input  logic                    rs2_is_fp                 [ISSUE_WIDTH],
     input  logic                    rs3_is_fp                 [ISSUE_WIDTH],
 
-    // in: combinational read -- the alloc base, exported by CompletionScoreboard.  Name
+    // in: combinational read -- the alloc base, exported by scoreboard.  Name
     // carried over.
     input  logic [TAG_W-1:0]        Buffer_tail,
 
@@ -78,7 +78,7 @@ module dependency_check (
     input  logic [TAG_W-1:0]        FP_tag_mapping_tag        [1:FP_READ_PORTS],
     input  logic                    FP_tag_mapping_busy       [1:FP_READ_PORTS],
 
-    // in: combinational read -- Static Info from CompletionScoreboard, 16 bit each
+    // in: combinational read -- Static Info from scoreboard, 16 bit each
     input  logic [ROB_DEPTH-1:0]    scoreboard_valid_bits,
     input  logic [ROB_DEPTH-1:0]    scoreboard_exec_done_bits,
 

@@ -32,7 +32,7 @@ import or_be_types_pkg::*;
 // Port names follow the de-duplication
 // rule: the request side (candidates) carries the `req_` prefix, the winner
 // side (outputs) keeps the bare names so they line up word for word with the
-// already-frozen writeback inputs of CompletionScoreboard / Buffer and
+// already-frozen writeback inputs of scoreboard / Buffer and
 // with system_instruction_handler's lane-0 capture port.  No name is left
 // ambiguous.
 //
