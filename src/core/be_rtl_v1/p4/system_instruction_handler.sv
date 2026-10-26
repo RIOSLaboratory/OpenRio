@@ -248,7 +248,10 @@ module system_instruction_handler (
     // ------------------------------------------------------------------
     // (5) misa -- not a constant, a read-only value packed from the static
     // configuration.  MXL = 2 (RV64); an extension bit is 1 only when that
-    // extension is actually built.  All on -> 0x8000_0000_0000_112D.
+    // extension is actually built.  With or_be_config_pkg's defaults
+    // (A/C/F/D/I/M + ENABLE_S + ENABLE_U) the value is 0x8000_0000_0014_112D.
+    // S and U are part of it: this core really implements those privilege
+    // levels, and misa must agree with the S-mode CSRs it exposes.
     // ------------------------------------------------------------------
     localparam int MISA_EXT_W  = 26;          // one bit per ISA letter
     localparam int BIT_MISA_A  = 0;
