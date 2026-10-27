@@ -1569,6 +1569,11 @@ class be_agent;
     longint unsigned ref_trap_cause, ref_trap_tval;
     int trap_rc;
     bit level2_mismatch_detected;
+    // Interrupt delivery (kind = interrupt): the vector the model computes for the
+    // interrupt the DUT just took.
+    longint unsigned model_int_pc;
+    byte unsigned    model_int_redirect;
+    int              int_rc;
 
     if (ob_vif.recovery_valid !== 1'b0 &&
         ob_vif.recovery_valid !== 1'b1)
@@ -1592,8 +1597,42 @@ class be_agent;
       squash_rob_idx = ob_vif.recovery_squash_tag;
 
       if (ob_vif.recovery_kind == ORBE_RECOVERY_INTERRUPT) begin
-        cfg.reporter.fatal(
-            "[BE][RECOVERY_INTERRUPT] unsupported until interrupt cause observation is wired");
+        // Interrupt delivery: the DUT took an interrupt at this instruction boundary.
+        // There is no trapping instruction, so nothing is committed here -- instead the
+        // shared model is asked to take the same interrupt and the vector it computes
+        // must agree with the DUT's redirect target.
+        //
+        // mip/mie/mstatus/mtvec/mideleg already mirror the DUT's because every older
+        // CSR-writing instruction went through commit_auto. Only core-internal sources
+        // (the mip CSR, i.e. software interrupts) are handled: CLINT/PLIC driven
+        // MTIP/MEIP need isa_dpi_check_interrupt() every cycle plus an mip level the RTL
+        // also sees, which is not wired yet.
+        int_rc = isa_dpi_take_interrupt(MODEL_CORE_ID, model_int_pc, model_int_redirect);
+        check_rc($sformatf("takeInterrupt cycle=%0d", cycle_count), int_rc);
+        if (model_int_redirect == 8'h0)
+          cfg.reporter.fatal($sformatf(
+              "[BE][RECOVERY_INTERRUPT] cycle=%0d: DUT took an interrupt but the model has none pending",
+              cycle_count));
+        if (model_int_pc != ob_vif.recovery_redirect_pc)
+          cfg.reporter.fatal($sformatf(
+              "[BE][RECOVERY_INTERRUPT] cycle=%0d: vector mismatch dut=0x%016h model=0x%016h",
+              cycle_count, ob_vif.recovery_redirect_pc, model_int_pc));
+        if (isa_dpi_has_pending_interrupt(MODEL_CORE_ID) != 0)
+          cfg.reporter.fatal($sformatf(
+              "[BE][RECOVERY_INTERRUPT] cycle=%0d: another interrupt is still pending after the model took this one (priority order disagrees)",
+              cycle_count));
+        // The model's takeInterrupt() (CoreState) only rewrites the CSR/PC state; it does
+        // not touch the speculative ROB, because in its own run() loop it is only ever
+        // called at an instruction boundary. Here the ROB still holds the younger
+        // instructions the DUT is squashing, and they would collide with the allocations
+        // that follow the vector fetch (`decode_and_issue refused ...`). Squash them.
+        int_rc = isa_dpi_flush_all(MODEL_CORE_ID);
+        check_rc($sformatf("flushAll after interrupt cycle=%0d", cycle_count), int_rc);
+        cfg.print_be(2, $sformatf(
+            "[BE][RECOVERY_INTERRUPT] cycle=%0d vector=0x%016h (model agrees)",
+            cycle_count, model_int_pc));
+        trap_commit_consumed = 1'b0;
+        clear_local_anchors();
       end else if (ob_vif.recovery_kind == ORBE_RECOVERY_EXCEPTION) begin
         if (trap_commit_consumed) begin
           cfg.print_be(2, $sformatf(
