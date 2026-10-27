@@ -35,9 +35,15 @@ class fe_agent;
   localparam longint unsigned TRAP_INSN_PAGE_FAULT     = 64'd12;
 
   // Fetch classification (contract FSM item 4, mode)
+  //
+  // There is deliberately no FE_MODE_EOF. A zero halfword is a legal encoding
+  // (a 16-bit illegal instruction), so classifying it as "end of image" makes
+  // the reference refuse to deliver exactly where the DUT does deliver:
+  // rv64mi-p-illegal runs `bad2: .word 0` at 0x800001a4 on purpose and the DUT
+  // offers inst=0x00000000 there. The real end of the run is the model's exit,
+  // which run() already checks before calling build_offer.
   typedef enum int {
     FE_MODE_INSN,
-    FE_MODE_EOF,
     FE_MODE_FAULT_PENDING,
     FE_MODE_FAULT_DONE
   } fe_mode_e;
@@ -186,7 +192,10 @@ class fe_agent;
 
     // mode classification
     if (rc0 == ISA_API_PASS) begin
-      mode = (half0 == 16'h0000) ? FE_MODE_EOF : FE_MODE_INSN;
+      // A zero halfword is an instruction (see the fe_mode_e comment): the
+      // illegal encoding 0x0000 must be offered so the reference and the DUT
+      // agree on it, and the trap it causes is compared on the commit side.
+      mode = FE_MODE_INSN;
     end else begin
       if (!is_supported_fetch_cause(trap0))
         fail($sformatf("fetch at pc=0x%016h failed with trap=%0d, which is outside TRAP_SET {0,1,12}",
@@ -194,7 +203,7 @@ class fe_agent;
       mode = fault_entry_sent ? FE_MODE_FAULT_DONE : FE_MODE_FAULT_PENDING;
     end
 
-    if (mode == FE_MODE_EOF || mode == FE_MODE_FAULT_DONE) return;
+    if (mode == FE_MODE_FAULT_DONE) return;
 
     // ---- lane 0 -------------------------------------------------------
     hi_fault = 1'b0;
