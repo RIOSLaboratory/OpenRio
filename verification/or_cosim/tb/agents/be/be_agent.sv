@@ -1633,6 +1633,11 @@ class be_agent;
             cycle_count, model_int_pc));
         trap_commit_consumed = 1'b0;
         clear_local_anchors();
+        // Tell the cosim checker, so its independent golden instance takes the
+        // same interrupt. Only ref_redirect_pc is consumed by the checker's
+        // interrupt branch; ref_cause/ref_tval are unused (there is no fault).
+        publish_cosim_recovery_event(origin_rob_idx,
+            model_int_pc, ORBE_RECOVERY_INTERRUPT, model_int_pc, 0, 0);
       end else if (ob_vif.recovery_kind == ORBE_RECOVERY_EXCEPTION) begin
         if (trap_commit_consumed) begin
           cfg.print_be(2, $sformatf(

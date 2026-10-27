@@ -237,6 +237,29 @@ void isa_cosim_dpi_step(std::int64_t steps)
     if (sim != nullptr) funcMultiCore_step(sim, steps);
 }
 
+/* Take a pending interrupt on the golden instance.
+ *
+ * The cosim reference is advanced one instruction per DUT commit, so it has no
+ * notion of time and cannot decide on its own when an interrupt is due; the
+ * checker tells it whenever the DUT's recovery observation says so.  Returns the
+ * redirect target in *next_pc and *redirect != 0 when an interrupt was actually
+ * taken, so the caller can compare against the DUT's redirect target.
+ */
+int isa_cosim_dpi_take_interrupt(std::uint32_t model_core_id,
+                                 std::uint64_t* next_pc, std::uint8_t* redirect)
+{
+    FuncMultiCore* sim = cosim_sim_for();
+    if (sim == nullptr) {
+        *next_pc = 0;
+        *redirect = 0;
+        return ISA_API_FAIL;
+    }
+    const IsaApiDirReq req = funcMultiCore_takeInterrupt(sim, model_core_id);
+    *next_pc = req.next_pc;
+    *redirect = req.redirect;
+    return ISA_API_PASS;
+}
+
 std::uint8_t isa_cosim_dpi_is_to_exit()
 {
     const FuncMultiCore* sim = cosim_sim_for();

@@ -26,6 +26,14 @@ package isa_cosim_dpi_pkg;
   import "DPI-C" function void isa_cosim_dpi_step(
     input longint signed steps
   );
+  // Take a pending interrupt on the golden instance. The reference is stepped
+  // one instruction per DUT commit, so it cannot know when an interrupt is due;
+  // the checker tells it when the DUT's recovery observation says so.
+  import "DPI-C" function int isa_cosim_dpi_take_interrupt(
+    input int unsigned model_core_id,
+    output longint unsigned next_pc,
+    output byte unsigned redirect
+  );
   import "DPI-C" function byte unsigned isa_cosim_dpi_is_to_exit();
   import "DPI-C" function byte unsigned isa_cosim_dpi_is_good();
 

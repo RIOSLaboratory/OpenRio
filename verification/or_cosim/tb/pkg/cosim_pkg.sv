@@ -56,6 +56,12 @@ virtual class cosim_reference_backend;
   virtual task step_one(output longint unsigned pc_before);
   endtask
 
+  // Apply an interrupt the DUT took. `expected_vector` is the DUT's redirect
+  // target; returns 0 when the reference took nothing or landed elsewhere.
+  virtual function bit take_interrupt(input longint unsigned expected_vector);
+    return 1'b0;
+  endfunction
+
   virtual function bit is_to_exit();
     return 1'b0;
   endfunction
@@ -125,6 +131,36 @@ class isa_step_cosim_backend extends cosim_reference_backend;
     pc_before = isa_cosim_dpi_get_committed_pc(MODEL_CORE_ID);
     isa_cosim_dpi_step(1);
   endtask
+
+  // Interrupt delivery does not retire an instruction: the reference must take
+  // it without consuming a step, so that the next commit (the handler at the
+  // vector) is compared against the right instruction.
+  function bit take_interrupt(input longint unsigned expected_vector);
+    longint unsigned next_pc;
+    byte unsigned    redirect;
+    int              rc;
+    if (!model_created) begin
+      cfg.reporter.fatal("[COSIM] take_interrupt before reference model creation");
+      return 1'b0;
+    end
+    rc = isa_cosim_dpi_take_interrupt(MODEL_CORE_ID, next_pc, redirect);
+    if (rc != ISA_COSIM_API_PASS) begin
+      cfg.reporter.fatal($sformatf("[COSIM] take_interrupt rc=%0d", rc));
+      return 1'b0;
+    end
+    if (redirect == 8'h0)
+      return 1'b0;
+    if (next_pc != expected_vector) begin
+      cfg.reporter.fatal($sformatf(
+          "[COSIM][RECOVERY_INTERRUPT] vector mismatch dut=0x%016h ref=0x%016h",
+          expected_vector, next_pc));
+      return 1'b0;
+    end
+    cfg.print_tb(2, $sformatf(
+        "[COSIM][RECOVERY_INTERRUPT] reference took the interrupt, vector=0x%016h",
+        next_pc));
+    return 1'b1;
+  endfunction
 
   function bit is_to_exit();
     return isa_cosim_dpi_is_to_exit() != 0;
@@ -469,7 +505,18 @@ class cosim_commit_order_adapter;
                                 !commit_event.commit_valid)
             ? "NO COMMIT" : "AT COMMIT";
       end
-      if (commit_event.kind == COSIM_EVENT_COMMIT) begin
+      if ((commit_event.kind == COSIM_EVENT_RECOVERY) &&
+          (commit_event.recovery_kind == ORBE_RECOVERY_INTERRUPT)) begin
+        // Interrupt delivery. Nothing retires and there is no faulting pc, so
+        // there is nothing to compare and no step to make up. The independent
+        // reference only has to take the same interrupt, otherwise every commit
+        // that follows (the handler at the vector) lines up against the wrong
+        // instruction.
+        if (!reference.take_interrupt(commit_event.ref_redirect_pc))
+          cfg.reporter.fatal($sformatf(
+              "[COSIM][RECOVERY_INTERRUPT] cycle=%0d: reference did not take the interrupt the DUT took (dut redirect_pc=0x%016h)",
+              cycle_count, commit_event.ref_redirect_pc));
+      end else if (commit_event.kind == COSIM_EVENT_COMMIT) begin
         //cfg.print_tb(1, $sformatf(
         //    "[COSIM][EVENT_RX] cycle=%0d group=%0d rob=%0d ref_result=0x%016h ref_rd_idx=%0d ref_rd_fp=%0d ref_recovery_kind=%0d ref_redirect_pc=0x%016h",
         //    cycle_count, commit_event.group, commit_event.rob_idx,
