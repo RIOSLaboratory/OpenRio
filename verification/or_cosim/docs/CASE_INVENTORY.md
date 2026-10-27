@@ -183,8 +183,8 @@
 | 项 | 状态 |
 | --- | --- |
 | riscv-tests 216 | ✅ 216/216 PASS |
-| riscv-tests MI/SI 23 | ⚠️ **18 PASS / 5 FAIL**：`rv64mi-p-{access,breakpoint,csr,illegal}` + `rv64si-p-dirty` |
-| **riscv-tests 239（合计）** | ⚠️ **234 PASS / 5 FAIL**；清单 `cfg/cases/cases_239.list` |
+| riscv-tests MI/SI 23 | ⚠️ **19 PASS / 4 FAIL**：`rv64mi-p-{access,breakpoint,csr}` + `rv64si-p-dirty` |
+| **riscv-tests 239（合计）** | ⚠️ **235 PASS / 4 FAIL**；清单 `cfg/cases/cases_239.list` |
 | Embench 19 | ❓ 脚本与清单 `cfg/cases/cases_embench.list` 已就绪，待内网首跑 |
 | ACT rv64i 516 | ✅ 已跑：332 PASS / 184 FAIL（142 未实现 + 18 FP fflags + 24 伪失败） |
 | ACT priv 91（范围内） | ❌ **0 条跑过**（构建不过） |
@@ -196,14 +196,13 @@
 | # | 用例组 | 现象 | 归属 |
 | --- | --- | --- | --- |
 | 1 | ACT F/D `fmadd/fmsub/fnmsub/fdiv`（18 条） | `CSRRS` 读 fflags 时标志位不对（结果对） | RTL（FPU fflags） |
-| 2 | MI/SI 5 条 | 逐条根因见下表 | RTL / TB / 范围外 |
+| 2 | MI/SI 4 条 | 逐条根因见下表 | RTL / 范围外 |
 
-### MI/SI 5 条失败根因（2026-10-26 定位）
+### MI/SI 4 条失败根因（2026-10-26 定位，2026-10-27 更新）
 
 | 用例 | 首个失配点 | 根因 | 归属 |
 | --- | --- | --- | --- |
 | `rv64mi-p-csr` | 0x80000350 `fsw`（`mstatus.FS=Off`）commit 后 | 模型也判 ILLEGAL（双方一致），但 DUT 此后**不产生任何 recovery/redirect**；20 cycle 后出现 `commit for unallocated rob=0`，判为异常恢复路径挂死 | RTL（需波形） |
-| `rv64mi-p-illegal` | 0x800001a4 `bad2: .word 0` | `fe_agent.sv:189` 把 `half0==0` 当 EOF → 参考 FE 不投放该指令（`[FE_EQUIV]` 里 `fe_agent pc=~pc` 哨兵）。修掉后还会撞 `[BE][RECOVERY_INTERRUPT] unsupported`（`test_vectored_interrupts` 段需要中断恢复观测） | TB（两处） |
 | `rv64mi-p-access` | jalr → 0x8000_0000_8000_01f0 | `or_fe_pkg::VA_W=39`，tb 也按 `VA_W-1:0` 截 `redirect_pc`，目标被截成 0x8000_01f0 并取到 `fail` 的 FENCE；模型正确报 cause=1。注：**数据侧的通路是有的**——`or_cache_pkg::pma_ok()` 对 6 个 PMA 区域做区间判断，越界 → `lk_pma_fault` → `or_cache_top.sv:315` 抛 `CAUSE_LD_ACCESS(5)`，所以 test 3（`lb` 非法地址）本应能过；缺的是 FE 侧：PC 只有 39 bit，且 `fe_mem_vif` 没有 `l2_resp_err` 输入（D 侧 `dc_mem_vif` 有），所以取指侧无法产生 access fault | RTL（FE PC 宽度 + 取指错误通路） |
 | `rv64mi-p-breakpoint` | 0x800001b4 `csrs tcontrol,8` | 测试的 `mtvec_handler` 要求 `mcause==3`（断点），即必须有 Sdtrig 触发器；RTL 无 0x7a0-0x7a5，模型只有 `CsrModule.cpp:725` 的「pseudo trigger slot」 | 范围外（无 Sdtrig） |
 | `rv64si-p-dirty` | 0x800001d8 `sw` → 0x2008 | **RTL 未实现 `mstatus.MPRV`**（`system_instruction_handler` 无 `BIT_MPRV`/`mstatus_mprv_q`，读回恒 0）。测试在 M 态置 MPRV=1/MPP=S 后做 store，DUT 仍按 M 判 → `dc_flush_ctrl.sv:19` 的 `vm_en=0` → DTLB 旁路（`pa64=lk_va`）→ 物理 0x2008 直接落地、不 fault；模型按 spec 报 cause=0xf。日志实证：整个运行 `[DC_RTL][PTW]` 出现 0 次 | RTL（MPRV）+ TB（PTW 的 priv 参数） |
@@ -223,12 +222,26 @@ D 侧 MMU 前端是齐全的：`cache_rtl_v1/dc_dtlb.sv`（DTLB + TMQ + PTW 口�
    不要用 `isa_dpi_get_priv()`（`MMU::translate` 原样使用传入 priv，传 M 会让 U 页面一律通过）
 4. 验收：`[DC_RTL][PTW] vaddr=0x2008 ... rcause=0 wcause=15` 出现；`csrr mstatus` 读回 bit17=1
 
+### 已修复（2026-10-27）：`rv64mi-p-illegal`（纯验证侧，三处递进）
+
+三处阻塞是**依次暴露**的，不是三个独立 bug。修掉一处，下一处才浮现：
+
+| # | 阻塞点 | 症状 | 修复 |
+| --- | --- | --- | --- |
+| 1 | `fe_agent.sv` 把 `half0 == 0x0000` 判成 `FE_MODE_EOF` | `[FE_EQUIV] ... fe_agent: pc=0xffffffff7ffffe5b`（= `~pc` 哨兵） | 删除 EOF 状态：`0x0000` 是合法的 16 位非法指令编码；真正的结束由模型 exit 表示（`run()` 已先判） |
+| 2 | `be_agent.sv` 对 `ORBE_RECOVERY_INTERRUPT` 直接 fatal | `[BE][RECOVERY_INTERRUPT] unsupported until ... wired` | 调**既有**的 `isa_dpi_take_interrupt()` 让共享模型取同一中断并核对向量；再 `isa_dpi_flush_all()` 清投机 ROB（模型的 `takeInterrupt` 只改 CSR/PC，不动 ROB） |
+| 3 | cosim 黄金实例（`isa_cosim_dpi_*`，独立 C++ handle）无中断入口 | `[COSIM][PC_MISMATCH] rtl_pc=0x80000404 ref_pc=0x800001f4` | 新增 `isa_cosim_dpi_take_interrupt()` + `cosim_reference_backend::take_interrupt()`；中断**不消耗 step**；`be_agent` 补发 `publish_cosim_recovery_event()` |
+
+- `isa_model/` **零改动**：转发的就是既有的 `FuncMultiCore::takeInterrupt()`。
+- 顺带确认的契约：RVC 的 `inst_bits` 仍为 `{16'h0000, half}`（`or_fe_pkg.sv:117` 明文写 "upper bits zeroed"），RTL 与 fe_agent 两侧一致。
+- 验证：单例 `is_good=1`、`FE_EQUIV 374/0`、`CACHE_EQUIV 12/0`、`error=fatal=0`；239 条 **235 PASS / 4 FAIL**。
+
 ### 已修复（2026-10-26）
 
 - `dpi/rivai_0x80000000_1core_rom.yaml`：`isa_string` 补 `s`/`u`（`rv64imafdcsu_zcb_zifencei_zicsr`）。
   模型 `genMisaValue()` 由 isa_string 组 misa，缺 su 时参考 misa 少 S/U 位（0x8000_0000_0000_112D），
   与 RTL 的 0x8000_0000_0014_112D 不符 → `rv64mi-p-csr/-mcsr/-ma_fetch` 的 `csrr rd, misa` 全部失配。
-  修复后 `-mcsr`、`-ma_fetch` 全绿；239 条回归 **234 PASS / 5 FAIL**，216 条 rv64u* 无回归。
+  修复后 `-mcsr`、`-ma_fetch` 全绿；239 条回归 **234 PASS / 5 FAIL**（当时的时点），216 条 rv64u* 无回归。
 
 ---
 
