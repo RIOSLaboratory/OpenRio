@@ -15,7 +15,7 @@
 
 | 回归 | 用例数 | 入口命令（在 `verification/or_cosim` 下执行） | 预期结果 |
 | --- | --- | --- | --- |
-| ISA | 239 | `SIM_TIMEOUT=200000 tools/regress.sh rtl_full reg1 8` | `PASS=232 FAIL=7`（7 条为已知失败：6 mi + 1 si） |
+| ISA | 239 | `SIM_TIMEOUT=200000 tools/regress.sh rtl_full reg1 8` | `PASS=235 FAIL=4`（4 条为已知失败：3 mi + 1 si） |
 | Embench | 19 | `SIM_TIMEOUT=20000000 ISA_LOG=none COSIM_OB_LOG=0 tools/regress.sh rtl_full reg1 16 cfg/cases/cases_embench.list` | 19 条全部 `PASS`（首次以实际为准） |
 
 > 上面统一用 `reg1` 作为 tag。tag 的含义、为什么 build 和 regress 必须一致，见 0.1 节。
@@ -380,15 +380,21 @@ build 日志开头有两行：
 ```
 
 `isa_api_lib` 应该是 `.../isa_model/build`。如果是
-`.../verification/or_cosim/dpi`，说明回落到预编译库了。内网建议统一加：
+`.../verification/or_cosim/dpi`，说明回落到预编译库了。
 
-```bash
-export REQUIRE_ISA_MODEL=1   # 拒绝 dpi/ 下的预编译 .so
-export CHECK_ISA_GLIBC=1     # 默认 1：.so 的 GLIBC 需求高于上限时提前报错
-export ISA_GLIBC_MAX=2.35    # 可选：按内网目标 glibc 卡上限（构建机更新时必加）
-```
-
-对应命令行参数是 `--require-isa-model 1` / `--check-isa-glibc 1`。
+> ⚠️ **注意：以下三个 guard 目前尚未实现，设置了没有任何效果**（`grep -n
+> 'REQUIRE_ISA_MODEL\|CHECK_ISA_GLIBC' tools/verilator_cosim.sh` 无输出）。
+> 文档曾经把它们当成已生效的保护，导致内网排查时误判过一轮。**在实现之前，只能靠
+> 人眼盯 build 日志里的 `isa_api_inc` / `isa_api_lib` 两行**。
+>
+> ```bash
+> export REQUIRE_ISA_MODEL=1   # TODO 未实现
+> export CHECK_ISA_GLIBC=1     # TODO 未实现
+> export ISA_GLIBC_MAX=2.35    # TODO 未实现
+> ```
+>
+> 对应的 `--require-isa-model` / `--check-isa-glibc` 参数同样不存在。
+> 在 guard 落地前，用下节的 `objdump` 命令手工检查。
 
 #### 检查 `.so` 的 glibc 需求
 
@@ -399,23 +405,11 @@ ldd --version | head -1
 ```
 
 内网（glibc 2.35）上第一条应 **≤ `GLIBC_2.35`**（常见 `GLIBC_2.34` / `GLIBC_2.35`）；
-如果是 `GLIBC_2.38` / `GLIBC_2.39`，说明这个 `.so` 不是在内网编的。`verilator_cosim.sh`
-在 build 前会打印：
+如果是 `GLIBC_2.38` / `GLIBC_2.39`，说明这个 `.so` 不是在内网编的。
 
-```text
-[VERILATOR_COSIM] isa_api_glibc_max=2.35 host_glibc=2.35 limit_glibc=2.35
-```
-
-默认上限是**构建机**的 glibc。如果构建机比内网新（例如 cad1 是 2.39），
-只比较 host 仍可能产出 2.38 的 `.so`；这时额外加目标上限：
-
-```bash
-export ISA_GLIBC_MAX=2.35
-```
-
-这样即使 `.so` 是在 2.39 机器上编的，只要最高只要求 `GLIBC_2.35` 就通过；
-一旦 `isa_api_glibc_max > limit_glibc` 就直接报错退出，不会等到仿真加载时才失败。
-确实要跳过时用 `CHECK_ISA_GLIBC=0`（不推荐）。
+> ⚠️ `verilator_cosim.sh` **目前不会自动检查这项**（没有 `isa_api_glibc_max` 日志，
+> 也没有 `ISA_GLIBC_MAX` / `CHECK_ISA_GLIBC` 开关）。**只能用上面的 `objdump`
+> 手工核**。等 guard 实现后本节会更新。
 
 #### 在内网重编 ISA model
 
@@ -436,7 +430,7 @@ glibc 符号版本不匹配。
 | --- | --- |
 | Verilator | **5.050**（流程使用 `--timing`，版本过低不行） |
 | g++ | 支持 C++17 |
-| glibc | ISA model 的 `.so` 必须在**内网本机**编译；cad1 上编的 2.38/2.39 版本在内网（2.35）会因缺符号加载失败。`verilator_cosim.sh` 默认按 host 检查，构建机更新时用 `ISA_GLIBC_MAX=2.35` 卡目标上限 |
+| glibc | ISA model 的 `.so` 必须在**内网本机**编译；cad1 上编的 2.38/2.39 版本在内网（2.35）会因缺符号链接失败。脚本**不会**自动检查，需用 `objdump -T` 手工核（见 3.2 节） |
 | `rg`（可选） | `regress.sh` 用它搜索日志关键词；没有 `rg` 时判定会退化为只看退出码 |
 | `riscv64-unknown-elf-objdump`（可选） | 只用于生成 `<case>.dump`；没有也不影响判定 |
 
@@ -479,6 +473,38 @@ export ISA_MODEL_ROOT=$HOME/isa_model
 SIM_TIMEOUT=200000 tools/regress.sh rtl_full reg1 8
 ```
 
+### 5.0 跑之前先过这四行（**内网 golden 环境**）
+
+内网出现过的「239 条全部秒 FAIL」「链接不到 lib_ISA_api」「配额写满」等事故，
+全部源于环境没对齐。跑任何回归前，固定执行这四行：
+
+```bash
+export ISA_MODEL_ROOT=/work/home03/danielle/isa_model
+unset ISA_API_INC ISA_API_LIB CASE_ROOT
+ulimit -c 0                     # 防止 core dump 吃光家目录配额
+export LANG=C                  # 日志稳定，便于 grep
+```
+
+**然后盯 `SUITE:` 这一行，它是唯一可信的体检结果：**
+
+```text
+SUITE: cases_239 entries=239 case_root=/work/home03/danielle/isa_model/isa_case list_sha256=...
+```
+
+| 字段 | 必须是什么 | 不对的含义 |
+| --- | --- | --- |
+| `case_root` | `$ISA_MODEL_ROOT/isa_case` | 指到 `testcases/embench/...` 说明 `CASE_ROOT` 残留，**全部用例都会秒 FAIL** |
+| `entries` | `239` | 少于 239 说明清单或 `isa_case` 不全 |
+
+同样，`build` 日志开头必须看到：
+
+```text
+[VERILATOR_COSIM] isa_api_inc=/work/home03/danielle/isa_model/src/libs
+[VERILATOR_COSIM] isa_api_lib=/work/home03/danielle/isa_model/build
+```
+
+`isa_api_lib` 若是 `.../or_cosim/dpi`，说明回落到了 cad1 编的 `.so`，内网必然链接失败。
+
 参数含义：
 
 ```text
@@ -493,7 +519,7 @@ tools/regress.sh [dut-kind] [tag] [jobs] [case-list]
 
 ```text
 SUITE: cases_239 entries=239 case_root=... list_sha256=...
-SUMMARY: PASS=232 FAIL=7 TOTAL=239 wall=284s
+SUMMARY: PASS=235 FAIL=4 TOTAL=239 wall=284s
 FAIL ...
 ...
 results: .../sim/verilator_reg1/regress/rtl_full/cases_239/results.txt
@@ -502,22 +528,20 @@ results: .../sim/verilator_reg1/regress/rtl_full/cases_239/results.txt
 <!-- 截图位 1：239 回归的 summary 输出。图片保存为 verification/images/regress_239_summary.png -->
 ![239 回归 summary](images/regress_239_summary.png)
 
-### 5.1 已知的 7 条失败
+### 5.1 已知的 4 条失败
 
-`PASS=232 FAIL=7` 是当前基线，7 条为已知失败（根因定位另行排期）：
+`PASS=235 FAIL=4` 是当前基线（`684beab` 起），4 条为已知失败（根因定位另行排期）：
 
-| # | 用例 | 日志第一现场 |
-| --- | --- | --- |
-| 1 | `rv64mi-p-access` | `[COSIM][PC_MISMATCH]` |
-| 2 | `rv64mi-p-breakpoint` | `[BE][RECOVERY_EXCEPTION] rob=... has no shared-model trap record` |
-| 3 | `rv64mi-p-csr` | `[COSIM][INT_ARF_MISMATCH]` |
-| 4 | `rv64mi-p-illegal` | `[FE_EQUIV] exception` 不一致 |
-| 5 | `rv64mi-p-ma_fetch` | `[COSIM][INT_ARF_MISMATCH]` |
-| 6 | `rv64mi-p-mcsr` | `[COSIM][INT_ARF_MISMATCH]` |
-| 7 | `rv64si-p-dirty` | `[CACHE_EQUIV] drain ... whose execute_insn failed in the model` |
+| # | 用例 | 日志第一现场 | 原因归属 |
+| --- | --- | --- | --- |
+| 1 | `rv64mi-p-access` | `[COSIM][PC_MISMATCH]` | FE PC 宽度截断 + 缺取指错误通路（RTL） |
+| 2 | `rv64mi-p-breakpoint` | `[BE][RECOVERY_EXCEPTION] rob=... has no shared-model trap record` | 需 Sdtrig，RTL 无 0x7a0-0x7a5（功能缺失） |
+| 3 | `rv64mi-p-csr` | `[BE] commit for unallocated rob=0` | 异常提交后不 redirect（RTL） |
+| 4 | `rv64si-p-dirty` | `[CACHE_EQUIV] drain ... whose execute_insn failed in the model` | 缺 `mstatus.MPRV`（RTL） |
 
-> 其中 `rv64si-p-dirty` 依赖 MMU 的 PTE/A-D 路径，MMU 模块就绪前预计会持续失败；
-> 其余 6 条属 M/S 特权路径的已知缺陷，根因定位另行排期。
+> 2026-10-27 之前基线是 `PASS=232 FAIL=7`。转绿的 3 条：
+> `rv64mi-p-mcsr`、`rv64mi-p-ma_fetch`（`isa_string` 补 `s`/`u`）、
+> `rv64mi-p-illegal`（fe_agent EOF 判据 + BE 中断恢复观测 + 黄金实例取中断）。
 
 <!-- 截图位 2：7 条 FAIL 的终端明细。图片保存为 verification/images/regress_239_fail_list.png -->
 ![239 FAIL 明细](images/regress_239_fail_list.png)
@@ -668,13 +692,48 @@ grep -aE '_EQUIV\] checked=|REPORTER_SUMMARY|is_good=' "$D/sim.log"
 | `%Error-PKGNODECL ... isa_dpi_pkg not found`，后面跟着大量 `unexpected '#' / always / final` | Verilator 版本过旧（例如 5.014）；必须用 **5.050**。这些后续语法错误多半是包解析失败后的级联报错，不要逐行去改。另确认 `dpi/isa_dpi_pkg.sv` 在 `common.f` 之前编译（用 1.2 节的 `grep -n -A6 'sv_inputs='` 检查；旧脚本从 2026-10-22 之后的交付包覆盖 `tools/verilator_cosim.sh`，或按该顺序手工调整） |
 | `error: Verilator simulator executable is not readable: ...` | build 和 regress 的 tag 或 dut-kind 不一致；先 `build --dut-kind rtl_full --tag reg1`，再 `regress.sh rtl_full reg1 ...` |
 | 239 条全部秒 FAIL、`no is_good=1` | `CASE_ROOT` 还指在 Embench 目录；跑 239 前 `unset CASE_ROOT` |
-| 239 条退出码为 1 | 正常，7 条已知失败；看 `summary.txt` 的 `PASS=232 FAIL=7` |
+| 239 条退出码为 1 | 正常，4 条已知失败；看 `summary.txt` 的 `PASS=235 FAIL=4` |
 | Embench 全部超时 | `SIM_TIMEOUT` 太小 |
 | Embench 跑完磁盘暴涨 | 没加 `ISA_LOG=none COSIM_OB_LOG=0` |
-| `lib_ISA_api.so` 报 `GLIBC_2.38` / `GLIBC_2.36` not found | 该 `.so` 是在高版本（>2.35） glibc 上编的；按 3.2 节在内网重新编译 ISA model。脚本已默认提前检查，报错时看 `isa_api_lib` 实际指向 |
-| `REQUIRE_ISA_MODEL=1 but ISA_API_LIB resolves to the vendored ...` | 没设 `ISA_MODEL_ROOT`，或它没指向有效 ISA model；按 3.2 节设置后重跑 |
+| build 报 `IsaApi.h at ... lacks IsaApiDecodeMetadata` | `ISA_MODEL_ROOT` 指到了**老模型**（例如 `hardware/function-model`）。只有 `~/isa_model` 同时满足「头含 `IsaApiDecodeMetadata`」+「`build/lib_ISA_api.so` 的 GLIBC ≤ 2.35」 |
+| 链接报 `undefined reference to '__isoc23_strtoull@GLIBC_2.38'` / `'arc4random@GLIBC_2.36'` | `ISA_API_LIB` 落到了仓库自带 `or_cosim/dpi/`（cad1 用 glibc 2.39 编的）。**这不是同步引入的问题**，而是路径指错。执行 `unset ISA_API_INC ISA_API_LIB`，让脚本走 `$ISA_MODEL_ROOT/build` |
+| 传输/写文件报 `Disk quota exceeded`，甚至 1 KB 都写不进 | 内网家目录有 per-user 配额（约 100 G），`df` 看不到。最大黑洞是 **core dump**（单个数 GB，且不在家目录顶层）。见下方“配额与 core dump” |
+| `du -sh ~/*` 长时间无响应 | 漏了 `-x`，踩进了 stale NFS 挂载点。用 `timeout 300 du -xh --max-depth=1 ~` |
+| `git tag backup/xxx` 报 `cannot lock ref ... unable to create directory` | tag 名带 `/` 时需要在 `refs/tags/` 下建同名目录，而那里已有同名**文件**。改用 `git tag pre-sync-YYYYMMDD`（不带斜杠） |
+| 同步后 `git status` 多出一堆不该提交的文件 | `git add -A` 把内网独有的未跟踪目录（如 `testcases/`）也巻进去了。先 `echo 'testcases/' >> .git/info/exclude` 再 `git add -A` |
+| 整包覆盖后 `git am` / 补丁应用冲突 | 内网仓库是**独立谱系**（从快照导入），基线不等于 ext 的 `origin/dev`。跨谱系同步只能整包覆盖，不能用补丁；需要先确认内网 HEAD 对应 ext 哪个 commit |
 | 没有 `rg` | 判定退化为只看退出码；建议安装 ripgrep |
 | 想看完整 PASS 列表 | `cat sim/verilator_reg1/regress/rtl_full/cases_239/results.txt` |
+
+### 8.1 配额与 core dump（内网专属，2026-10-27 踩过）
+
+现象：所有写操作（`scp`/NoMachine 传输、`tar`、`git am`）全部失败，报 `Disk quota exceeded`，
+但 `df -h` 显示文件系统还有 11 T 可用。
+
+原因：`df` 只能看到**文件系统**用量，看不到 **per-user 配额**（NetApp/NFS 服务端记账）。
+
+排查与恢复：
+
+```bash
+# 1) 找 core dump（注意：不在家目录顶层，要全盘找，且限定 >100M）
+timeout 180 find ~ -xdev -type f -name 'core.*' -size +100M -printf '%10s  %p\n' 2>/dev/null | sort -rn
+
+# 2) 删掉（一次 2～3 GB）
+rm -f <上面列出的路径>
+
+# 3) 验证配额已恢复（关键：用探针，不靠猜）
+dd if=/dev/zero of=~/pq.bin bs=1k count=1 && echo "=== 1KB OK ===" && rm -f ~/pq.bin
+
+# 4) 止血：以后跑仿真前先关掉 core dump
+ulimit -c 0
+echo 'ulimit -c 0' >> ~/.bashrc
+```
+
+> 判断是否空间配额（而非 inode 配额）：删掉数 GB 后探针仍失败 → 看
+> `timeout 180 find ~ -xdev -type f 2>/dev/null | wc -l`。文件数在几十万量级属正常，
+> 说明卡的是**块配额**，不是 inode。
+> `quota` 命令内网未安装，`repquota` 需要 root，只能找管理员要
+> `repquota -vs <mount> | grep <user>` 的真实数字。
 
 ---
 
@@ -699,21 +758,22 @@ grep -aE '_EQUIV\] checked=|REPORTER_SUMMARY|is_good=' "$D/sim.log"
 export REPO=/work/home03/danielle/hardware/hardware-openrio
 export CASE_SHARE=/work/home03/danielle/regression_cases
 
-# 环境（ISA model 按实际路径；verilator 在 PATH 里就不用设置 VERILATOR）
-unset ISA_API_INC ISA_API_LIB   # 防止旧的 export 覆盖 ISA_MODEL_ROOT
-export ISA_MODEL_ROOT=/path/to/isa_model
-export REQUIRE_ISA_MODEL=1   # 拒绝 dpi/ 下的预编译 .so
-export CHECK_ISA_GLIBC=1     # 默认 1；.so 的 GLIBC 需求高于本机时提前报错
-export ISA_GLIBC_MAX=2.35    # 内网目标上限（构建机 glibc > 2.35 时必加）
+# 环境（内网 golden 四行，一条都不能少）
+export ISA_MODEL_ROOT=/work/home03/danielle/isa_model
+unset ISA_API_INC ISA_API_LIB CASE_ROOT   # 残留 export 会覆盖上面的设置
+ulimit -c 0                             # core dump 会吃光家目录配额
+export LANG=C
 # export VERILATOR=/path/to/verilator-5.050/bin/verilator
 
-# 构建
+# 构建（必须盯这两行：isa_api_inc 应为 .../isa_model/src/libs，
+#       isa_api_lib 应为 .../isa_model/build，落到 or_cosim/dpi 就是错的）
 cd "$REPO/verification/or_cosim"
 tools/verilator_cosim.sh build --dut-kind rtl_full --tag reg1
 
-# 239
-unset CASE_ROOT
-SIM_TIMEOUT=200000 tools/regress.sh rtl_full reg1 8
+# 239（盯 SUITE 行：case_root 必须是 $ISA_MODEL_ROOT/isa_case）
+SIM_TIMEOUT=200000 tools/regress.sh rtl_full reg1 8 | tee /tmp/reg239.log
+grep '^SUITE:' /tmp/reg239.log      # case_root 不对就别看结果了
+grep '^SUMMARY:' /tmp/reg239.log    # 期望 PASS=235 FAIL=4 TOTAL=239
 
 # Embench smoke
 export CASE_ROOT=$HOME/embench/orbe-baremetal
