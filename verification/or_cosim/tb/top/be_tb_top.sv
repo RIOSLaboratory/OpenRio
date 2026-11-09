@@ -50,6 +50,7 @@ module be_tb_top;
   assign lsu_vif.lsu_be_bypass_valid =
       lsu_vif.lsu_be_bypass_valid_q && !lsu_vif.global_flush_late;
 
+
 `ifdef ORBE_DUT_RTL_V1
   // backend_top is a direct instance of the top (hierarchical path be_tb_top.u_backend); whatever
   // internal signals the observation logic needs are taken from that path.
@@ -585,10 +586,14 @@ module be_tb_top;
   logic                                   dc_sum, dc_mxr, dc_sfence;
   logic [(1 << TAG_W)-1:0]                dc_is_sfence_q;
   be_lsu_issue_pld_t                      dc_issue_pld;
+  // VCS T-2022.06 rejects taking a member of a function-call result
+  // (Error-[SV-FNYI]), so the decoded property is evaluated into a temporary.
+  lsu_req_property_t                      dc_req_prop;
 
   always_comb begin
     dc_issue_pld = lsu_vif.be_lsu_issue_pld;
-    if ((dc_inject == 3) && req_property_from_subop(dc_issue_pld.exe_subop).is_store)
+    dc_req_prop  = req_property_from_subop(dc_issue_pld.exe_subop);
+    if ((dc_inject == 3) && dc_req_prop.is_store)
       dc_issue_pld.rs2_data = dc_issue_pld.rs2_data ^ 64'h1;
   end
 
@@ -746,6 +751,9 @@ module be_tb_top;
   //                 options) to get FSDB instead. It must not share WAVE_DUMP: `$fsdbDumpfile`/
   //                 ``$fsdbDumpvars`` are not standard tasks and Verilator rejects them outright
   //                 ("Unsupported or unknown PLI call"), which is exactly why they sit behind their own macro.
+  //                 Inside that macro the waveform is a runtime choice: +WAVE=fsdb dumps to
+  //                 +FSDB_FILE, +WAVE=none keeps the same simv silent. The hierarchy is dumped with
+  //                 "+all" and $fsdbDumpMDA so memories and packed arrays are usable in Verdi.
   // ---------------------------------------------------------------------------
 `ifdef WAVE_DUMP
 `ifndef WAVE_DEPTH
@@ -760,11 +768,22 @@ module be_tb_top;
 `endif
 
 `ifdef VCS_FSDB
+  // The VCS build always links the Verdi PLI, so the waveform is selected at
+  // runtime instead of at compile time: +WAVE=fsdb dumps, +WAVE=none (or any
+  // other value) stays silent. A build without +WAVE keeps the historical
+  // behaviour and dumps immediately.
   string fsdb_file;
+  string vcs_wave_mode;
   initial begin : fsdb_dump
-    if (!$value$plusargs("FSDB_FILE=%s", fsdb_file)) fsdb_file = "be_tb_top.fsdb";
-    $fsdbDumpfile(fsdb_file);
-    $fsdbDumpvars(0, be_tb_top);
+    if (!$value$plusargs("WAVE=%s", vcs_wave_mode)) vcs_wave_mode = "fsdb";
+    if (vcs_wave_mode == "fsdb") begin
+      if (!$value$plusargs("FSDB_FILE=%s", fsdb_file)) fsdb_file = "be_tb_top.fsdb";
+      $fsdbDumpfile(fsdb_file);
+      // "+all" also records memories and packed arrays; without it Verdi shows
+      // empty arrays, which hides the ROB, store buffer and cache state.
+      $fsdbDumpvars(0, be_tb_top, "+all");
+      $fsdbDumpMDA();
+    end
   end
 `endif
 
@@ -795,10 +814,12 @@ module be_tb_top;
     @(posedge rstn);
     #(timeout_time);
     #1;
-    if (!sim_done)
+    if (!sim_done) begin
+      dump_stall_snapshot(timeout_cycles, timeout_time);
       cfg.reporter.fatal($sformatf(
           "[TB] simulation timeout after %0d clock cycles (%0t)",
           timeout_cycles, timeout_time));
+    end
   end
 
   initial begin : reset_and_run
@@ -911,4 +932,198 @@ module be_tb_top;
     if (cfg != null)
       cfg.reporter.print_summary();
   end
+
+  // ---------------------------------------------------------------------------
+  // Timeout snapshot — printed once, only on the fatal (timeout) path.
+  //
+  // Instruction-agnostic skeleton + per-kind detail:
+  //   * always: cycle, flush state, pipeline activity (last alloc / commit /
+  //     front-end handoff), and one line per commit slot with rank, tag, kind,
+  //     done bits and how long it has been stuck;
+  //   * then exactly one detail block chosen by the kind of the stuck entry,
+  //     because a store, a trap and an ALU op wait on different boundaries.
+  // Signal names are printed as declared in the RTL (no local abbreviations).
+  // ---------------------------------------------------------------------------
+`ifndef ORBE_DUT_AGENT
+  int unsigned stall_cyc;
+  int unsigned head0_since;
+  int unsigned head1_since;
+  int unsigned last_alloc_cyc;
+  int unsigned last_commit_cyc;
+  int unsigned last_fe_cyc;
+  logic [TAG_W-1:0] head0_tag_q;
+  logic [TAG_W-1:0] head1_tag_q;
+
+  always @(posedge clk) begin
+    if (!rstn) begin
+      stall_cyc       <= 0;
+      head0_since     <= 0;
+      head1_since     <= 0;
+      last_alloc_cyc  <= 0;
+      last_commit_cyc <= 0;
+      last_fe_cyc     <= 0;
+      head0_tag_q     <= '0;
+      head1_tag_q     <= '0;
+    end else begin
+      stall_cyc <= stall_cyc + 1;
+      for (int i = 0; i < ISSUE_WIDTH; i++)
+        if (rtl_alloc_valid[i]) last_alloc_cyc <= stall_cyc;
+      if (u_backend.commit_valid[0] || u_backend.commit_valid[1])
+        last_commit_cyc <= stall_cyc;
+      if (|fe_vif.fe_be_instr_valid) last_fe_cyc <= stall_cyc;
+      if (u_backend.u_scoreboard.head0_tag != head0_tag_q) begin
+        head0_since <= stall_cyc;
+        head0_tag_q <= u_backend.u_scoreboard.head0_tag;
+      end
+      if (u_backend.u_scoreboard.head1_tag != head1_tag_q) begin
+        head1_since <= stall_cyc;
+        head1_tag_q <= u_backend.u_scoreboard.head1_tag;
+      end
+    end
+  end
+
+  function automatic string entry_kind(input logic is_st, input logic is_atom,
+                                       input logic is_fen_i, input logic is_mret,
+                                       input logic is_sret, input logic is_exc,
+                                       input logic is_misp);
+    if (is_exc)   return "TRAP";
+    if (is_mret)  return "MRET";
+    if (is_sret)  return "SRET";
+    if (is_fen_i) return "FENCE_I";
+    if (is_atom)  return "ATOMIC";
+    if (is_st)    return "STORE";
+    if (is_misp)  return "BRANCH";
+    return "ALU_LOAD_CSR";
+  endfunction
+
+  task automatic dump_head(input int slot, input logic v,
+                           input logic [TAG_W-1:0] tag,
+                           input logic done, input int unsigned since,
+                           input int unsigned now_cyc);
+    string kind;
+    if (!v) begin
+      $display("[TB][STALL]  head%0d: valid=0", slot);
+    end else begin
+      kind = entry_kind(u_backend.u_scoreboard.entry_is_store[tag],
+                        u_backend.u_scoreboard.entry_is_atomic[tag],
+                        u_backend.u_scoreboard.entry_is_fence_i[tag],
+                        u_backend.u_scoreboard.entry_is_mret[tag],
+                        u_backend.u_scoreboard.entry_is_sret[tag],
+                        u_backend.u_scoreboard.entry_exception_flag[tag],
+                        u_backend.u_scoreboard.entry_mispredict_flag[tag]);
+      $display("[TB][STALL]  head%0d: tag=%0d kind=%s done=%b entry_exec_done=%b entry_may_flush=%b stuck_since_cycle=%0d (for %0d cycles)",
+               slot, tag, kind, done,
+               u_backend.u_scoreboard.entry_exec_done[tag],
+               u_backend.u_scoreboard.entry_may_flush[tag],
+               since, now_cyc - since);
+
+      if (kind == "STORE" || kind == "ATOMIC") begin
+        $display("[TB][STALL]   lsu: be_lsu_issue_valid=%b lsu_be_issue_ready=%b lsu_store_buffer_full=%b be_lsu_entry_ready=%b lsu_be_done_valid_q=%b lsu_be_exception_valid_q=%b lsu_be_bypass_valid_q=%b",
+                 lsu_vif.be_lsu_issue_valid, lsu_vif.lsu_be_issue_ready,
+                 lsu_vif.lsu_store_buffer_full, lsu_vif.be_lsu_entry_ready,
+                 lsu_vif.lsu_be_done_valid_q, lsu_vif.lsu_be_exception_valid_q,
+                 lsu_vif.lsu_be_bypass_valid_q);
+        $display("[TB][STALL]   store_auth: entry_st_br_resolve=%b entry_store_wakeup_issued=%b wk_found=%b wk_cand_ok=%b wk_authorize=%b resolve_in_place=%b store_wakeup_valid=%b store_wakeup_tag=%0d",
+                 u_backend.u_scoreboard.entry_st_br_resolve[tag],
+                 u_backend.u_scoreboard.entry_store_wakeup_issued[tag],
+                 u_backend.u_scoreboard.wk_found,
+                 u_backend.u_scoreboard.wk_cand_ok,
+                 u_backend.u_scoreboard.wk_authorize,
+                 u_backend.u_scoreboard.resolve_in_place,
+                 u_backend.u_scoreboard.store_wakeup_valid,
+                 u_backend.u_scoreboard.store_wakeup_tag);
+        $display("[TB][STALL]   isq3: isq_valid_q=%b operand_ready=%b issue_valid=%b issue_req=%b rs1_ready_q=%b rs2_ready_q=%b fast_ready_rs1=%b fast_ready_rs2=%b FU_ready=%b",
+                 u_backend.u_ISQ_Group3.isq_valid_q,
+                 u_backend.u_ISQ_Group3.operand_ready,
+                 u_backend.u_ISQ_Group3.issue_valid,
+                 u_backend.u_ISQ_Group3.issue_req,
+                 u_backend.u_ISQ_Group3.rs1_ready_q,
+                 u_backend.u_ISQ_Group3.rs2_ready_q,
+                 u_backend.u_ISQ_Group3.fast_ready_rs1,
+                 u_backend.u_ISQ_Group3.fast_ready_rs2,
+                 u_backend.u_ISQ_Group3.FU_ready);
+`ifdef ORBE_CACHE_RTL
+        $display("[TB][STALL]   dcache_to_mem: l2_req_vld=%b l2_req_ready=%b ms_drain_vld=%b evict_vld=%b ptw_req_vld=%b",
+                 dc_mem_vif.l2_req_vld, dc_mem_vif.l2_req_ready,
+                 dc_mem_vif.ms_drain_vld, dc_mem_vif.evict_vld, dc_mem_vif.ptw_req_vld);
+`endif
+      end else if (kind == "TRAP") begin
+        $display("[TB][STALL]   trap: entry_exception_cause=%0d entry_exception_tval=0x%0h csr_accept=%b csr_request_valid=%b",
+                 u_backend.u_scoreboard.entry_exception_cause[tag],
+                 u_backend.u_scoreboard.entry_exception_tval[tag],
+                 u_backend.u_csr_unit.accept,
+                 u_backend.u_csr_unit.request_valid);
+      end else if (kind == "BRANCH") begin
+        $display("[TB][STALL]   branch: entry_mispredict_target_pc=0x%0h be_fe_redirect_valid=%b trap_valid=%b",
+                 u_backend.u_scoreboard.entry_mispredict_target_pc[tag],
+                 fe_vif.be_fe_redirect_valid, fe_vif.be_fe_redirect_pld.trap_valid);
+      end else if (kind == "MRET" || kind == "SRET" || kind == "FENCE_I") begin
+        $display("[TB][STALL]   flush_side: global_flush_late=%b be_fe_redirect_valid=%b csr_accept=%b",
+                 rtl_global_flush, fe_vif.be_fe_redirect_valid, u_backend.u_csr_unit.accept);
+      end else begin
+        // FU_ready of group 0/1 is an unpacked vector, so only the scalar
+        // issue_valid lines are printed for every group.
+        $display("[TB][STALL]   writeback: entry_rd_write_enable=%b entry_rd_idx=%0d entry_rd_is_fp=%b | isq issue_valid: g0=%b g1=%b g2=%b g3=%b",
+                 u_backend.u_scoreboard.entry_rd_write_enable[tag],
+                 u_backend.u_scoreboard.entry_rd_idx[tag],
+                 u_backend.u_scoreboard.entry_rd_is_fp[tag],
+                 u_backend.u_ISQ_Group0.issue_valid,
+                 u_backend.u_ISQ_Group1.issue_valid,
+                 u_backend.u_ISQ_Group2.issue_valid,
+                 u_backend.u_ISQ_Group3.issue_valid);
+      end
+    end
+  endtask
+`endif
+
+  task automatic dump_stall_snapshot(input int unsigned cycles, input time t_limit);
+    $display("[TB][STALL] timeout at cycle %0d (%0t), global_flush_late=%b", cycles, t_limit, rtl_global_flush);
+`ifndef ORBE_DUT_AGENT
+    $display("[TB][STALL]  activity: last_alloc_cycle=%0d last_commit_cycle=%0d last_fe_instr_cycle=%0d (now=%0d)",
+             last_alloc_cyc, last_commit_cyc, last_fe_cyc, stall_cyc);
+    dump_head(0, u_backend.u_scoreboard.head0_valid, u_backend.u_scoreboard.head0_tag,
+              u_backend.u_scoreboard.head0_done, head0_since, stall_cyc);
+    dump_head(1, u_backend.u_scoreboard.head1_valid, u_backend.u_scoreboard.head1_tag,
+              u_backend.u_scoreboard.head1_done, head1_since, stall_cyc);
+`else
+    $display("[TB][STALL]  lsu: be_lsu_issue_valid=%b lsu_be_issue_ready=%b lsu_store_buffer_full=%b lsu_be_done_valid_q=%b",
+             lsu_vif.be_lsu_issue_valid, lsu_vif.lsu_be_issue_ready,
+             lsu_vif.lsu_store_buffer_full, lsu_vif.lsu_be_done_valid_q);
+`endif
+  endtask
+
+  // ------------------------------------------------------------------
+  // SYMTRACE: ISB drain-gate trace.  Same source in both engines, inert
+  // without +SYMTRACE.  Prints every term of dc_isb's `base` so the first
+  // engine-dependent gate is visible by name.
+  bit sym_en  = 1'b0;
+  int sym_cyc = 0;
+  initial begin
+    if ($test$plusargs("SYMTRACE")) sym_en = 1'b1;
+  end
+  always @(posedge clk) begin
+    if (sym_en) begin
+      sym_cyc <= sym_cyc + 1;
+      if (sym_cyc >= 130 && sym_cyc < 160) begin
+        $display("[D] c=%0d cnt=%0d hv=%b auth=%b fault=%b pav0=%b pav1=%b cross=%b ord=%0d amo=%b kind=%0d base=%b drain=%b dnv=%b flush=%b",
+                 sym_cyc,
+                 u_cache.u_isb.count,
+                 u_cache.u_isb.hv,
+                 u_cache.u_isb.e_auth[u_cache.u_isb.h],
+                 u_cache.u_isb.e_fault[u_cache.u_isb.h],
+                 u_cache.u_isb.e_pav[u_cache.u_isb.h][0],
+                 u_cache.u_isb.e_pav[u_cache.u_isb.h][1],
+                 u_cache.u_isb.e_cross[u_cache.u_isb.h],
+                 u_cache.u_isb.e_ord[u_cache.u_isb.h],
+                 u_cache.u_isb.e_amo_rdy[u_cache.u_isb.h],
+                 u_cache.u_isb.e_kind[u_cache.u_isb.h],
+                 u_cache.u_isb.base,
+                 u_cache.u_isb.drain,
+                 u_cache.lsu_be_done_valid_q,
+                 u_cache.u_isb.flush);
+      end
+    end
+  end
+  // ---- end SYMTRACE ----
+
 endmodule

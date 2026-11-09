@@ -224,7 +224,6 @@ add x6, x5, x3
 | `DIV_to_ALU_delta_10` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `n/a (IB stimulus)` | `p4_capture` |
 | `DIV_to_ALU_delta_11` | G0 → G0 | `div x5, x1, x2 -> add x6, x5, x3` | `n/a (IB stimulus)` | `arf_read` |
 
-| `DIV_to_ALU_delta_10_p4blocked` | blocker + producer share the enqueue cycle | `mul x7, x1, x2(blocker) ; div x5, x1, x2(producer) ; add x6, x5, x3(dependent)` | n/a | deferred: the blocker must have `L >= 9`; no current INT producer is that slow |
 ## LOAD_to_ALU
 
 Representative:
@@ -309,9 +308,11 @@ the two fields as stimulus, which makes the precondition constructible instead o
 lucky with.
 
 | `JALR_to_ALU_delta_3_p4blocked` | blocker + producer share the enqueue cycle | `mul x7, x1, x2(blocker) ; jalr x5, 0(x10)(producer) ; add x6, x5, x3(dependent)` | n/a | commit held in the P3 Buffer; dependent dispatches on the held commit and captures there (criteria in the figure) |
+
 ## Notes
 
 - This file intentionally no longer contains `*_to_MUL`, `*_to_DIV`, `*_to_BRU`, `*_to_LOAD`, or `*_to_STORE` dependent expansions.
+- `DIV_to_ALU_delta_10_p4blocked` was **removed on 2026-11-02**. It needs a blocker that retires strictly after the producer's writeback (`blocker.P4 > producer.P3`), i.e. `L ≥ 9`; the integer side tops out at DIV's `L = 8`, so `P4 − P3` can never exceed 1. Stimulus injection only decides which cycle an instruction enters IB and cannot stretch execution, so this is structurally unreachable rather than a construction mistake. Re-open it once an A-form memory source exists (a cold-miss LOAD is slow enough to serve as the blocker).
 - `*_to_MUL`, `*_to_DIV`, and `*_to_BRU` are covered by the same producer latency representative cases above.
 - `*_to_LOAD` and `*_to_STORE` dependent cases are MEM/LSU operand cases and should be enumerated in a MEM K-map/caselist.
 - Store instructions have no architectural destination register and remain producer `don't exist` for ordinary register-result dependency K-maps.
@@ -341,7 +342,7 @@ Every row whose entry is not a plain number has a historical frozen recipe under
 `../calibrated_cases/`. That recipe is not part of the diagram flow and is not re-calibrated when
 the diagram latency changes; `gen_cases.py` cannot render those notations.
 
-## P4-blocked 类的实测结果与两处推迟（A 形态，rtl_v1）
+## P4-blocked 类的实测结果（A 形态，rtl_v1）
 
 判据（机制型，δ 为输出）：`P3−P2 == L`、`P4−P3 > 1`、`dep.P2−P1 == 1`、`dep.P1 == prod.P4`。
 
@@ -351,25 +352,13 @@ the diagram latency changes; `gen_cases.py` cannot render those notations.
 | `MUL_to_ALU_delta_5_p4blocked` | 3 | 3 | 2 | 1 | ✓ | 通过 |
 | `LOAD_to_ALU_delta_4_p4blocked` | 2 | 2 | 4 | 1 | 是 | 待重测（原 delta_5 通过）|
 | `JALR_to_ALU_delta_3_p4blocked` | 1 | 1 | 3 | 1 | ✓ | 通过 |
-| `DIV_to_ALU_delta_10_p4blocked` | 8 | 8 | **1** | 1 | 是 | **推迟**（见下）|
 | `INT2_P4_G1P3_blocked`① | 1 | 1 | 4 | 1 | ✓ | 通过 |
 
 ① 两操作数那条，见另一份 caselist。
 
-**两条机制判据在 6 个不同 producer 上全部成立**（`dep.P2−P1 == 1` 且 `dep.P1 == prod.P4`）：
+**两条机制判据在 5 个不同 producer 上全部成立**（`dep.P2−P1 == 1` 且 `dep.P1 == prod.P4`）：
 提交被压住时，dependent 的派发**被门控在该次提交上**并在派发拍即取得操作数。
 ⇒ δ 是**结果**而非输入，本类不断言目标 δ。
 
-**`DIV_to_ALU_delta_10_p4blocked` 为何未通过（结构性，非构造失误）**：
-要求阻塞物**严格晚于** producer 的写回退休（`blocker.P4 > producer.P3`）。producer 是 DIV（L=8），
-而 INT 类 FU 的延迟为 MUL 3 / LOAD 2 / DIV 8（`latency_table.py`）——**没有任何 L ≥ 9 的阻塞物**，
-即便把阻塞物提前一拍也仍相等。**结论：该条需要一个访存型慢阻塞物（冷 miss 的 LOAD）⇒ 与 `INT2_P4_P4_blocked` 一起，等 A 形态的内存来源就绪。**
-
-⇒ **7 条 blocked case 中已有 5 条实测通过**；剩下 2 条（DIV 族 + `INT2_P4_P4`）的**唯一**阻塞项是
+⇒ **6 条 blocked case 中已有 5 条实测通过**；剩下 1 条（`INT2_P4_P4`）的**唯一**阻塞项是
 **A 形态下的内存来源**（`IB_STIMULUS_METHOD.md` §3.8：前置注入或后门预置）。
-
-**关于 `DIV_to_ALU_delta_10_p4blocked`（保留，不删除）**：
-当前 latency 不支持这个 case 的构造，等未来有更慢的访存阻塞物之后再更新。
-技术上：该 case 需要一个**晚于 DIV（L=8）写回才退休**的阻塞物，即 L≥9；而当前整数类 FU 的延迟为
-MUL 3 / LOAD 2 / DIV 8，没有任何整数阻塞物够晚。
-在此之前它**既不算通过也不算失败**，状态为"推迟"。

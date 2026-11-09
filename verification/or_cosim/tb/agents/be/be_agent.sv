@@ -1170,8 +1170,13 @@ class be_agent;
     l2_lsu_by_rob[rob_idx].imm_data =
         ob_cosim_vif.be_lsu_issue_pld.imm_data;
     l2_lsu_by_rob[rob_idx].ref_imm_data = ref_imm_data;
-    l2_lsu_by_rob[rob_idx].is_store =
-        req_property_from_subop(ob_cosim_vif.be_lsu_issue_pld.exe_subop).is_store;
+    begin : l2_decode_is_store
+      // VCS T-2022.06 rejects taking a member of a function-call result
+      // (Error-[SV-FNYI]); decode the property into a local variable first.
+      lsu_req_property_t prop;
+      prop = req_property_from_subop(ob_cosim_vif.be_lsu_issue_pld.exe_subop);
+      l2_lsu_by_rob[rob_idx].is_store = prop.is_store;
+    end
     l2_lsu_by_rob[rob_idx].ref_is_store = ref_is_store != 0;
   endtask
 

@@ -1,0 +1,12 @@
+sim/
+*.fsdb
+*.vpd
+csrc/
+simv
+simv.*
+ucli.key
+novas.rc
+novas.conf
+verdiLog/
+vcd2fsdbLog/
+env.sh

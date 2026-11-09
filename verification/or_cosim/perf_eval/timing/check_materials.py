@@ -23,9 +23,9 @@ DG_TWO = HERE / "diagrams/INT_two_operands_dependency_diagram.md"
 
 # 期望值（随材料变更一起更新）
 EXPECT_SECTIONS = ["ALU_to_ALU", "MUL_to_ALU", "DIV_to_ALU", "LOAD_to_ALU", "JALR_to_ALU"]
-EXPECT_FAMILY = {"ALU_to_ALU": 6, "MUL_to_ALU": 8, "DIV_to_ALU": 13, "LOAD_to_ALU": 7,
+EXPECT_FAMILY = {"ALU_to_ALU": 6, "MUL_to_ALU": 8, "DIV_to_ALU": 12, "LOAD_to_ALU": 7,
                  "JALR_to_ALU": 6}
-EXPECT_SINGLE_TOTAL = 40
+EXPECT_SINGLE_TOTAL = 39
 EXPECT_TWO_TOTAL = 31
 
 fails = []
@@ -78,6 +78,32 @@ d2 = sorted(re.findall(r"^## Case \d+: ([A-Za-z0-9_]+)", DG_TWO.read_text(encodi
 check(len(t2) == EXPECT_TWO_TOTAL, "caselist 条数 %d == %d" % (len(t2), EXPECT_TWO_TOTAL))
 check(t2 == d2, "Case 名逐条一致" if t2 == d2
       else "差异: %s" % sorted(set(t2) ^ set(d2))[:6])
+
+
+# ---- entry 寿命配平：RULES_GENERAL G4 的 BE release table ----
+# 每个 instruction row 必须恰好一次 allocate scoreboard / allocate ISQ_Groupx /
+# commit the head / clear busy。一次 owner 转移并不对应一次分配（P2→P3 一个 entry
+# 都不动），所以配平的粒度是"行"，不是"stage 边界"。
+print("== entry 寿命配平（每条指令行各恰好一次分配与释放）==")
+PAIR_KEYS = ["allocate **scoreboard**", "allocate **ISQ_Group",
+             "**scoreboard** commit the head", "**INT_tag_mapping** clear busy"]
+pair_fail = []
+pair_rows = 0
+for _dg in (DG_SINGLE, DG_TWO):
+    _txt = _dg.read_text(encoding="utf-8")
+    for _blk in re.split(r"^## Case ", _txt, flags=re.M)[1:]:
+        _cid = _blk.split("\n")[0].strip()
+        for _ln in _blk.split("\n"):
+            if not _ln.startswith("| `"):
+                continue
+            pair_rows += 1
+            _c = [_ln.count(k) for k in PAIR_KEYS]
+            if _c != [1, 1, 1, 1]:
+                pair_fail.append("%s %s" % (_cid, _c))
+check(not pair_fail,
+      "指令行 %d 条全部配平" % pair_rows if not pair_fail
+      else "不配平 %d 条: %s" % (len(pair_fail), pair_fail[:6]))
+check(pair_rows > 0, "配平检查确实看到了指令行（%d 条）" % pair_rows)
 
 
 

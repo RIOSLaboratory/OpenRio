@@ -64,28 +64,61 @@ one space inside each bracket:**
 
 - The brackets always read `[ ` … ` ]` — never `[owner]`. The spaces are part of
   the form, so the owner line is recognisable at a glance in every figure.
-- The owner is **where the instruction is** this cycle:
-  - the pipeline stage it occupies;
-  - the queue it sits in or waits in — waiting for a response, for its turn, for
-    an authorization;
-  - the unit that holds or drives it this cycle.
-- So an owner is a stage, a queue, or a unit that drives control.
-- **Exactly one owner per cell.** When two structures hold the instruction in
-  the same cycle, the owner is the one that decides what happens in that cycle;
-  the other one is still visible as the **subject** of an action (G4).
+- The owner answers exactly one question: **who is answerable for this
+  instruction in this cycle.**
+- Only two kinds of entity can answer it:
+  1. a **stage**, written as its stage tag — `[ P0 ]` / `[ P1 ]` / `[ P2 ]` /
+     `[ P3 ]` / `[ P4 ]`. P1 and P2 may carry a qualifier when the instruction
+     is waiting rather than progressing: `[ P2 wait ]`.
+  2. a **stage-free module** — one whose lifetime spans several stages, so that
+     an instruction parked inside it belongs to no stage. In OR BE there is
+     exactly one: `scoreboard`, allocated at dispatch and released at commit. On
+     the cache side the same role is played by `MSHR`, `write buffer` and `ISB`.
+- **No module name is ever written in the owner slot.** `IB`, `ISQ_Group1`,
+  `ALU0`, `Buffer` and `scoreboard` are all **subjects**; only `scoreboard` also
+  qualifies as an owner, because it is the one module that outlives every stage.
+- **The stage wins whenever one applies.** While the instruction is advancing
+  through, or blocked by, a stage, that stage is the owner. A stage-free module
+  takes the owner slot only once the instruction has left every stage and is
+  parked inside it.
+- **Exactly one owner per cell.**
+- The owner slot is never used for:
+  - a bus broadcast for one cycle — `Bypass[g]`, `Commit CDB`;
+  - a stateless combinational block — `p3_arbiter_G0` / `p3_arbiter_G1`.
+- **A pipeline register never owns.** While the instruction is parked in one,
+  the owner is the stage the register feeds, and the register is a subject:
+  `[ P2 wait ]` then `**ISQ_Group1** wait for Bypass[0] tag(x5)`;
+  `[ P4 ]` then `**Buffer** hold`, `wait for commit`.
 - The brackets contain **only who**. A state goes on the next line (G3).
+
+### Naming the module that acts
+
+Because no module name appears in the owner slot, **every** module that acts in
+a cell is written as a bold **subject** — the bare verb is reserved for the stage
+itself.
+
+| who does it | written |
+|---|---|
+| a module | that module as **subject**: `**ALU0** execute add`, `**IB** enqueue instruction` |
+| the stage as a whole — no single module owns the action | the bare verb |
+
+A stage owner such as `[ P4 ]` therefore never carries a bare `commit`: the commit
+event is `scoreboard`'s own output, so it reads `**scoreboard** commit the
+head`. That keeps the module interface event recoverable from the figure, which
+is the point of writing it down at all.
 
 OR BE examples — same rule, different holders:
 
 | what the cycle is | cell lines |
 |---|---|
-| an ALU in P2 | `[ ALU0 ]` then `execute add` |
-| a dependent waiting for one source | `[ ISQ_Group1 ]` then `wait for Bypass[0] tag(x5)` |
-| a load computing its address | `[ AGU ]` then `compute address` |
-| a load accessing the cache | `[ L1D ]` then `access L1D, hit` |
-| a DIV in execution | `[ DIV ]` then `divide step 3/8` |
-| a result waiting for commit | `[ Buffer ]` then `hold`, `wait for commit` |
-| a committing instruction | `[ C ]` then `commit`, `ARF write x5`, `INT_tag_mapping clear busy` |
+| enqueue into the instruction buffer | `[ P0 ]` then `**IB** enqueue instruction` |
+| an ALU in P2 | `[ P2 ]` then `**ALU0** execute add` |
+| a dependent waiting for one source | `[ P2 wait ]` then `**ISQ_Group1** wait for Bypass[0] tag(x5)` |
+| a load computing its address | `[ P2 ]` then `**AGU** compute address` |
+| a load accessing the cache | `[ P2 ]` then `**L1D** access, hit` |
+| a DIV in execution | `[ P2 ]` then `**DIV** divide step 3/8` |
+| a result waiting for commit | `[ P4 ]` then `**Buffer** hold`, `wait for commit` |
+| a committing instruction | `[ P4 ]` then `**scoreboard** commit the head`, `**INT_ARF** write x5`, `**INT_tag_mapping** clear busy` |
 
 ## G3. State line
 
@@ -94,15 +127,19 @@ OR BE examples — same rule, different holders:
 - It is written alone: no brackets, no subject.
 - No state means the line is simply omitted.
 
-OR BE examples: `stall` on `[ IB ]` when dispatch is blocked; `hold` on
-`[ Buffer ]` while waiting for commit; `hold` on `[ WB ]` when the P3
-arbiter loses.
+OR BE examples: `stall` on `[ P0 ]` when dispatch is blocked; `hold` on
+`[ P3 ]` when the P3 arbiter loses.
 
 ```
-[ IB ]          [ Buffer ]
+[ P0 ]          [ P3 ]
 stall           hold
-                wait for commit
+                drive Bypass[0] tag+data, blocked
+                (older ALU0 has priority)
 ```
+
+A hold caused by a **register** rather than a stage is not a state: the holder
+is a module, so it takes a subject like any other actor — a result parked in the
+Buffer reads `[ P4 ]` then `**Buffer** hold`, `wait for commit`.
 
 - A state is not an action: it produces nothing and takes effect at no edge.
 - When a state needs a reason or an annotation, that annotation is a further
@@ -118,19 +155,19 @@ or none.
 
 | who performs the action | how it is written | OR BE example |
 |---|---|---|
-| the cell's **owner** | no subject — the action alone | `execute add`, `divide step 3/8`, `commit` |
-| **another** unit | subject + action | `ISQ_Group1 capture Bypass[0] tag(x5)`, `scoreboard set exec_done` |
+| a **submodule** | that module as bold subject + action | `**ISQ_Group1** capture Bypass[0] tag(x5)`, `**scoreboard** set exec_done` |
+| no single module — a mux, a register write, or the value itself | action alone, no subject | `drive Bypass[0] tag+data`, `wait for commit` |
 
-A dependent issuing in `[ ALU1 ]` therefore reads:
+A dependent issuing in `[ P2 ]` therefore reads:
 
 ```
-[ ALU1 ]
-ISQ_Group1 capture Bypass[0] tag(x5)
-execute add
+[ P2 ]
+**ISQ_Group1** capture Bypass[0] tag(x5)
+**ALU1** execute add
 ```
 
-— the owner is the FU stage, the capture belongs to the ISQ entry, and the
-execute belongs to the ALU.
+— the owner is the stage the FU occupies, the capture belongs to the ISQ entry,
+and the execute belongs to the ALU.
 
 ### Result rule
 
@@ -188,6 +225,57 @@ doing something in that cycle:
 
 The owner line already names the queue, so the action does not repeat it.
 
+### Entry ownership: `allocate` / `deallocate`
+
+`allocate` and `deallocate` move the ownership of an **entry**, not the ownership
+of the instruction. The two are orthogonal and must not be confused:
+
+| relation | question it answers | written as |
+|---|---|---|
+| **entry ownership** | which instruction does this slot belong to? | `allocate X` / `deallocate X` |
+| **instruction ownership** | which entity is answerable for the instruction this cycle? | `[ owner ]` (G2) |
+
+- **`allocate X`** — one entry of `X` passes to this instruction. The donor is
+  `FREE` for an entry array, or the previous instruction for a pipeline register.
+  `allocate **scoreboard** entry` at dispatch and `allocate **E1-E2 PIPE REG` at
+  a cache stage boundary are the same relation.
+- **`deallocate X`** — that entry passes back: to `FREE`, or by being overwritten.
+- **`write <field>`** — updates a field of an entry the instruction already owns.
+  It never creates an entry.
+- In the BE the release usually **coincides with another named action** — an ISQ
+  entry returns on `issue`, a scoreboard entry on commit, a tag-mapping entry on
+  `clear busy`. Do not write `deallocate` a second time for the same event: one
+  action, one line. The verb earns its place where the release is an event of its
+  own, which is the normal case on the cache side (`MSHR`, `ISB`, `write buffer`).
+
+**The BE release table.** Every `allocate` in a BE figure is answered by exactly
+one release event later in the same row. The release keeps its own name; no cell
+repeats it as `deallocate`.
+
+| Structure | Allocated by | Released by | Lifespan |
+|---|---|---|---|
+| `IB` entry | the frontend, before P0 | the admission of the instruction into P1 — the same edge that dequeues it | P0 → P1 |
+| `ISQ_Groupx` entry | `allocate **ISQ_Groupx**` (P1) | `issue` — the moment the selected FU accepts the instruction (P2) | P1 → P2 |
+| `scoreboard` entry | `allocate **scoreboard** entry` (P1) | `**scoreboard** commit the head` (P4) | P1 → P4 |
+
+`INT_tag_mapping` / `FP_tag_mapping`, `Buffer` and `PC_File` are **indexed tables,
+not free lists**: each is addressed by the `self_tag` handed out in P1, so
+`**INT_tag_mapping** rename rd`, `**Buffer** write result` and the `PC_File` write
+are `write <field>` on an entry the instruction already owns, not a second
+allocation.
+
+**An entry's lifespan is not an owner transition.** A `scoreboard` entry spans
+three stages while the owner changes three times, so "the owner changed" never
+implies "something was allocated" — `P2 → P3` moves no entry at all, and `P3 → P4`
+allocates none. The pairing to check is *per instruction row*: one
+`allocate **scoreboard**`, one `allocate **ISQ_Groupx**`, one
+`**scoreboard** commit the head`, one `**INT_tag_mapping** clear busy` — never one
+per stage boundary.
+
+So one cycle can read `[ P1 ]` as the owner while `allocate **scoreboard**
+entry` runs underneath it: the instruction is answerable to the dispatch stage,
+and the scoreboard entry now belongs to the instruction.
+
 ### Miscellaneous description
 
 A note that describes the instruction or the cycle rather than an event — a mode,
@@ -195,10 +283,10 @@ a flag, a reason — goes on the **last line** of the cell, in parentheses, on i
 own line:
 
 ```
-[ IB ]
+[ P0 ]
 stall
 wait for dispatch slot
-(dispatch slot taken by older ALU0)
+(dispatch slot taken by older **ALU0**)
 ```
 
 - It is not an owner, not a state and not an action: it produces nothing and takes
@@ -218,7 +306,7 @@ grammatical person, so `scoreboard set exec_done`, not `scoreboard sets exec_don
 a list of short statements, not a sentence.
 
 A **result** is a state, not an action, so it may read as a past participle:
-`access L1D, hit`. That phrase is one action and its result on one line, never
+`access, hit`. That phrase is one action and its result on one line, never
 two actions sharing a line.
 
 ## G5. Submodule marking
@@ -229,7 +317,7 @@ without adding words.
 
 | marked | not marked |
 |---|---|
-| a block that acts, or that an action belongs to: `**scoreboard** allocate entry`, `**ISQ_Group0** write entry`, `**INT_ARF** write x5`, `access **L1D**, hit` | the **owner** — it is already delimited by `[ ]`, and bolding it too would compete with the block names |
+| a block that acts, or that an action belongs to: `**scoreboard** allocate entry`, `**ISQ_Group0** write entry`, `**INT_ARF** write x5`, `**L1D** access, hit` | the **owner** — it is already delimited by `[ ]`, and bolding it too would compete with the block names |
 | a **pipeline stage** named inside a cell — `check **P2** operand for forwarding, hit`, `(backpressure from **P3**)` | a verb, a state, a result: `commit`, `execute`, `hit`, `accepted` |
 | the same name inside a misc note: `(older **ALU0** has priority)` | an **interface / bus** that is only driven: `drive Bypass[0] tag+data`, `drive P3 bypass tag+data`, `emit Commit CDB request` |
 
@@ -241,7 +329,7 @@ without adding words.
   cell with two competing emphasis styles reads as two competing meanings.
 - A stage is marked exactly like a block: every `P0` / `P1` / `P2` / `P3` / `P4`
   that appears **inside** a cell is bold, because it names a pipeline stage.
-  Only the owner is exempt — `[ ALU0 ]` stays plain.
+  Only the owner is exempt: the tag between the brackets — `[ P2 ]` — stays plain.
 - Bold blocks, not buses: `**scoreboard**`, `**Buffer**`, `**ISQ_Group0**`, `**INT_ARF**`,
   `**INT_tag_mapping**`, `**L1D**`, `**AGU**`, `**ALU0**`, `**DIV**` are bold; `Bypass[0]`,
   `P3 bypass`, `Commit CDB` are not.
@@ -250,22 +338,24 @@ without adding words.
 ## G6. OR BE vocabulary
 
 The owner line names where the instruction is; the action lines name what it
-does in that cycle. This table is normative for the OR BE figures.
+does in that cycle. The **Owner** column below is the complete legal set: stage
+tags only, never a module name. The module that acts appears in the action
+column as a bold subject.
 
 | Stage | Owner | State (optional) | Action / result lines |
 |---|---|---|---|
-| P0 | `[ IB ]` | `stall` when dispatch is blocked | `enqueue instruction`; on stall `wait for dispatch slot` |
-| P1 | `[ dispatch ]` | — | `allocate **scoreboard** entry`, `write **ISQ_Groupx**`, `rename rd`; when a source is captured: `capture Bypass[g] tag(rd)` |
-| P2 wait | `[ ISQ_Groupx ]` | — | `wait for <source> tag`; `wait until at ISQ head`; `wait for ISQ slot` |
-| P2 ALU | `[ ALU0 ]` / `[ ALU1 ]` | — | `execute <op>` |
-| P2 MUL | `[ MUL ]` | — | `execute mul step n/3` |
-| P2 DIV | `[ DIV ]` | — | `divide step n/8` |
-| P2 BRU | `[ BRU ]` | — | `resolve control`, `compute link` |
-| P2 AGU † | `[ AGU ]` | — | `compute address` |
-| P2 L1D † | `[ L1D ]` | — | `access **L1D**, hit` / `miss` |
-| P3 | `[ WB ]` | `hold` when the P3 arbiter loses | `drive Bypass[g] tag+data`, `**scoreboard** set exec_done`, `**Buffer** write result`; loser: state `hold`, `drive Bypass[g] tag+data, blocked`, `(older ... has priority)` |
-| P3 hold | `[ Buffer ]` | `hold` | `wait for commit` |
-| P4 | `[ C ]` | — | `commit`, `**INT_ARF** write rd`, `**INT_tag_mapping** clear busy`; commit loser: state `hold`, `wait for commit slot, blocked` |
+| P0 | `[ P0 ]` | `stall` when dispatch is blocked | `**IB** enqueue instruction`; on stall `wait for dispatch slot` |
+| P1 | `[ P1 ]` | — | `allocate **scoreboard** entry`, `allocate **ISQ_Groupx**`, `**INT_tag_mapping** rename rd`; when a source is captured: `capture Bypass[g] tag(rd)` |
+| P2 wait | `[ P2 wait ]` | — | `**ISQ_Groupx** wait for <source> tag`; `**ISQ_Groupx** wait until at ISQ head`; `wait for ISQ slot` |
+| P2 ALU | `[ P2 ]` | — | `**ALU0** execute <op>` / `**ALU1** execute <op>` |
+| P2 MUL | `[ P2 ]` | — | `**MUL** execute mul step n/3` |
+| P2 DIV | `[ P2 ]` | — | `**DIV** divide step n/8` |
+| P2 BRU | `[ P2 ]` | — | `**BRU** resolve control`, `**BRU** compute link` |
+| P2 AGU † | `[ P2 ]` | — | `**AGU** compute address` |
+| P2 L1D † | `[ P2 ]` | — | `**L1D** access, hit` / `**L1D** access, miss` |
+| P3 | `[ P3 ]` | `hold` when the P3 arbiter loses | `drive Bypass[g] tag+data`, `**scoreboard** set exec_done`, `**Buffer** write result`; loser: `drive Bypass[g] tag+data, blocked`, `(older ... has priority)` |
+| P4 hold | `[ P4 ]` | — | `**Buffer** hold`, `wait for commit` |
+| P4 | `[ P4 ]` | — | `**scoreboard** commit the head`, `**INT_ARF** write rd`, `**INT_tag_mapping** clear busy`; commit loser: `wait for commit slot, blocked` |
 
 Notes:
 
@@ -284,9 +374,8 @@ Notes:
 - A fixed multi-cycle FU repeats its owner name and carries the step number
   (`divide step 1/8` … `8/8`). Do not leave the intermediate cycles as a bare
   `DIV` / `MUL`.
-- `[ Buffer ]` is used only for a live instruction between WB and C. An empty
-  cell still means "not in the picture".
-- FPU rows use the same pattern with their own FU name and stage count; they are
+- `**Buffer** hold` is written only for a live instruction between P3 and P4.
+  An empty cell still means "not in the picture".- FPU rows use the same pattern with their own FU name and stage count; they are
   not part of the INT diagrams yet.
 - `Bypass[g]` is the **P3 result bypass lane for group g**. It is driven in the
   producer's WB cycle and can be consumed two ways: `P3 → P1` at dispatch
@@ -300,14 +389,14 @@ Notes:
   bypass payload.
 - `Bypass[g]`, `P3 bypass` and `Commit CDB` are buses, not blocks: keep them
   plain, not bold.
-- † `[ AGU ]` and `[ L1D ]` name cycles **inside the external LSU**, not
+- † `AGU` and `L1D` name cycles **inside the external LSU**, not
   BE-owned P2 stages: `BE_LSU_interface.md` §2 states that the address is
   computed by the AGU inside the LSU. They are borrowed so that a LOAD producer
   row stays readable. The BE-side boundary for G3 is the `g3_lsu_iface` issue
   handshake plus the LSU result return, and neither owns a cell of its own. Do
-  **not** treat `AGU` / `L1D` as BE submodules when the owner names are checked
+  **not** treat `AGU` / `L1D` as BE submodules when the subject names are checked
   against the HAS.
-- A G3 producer's `[ WB ]` assumes that the three result events land in the
+- A G3 producer's `[ P3 ]` assumes that the three result events land in the
   **same cycle** on the direct-hit path: the bypass copy
   (`lsu_be_bypass_valid`), the result data (`lsu_be_writeback_pld`) and the
   completion (`lsu_be_rob_done_valid`). The interface explicitly allows

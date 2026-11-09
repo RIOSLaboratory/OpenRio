@@ -136,6 +136,14 @@ typedef struct packed {
   orbe_cosim_obs_pkg::cosim_isq_g2_issue_pld_t rtl_isq_g2_issue_pld;
   logic rtl_isq_g3_issue_valid;
   orbe_cosim_obs_pkg::cosim_isq_g3_issue_pld_t rtl_isq_g3_issue_pld;
+  // Level-2 per-group ISQ payload snapshots. They must be declared ahead of the
+  // "taken directly from the DUT" assign block that drives them: VCS rejects a
+  // use-before-declaration with Error-[IND] "Identifier ... has not been
+  // declared yet" (Verilator resolves declarations first and accepts it).
+  cosim_isq_g0_issue_pld_t rtl_isq0_issue_pld;
+  cosim_isq_g1_issue_pld_t rtl_isq1_issue_pld;
+  cosim_isq_g2_issue_pld_t rtl_isq2_issue_pld;
+  cosim_isq_g3_issue_pld_t rtl_isq3_issue_pld;
   logic rtl_csr_in_valid;
   logic [or_be_types_pkg::TAG_W-1:0] rtl_csr_in_tag;
   logic [11:0] rtl_csr_in_addr;
@@ -234,11 +242,7 @@ typedef struct packed {
     end
   end
 
-  // Level-2 ISQ snapshots are exposed through the observation interface.
-  cosim_isq_g0_issue_pld_t rtl_isq0_issue_pld;
-  cosim_isq_g1_issue_pld_t rtl_isq1_issue_pld;
-  cosim_isq_g2_issue_pld_t rtl_isq2_issue_pld;
-  cosim_isq_g3_issue_pld_t rtl_isq3_issue_pld;
+  // Level-2 ISQ snapshots are declared with the other observation signals above.
   // Group 0 carries the full ISQ payload.
   assign rtl_isq0_issue_pld = '{rs1_data:u_backend.isq0_rs1_data, rs2_data:u_backend.isq0_rs2_data, fu_group:u_backend.isq0_FU_Group, imm_valid:u_backend.isq0_imm_valid, imm_data:u_backend.isq0_imm_data, pc:u_backend.isq0_pc, inst_bits:u_backend.isq0_inst_bits, is_compressed:u_backend.isq0_is_compressed, pred_taken:u_backend.isq0_pred_taken, pred_target_pc:u_backend.isq0_pred_target_pc, self_tag:u_backend.isq0_self_tag, exe_subop:u_backend.isq0_exe_subop, full_decode:u_backend.isq0_full_decode, fetch_excp_vld:u_backend.isq0_fetch_excp_vld, fetch_excp_cause:u_backend.isq0_fetch_excp_cause, fetch_excp_tval:u_backend.isq0_fetch_excp_tval};
   // Group 1 carries the second ISQ payload.

@@ -331,6 +331,14 @@ if [[ "$TRACE" != 0 ]]; then
   base_defines+=( -DWAVE_DUMP "-DWAVE_DEPTH=$TRACE_DEPTH" )
 fi
 
+# Opt-in extra Verilator flags, for one-off experiments only. Empty by default,
+# so the default command line (and therefore the default build) is unchanged.
+# Example: VERILATOR_EXTRA_FLAGS="--x-initial unique --x-assign unique"
+extra_flags=()
+if [[ -n "${VERILATOR_EXTRA_FLAGS:-}" ]]; then
+  read -r -a extra_flags <<< "$VERILATOR_EXTRA_FLAGS"
+fi
+
 warning_flags=(
   -Wno-fatal
   -Wno-DECLFILENAME
@@ -385,6 +393,7 @@ run_lint() {
     --timescale 1ns/1ps \
     "${warning_flags[@]}" \
     "${base_defines[@]}" \
+    "${extra_flags[@]}" \
     "${sv_inputs[@]}"
 }
 
@@ -401,6 +410,7 @@ run_build() {
     -j "$JOBS" \
     "${warning_flags[@]}" \
     "${base_defines[@]}" \
+    "${extra_flags[@]}" \
     "${trace_flags[@]}" \
     -CFLAGS "-std=c++17 -I$ISA_API_INC" \
     -LDFLAGS "-L$ISA_API_LIB -l_ISA_api -Wl,-rpath,$ISA_API_LIB" \

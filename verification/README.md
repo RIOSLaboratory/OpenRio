@@ -34,6 +34,9 @@ Tested: Ubuntu 24.04 LTS + Verilator 5.050 (environment B), and Ubuntu 22.04 + V
 | Script | `or_cosim/tools/verilator_cosim.sh` | Build, run and judge in one step |
 | Script | `or_cosim/tools/regress.sh` | Run the 239 cases (`cfg/cases/cases_239.list`) in batch and summarize the verdicts |
 | Script | `or_cosim/tools/pack_verif_src.sh` | Pack this environment + the RTL sources into a single tarball — see `or_cosim/tools/README.md` |
+| Script | `tools/or_cosim.sh` | One front end for both engines: `--engine verilator|vcs` for `check/build/run/wave/regress/compare` — see `REGRESSION_GUIDE.md` §8 |
+| Script | `tools/regress_cron.sh` | Cadence wrapper: `--suite daily` (239) / `weekly` (19 Embench), baseline diff, history pruning, cron-friendly exit codes — see §8.7 |
+| Script | `vcs_cosim/{Makefile,regress.sh}` | VCS + Verdi engine (native FSDB, batch regression with the same `results.txt` format) — see `vcs_cosim/README.md` |
 
 ## Build environments
 

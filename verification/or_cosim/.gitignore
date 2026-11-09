@@ -2,3 +2,17 @@
 # tools/regress.sh; only the README is a source file.
 /sim/*
 !/sim/README.md
+
+# VCS/Verdi scratch files. The VCS flow runs `vcs` with cwd=or_cosim (the
+# filelists are relative to it), so Verdi's PLI and VCS's ucli write their
+# droppings here instead of in verification/vcs_cosim/.
+/novas.conf
+/novas.rc
+/novas_dump.log
+/ucli.key
+/simv
+/simv.daidir/
+/csrc/
+/vcd2fsdbLog/
+/verdiLog/
+*.vpd

@@ -1,0 +1,25 @@
+# expected=19
+# Embench-IoT binaries built for the orbe-baremetal runtime.
+# Entries are bare file names; set CASE_ROOT to the directory that holds them:
+#   CASE_ROOT=<...>/testcases/embench/orbe-baremetal
+# Every benchmark self-checks through verify_benchmark(); a nonzero exit makes
+# the HTIF report a failure, so regress.sh's is_good=1 check is sufficient.
+aha-mont64
+crc32
+depthconv
+edn
+huffbench
+matmult-int
+md5sum
+nettle-aes
+nettle-sha256
+nsichneu
+picojpeg
+qrduino
+sglib-combined
+slre
+statemate
+tarfind
+ud
+wikisort
+xgboost
